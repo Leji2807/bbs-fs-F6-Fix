@@ -184,7 +184,9 @@ public class UIPoseEditor extends UIElement
             return;
         }
 
-        for (String bone : this.groups.list.getCurrent())
+        /* Snapshot: getCurrent() is a shared, reused buffer and the consumer can
+         * re-enter it (film setFix notifies the keyframe) — see forEachSelectedPose. */
+        for (String bone : new ArrayList<>(this.groups.list.getCurrent()))
         {
             Collection<String> keys = this.model.getAllChildrenKeys(bone);
 
@@ -367,7 +369,9 @@ public class UIPoseEditor extends UIElement
     protected SelectionPivotSession buildPivotSession(IWorldTransformProvider provider, Runnable preWrite, Runnable postWrite, Runnable refresh)
     {
         PivotMode mode = PivotMode.current();
-        List<String> selected = this.groups.list.getCurrent();
+        /* Snapshot: getCurrent() is a shared, reused buffer, and the per-bone
+         * provider sampling below can re-enter it — hold our own copy. */
+        List<String> selected = new ArrayList<>(this.groups.list.getCurrent());
 
         if (mode == PivotMode.INDIVIDUAL || provider == null || this.model == null || selected.size() < 2)
         {
@@ -560,7 +564,11 @@ public class UIPoseEditor extends UIElement
 
     private void forEachSelectedPose(Consumer<? super PoseTransform> consumer)
     {
-        for (String bone : this.groups.list.getCurrent())
+        /* Snapshot the selection: getCurrent() hands back a shared, reused buffer,
+         * and the consumer can re-enter it (the film editor's setFix notifies the
+         * keyframe, which re-reads the selection) — iterating the live buffer would
+         * then throw ConcurrentModificationException. Same guard as flipPose/pastePose. */
+        for (String bone : new ArrayList<>(this.groups.list.getCurrent()))
         {
             consumer.accept(this.pose.get(bone));
         }
