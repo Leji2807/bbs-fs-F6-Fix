@@ -111,7 +111,22 @@ public class Transform implements IMapSerializable
     {
         this.translate.add(transform.translate);
         this.scale.mul(transform.scale);
-        this.rotate.add(transform.rotate);
+
+        /* Additive rotation stacking (action layers over a base pose). Same
+         * mode-discriminator as lerp: if either side is quaternion the result is
+         * quaternion — the layer composes as {@code base · layer} (matching the
+         * orient composition in applyPose), so a quat layer's rotation is no
+         * longer silently dropped onto the euler triple. Both euler keeps the
+         * legacy component-wise angle add. */
+        if (this.rotationMode == RotationMode.QUATERNION || transform.rotationMode == RotationMode.QUATERNION)
+        {
+            this.quat.set(this.createRotation()).mul(transform.createRotation());
+            this.rotationMode = RotationMode.QUATERNION;
+        }
+        else
+        {
+            this.rotate.add(transform.rotate);
+        }
     }
 
     public void identity()
