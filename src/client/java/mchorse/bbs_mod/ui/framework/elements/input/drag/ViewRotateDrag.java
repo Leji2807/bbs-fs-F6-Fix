@@ -181,11 +181,9 @@ public class ViewRotateDrag extends DragStrategy
         Vector3f base = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
         Vector3f live = this.gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
 
-        Matrix3f composed = new Matrix3f()
-            .rotation(MathUtils.toRad(this.accumulatedDeg), this.viewLocalAxis)
-            .mul(RotationDragMath.eulerZYX(base));
+        Matrix3f deltaLocal = new Matrix3f().rotation(MathUtils.toRad(this.accumulatedDeg), this.viewLocalAxis);
 
-        RotationDragMath.writeEulerUnwrapped(this.ctx, this.gizmoSpace, composed, live);
+        RotationDragMath.applyLocalDelta(this.ctx, this.gizmoSpace, deltaLocal, base, live);
     }
 
     @Override

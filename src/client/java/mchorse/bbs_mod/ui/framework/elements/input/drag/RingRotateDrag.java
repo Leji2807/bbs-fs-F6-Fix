@@ -4,7 +4,10 @@ import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
+import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
+import org.joml.Quaternionf;
 import org.joml.Vector2f;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
@@ -45,6 +48,9 @@ public class RingRotateDrag extends DragStrategy
 
     /** Whether the sweep lands on {@code rotate2} instead of {@code rotate}. */
     private boolean gizmoSpace;
+
+    /** Whether the edited bone stores its rotation as a quaternion. */
+    private boolean quatMode;
 
     public RingRotateDrag(DragContext ctx, Axis axis)
     {
@@ -132,9 +138,15 @@ public class RingRotateDrag extends DragStrategy
         this.initialRingVec.set(this.computeStartRingVec(mouseX, mouseY, axisDir));
         this.accumulatedDeg = 0F;
 
-        this.gizmoSpace = this.ctx.isGizmoSpace();
+        this.quatMode = this.ctx.transform().rotationMode == Transform.RotationMode.QUATERNION;
+        this.gizmoSpace = !this.quatMode && this.ctx.isGizmoSpace();
 
-        Vector3f source = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
+        /* The ring bumps one local euler channel, so in quaternion mode read the
+         * base off the cache quaternion's ZYX equivalent (the euler channels are
+         * stale there) and store the swept result back as a quaternion. */
+        Vector3f source = this.quatMode
+            ? new Quaternionf(this.ctx.cache().quat).getEulerAnglesZYX(new Vector3f())
+            : (this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate);
 
         this.startRotateDeg.set(
             MathUtils.toDeg(source.x),
@@ -186,7 +198,8 @@ public class RingRotateDrag extends DragStrategy
             case Z: rz = (float) this.snapValue(rz + this.accumulatedDeg); break;
         }
 
-        if (this.gizmoSpace) this.ctx.writeRotate2Deg(rx, ry, rz);
+        if (this.quatMode) this.ctx.writeRotationQuat(Matrices.toQuaternionZYXDegrees(rx, ry, rz));
+        else if (this.gizmoSpace) this.ctx.writeRotate2Deg(rx, ry, rz);
         else this.ctx.writeRotateDeg(rx, ry, rz);
     }
 

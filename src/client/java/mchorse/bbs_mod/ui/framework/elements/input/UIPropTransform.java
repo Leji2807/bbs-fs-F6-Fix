@@ -28,9 +28,11 @@ import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.Timer;
 import mchorse.bbs_mod.utils.colors.Colors;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import net.minecraft.client.MinecraftClient;
 import org.joml.Matrix3f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
 
@@ -322,6 +324,7 @@ public class UIPropTransform extends UITransform
             this.toggleLocal();
             UIUtils.playClick();
         }).active(enabled).category(category);
+        this.keys().register(Keys.TRANSFORMATIONS_ROTATION_MODE, this::toggleRotationMode).active(enabled).category(category);
 
         if (this.supportsPivotModes())
         {
@@ -493,8 +496,51 @@ public class UIPropTransform extends UITransform
 
         this.fillT(transform.translate.x, transform.translate.y, transform.translate.z);
         this.fillS(transform.scale.x, transform.scale.y, transform.scale.z);
-        this.fillR(MathUtils.toDeg(transform.rotate.x), MathUtils.toDeg(transform.rotate.y), MathUtils.toDeg(transform.rotate.z));
-        this.fillR2(MathUtils.toDeg(transform.rotate2.x), MathUtils.toDeg(transform.rotate2.y), MathUtils.toDeg(transform.rotate2.z));
+
+        if (transform.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            /* Show the quaternion's ZYX-euler equivalent in the rotate fields so
+             * the value is legible; rotate2 is unused in quaternion mode. */
+            Vector3f euler = new Quaternionf(transform.quat).getEulerAnglesZYX(new Vector3f());
+
+            this.fillR(MathUtils.toDeg(euler.x), MathUtils.toDeg(euler.y), MathUtils.toDeg(euler.z));
+            this.fillR2(0F, 0F, 0F);
+        }
+        else
+        {
+            this.fillR(MathUtils.toDeg(transform.rotate.x), MathUtils.toDeg(transform.rotate.y), MathUtils.toDeg(transform.rotate.z));
+            this.fillR2(MathUtils.toDeg(transform.rotate2.x), MathUtils.toDeg(transform.rotate2.y), MathUtils.toDeg(transform.rotate2.z));
+        }
+    }
+
+    /**
+     * Flip the edited bone between euler and quaternion rotation storage
+     * (Blender's per-bone {@code rotation_mode}), converting its rotation data
+     * once. Quaternion mode is gimbal-free; euler keeps &gt;360° spins and
+     * per-component curves.
+     */
+    public void toggleRotationMode()
+    {
+        if (this.transform == null)
+        {
+            return;
+        }
+
+        this.preCallback();
+
+        if (this.transform.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            this.transform.setModeEuler();
+        }
+        else
+        {
+            this.transform.setModeQuaternion();
+        }
+
+        this.postCallback();
+        this.setTransform(this.transform);
+        this.endGesture();
+        UIUtils.playClick();
     }
 
     /* Edit entry points. The mouse path (a gizmo handle pick) supplies the
@@ -1091,7 +1137,36 @@ public class UIPropTransform extends UITransform
         }
 
         this.preCallback();
-        this.transform.rotate.set(MathUtils.toRad((float) x), MathUtils.toRad((float) y), MathUtils.toRad((float) z));
+
+        /* A quaternion-mode bone has no euler channel to write, so typed angles
+         * fold straight into its quaternion (leaving it gimbal-free storage). */
+        if (this.transform.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            this.transform.quat.set(Matrices.toQuaternionZYXDegrees((float) x, (float) y, (float) z));
+        }
+        else
+        {
+            this.transform.rotate.set(MathUtils.toRad((float) x), MathUtils.toRad((float) y), MathUtils.toRad((float) z));
+        }
+
+        this.postCallback();
+    }
+
+    /**
+     * Store a full rotation as a quaternion (the gizmo drag's gimbal-free commit
+     * path for a quaternion-mode bone). Overridden by the delta editors to fan a
+     * quaternion delta across the selection.
+     */
+    public void setRQuat(Quaternionf quat)
+    {
+        if (this.transform == null)
+        {
+            return;
+        }
+
+        this.preCallback();
+        this.transform.quat.set(quat);
+        this.transform.rotationMode = Transform.RotationMode.QUATERNION;
         this.postCallback();
     }
 
@@ -1592,6 +1667,12 @@ public class UIPropTransform extends UITransform
         public void writeRotate2Deg(float xDeg, float yDeg, float zDeg)
         {
             UIPropTransform.this.setR2(null, xDeg, yDeg, zDeg);
+        }
+
+        @Override
+        public void writeRotationQuat(Quaternionf quat)
+        {
+            UIPropTransform.this.setRQuat(quat);
         }
     }
 

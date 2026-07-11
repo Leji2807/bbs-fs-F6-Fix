@@ -2,7 +2,9 @@ package mchorse.bbs_mod.ui.framework.elements.input.drag;
 
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
+import org.joml.Quaternionf;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 
@@ -69,6 +71,32 @@ public final class RotationDragMath
 
         if (gizmoSpace) ctx.writeRotate2Deg(rx, ry, rz);
         else ctx.writeRotateDeg(rx, ry, rz);
+    }
+
+    /**
+     * Compose a parent-frame delta rotation onto the grab base and write it per
+     * the edited transform's mode. In QUATERNION mode the composed rotation is
+     * stored as a quaternion straight from the delta — no euler decomposition,
+     * so the drag never hits gimbal lock. In EULER mode it decomposes ZYX and
+     * unwraps against the live value exactly as before.
+     *
+     * @param deltaLocal the delta rotation in the bone's parent frame (a pure
+     *        rotation matrix); left untouched.
+     * @param baseEuler  the grab euler stack the euler path composes onto.
+     * @param liveEuler  the live euler stack the euler path unwraps against.
+     */
+    public static void applyLocalDelta(DragContext ctx, boolean gizmoSpace, Matrix3f deltaLocal, Vector3f baseEuler, Vector3f liveEuler)
+    {
+        if (ctx.transform().rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            Quaternionf delta = new Quaternionf().setFromNormalized(deltaLocal);
+
+            ctx.writeRotationQuat(delta.mul(new Quaternionf(ctx.cache().quat)));
+        }
+        else
+        {
+            writeEulerUnwrapped(ctx, gizmoSpace, new Matrix3f(deltaLocal).mul(eulerZYX(baseEuler)), liveEuler);
+        }
     }
 
     /**

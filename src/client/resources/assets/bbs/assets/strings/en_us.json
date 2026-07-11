@@ -1514,6 +1514,7 @@
 	"bbs.ui.transforms.keys.toggle_fix": "Toggle fix (0 / 1)",
 	"bbs.ui.transforms.keys.mirror_edit": "Toggle mirror edit",
 	"bbs.ui.transforms.keys.pivot_mode": "Cycle pivot mode",
+	"bbs.ui.transforms.keys.rotation_mode": "Toggle rotation mode (Euler / Quaternion)",
 	"bbs.ui.transforms.pivot.active": "Pivot: active bone",
 	"bbs.ui.transforms.pivot.individual": "Pivot: individual origins",
 	"bbs.ui.transforms.pivot.median": "Pivot: median point",

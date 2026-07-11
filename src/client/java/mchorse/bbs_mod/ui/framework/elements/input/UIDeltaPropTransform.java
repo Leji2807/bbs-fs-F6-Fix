@@ -4,6 +4,7 @@ import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.joml.Vectors;
 import mchorse.bbs_mod.utils.pose.Transform;
+import org.joml.Quaternionf;
 import org.joml.Vector3d;
 
 import java.util.function.Consumer;
@@ -120,6 +121,42 @@ public abstract class UIDeltaPropTransform extends UIPropTransform
             t.rotate.x += dx;
             t.rotate.y += dy;
             t.rotate.z += dz;
+        });
+        this.postCallback();
+
+        this.syncTargetTransform();
+    }
+
+    @Override
+    public void setRQuat(Quaternionf quat)
+    {
+        Transform transform = this.getTargetTransform();
+
+        if (transform == null)
+        {
+            return;
+        }
+
+        /* The gizmo hands an absolute rotation for the primary; turn it into a
+         * world delta and fan that onto every selected bone, so each keeps its
+         * own pose. Quaternion bones store the composed quaternion; euler bones
+         * decompose it back so a mixed selection keeps each bone's mode. */
+        Quaternionf delta = new Quaternionf(quat).mul(transform.createRotation().invert());
+
+        this.preCallback();
+        this.applyToTarget((t) ->
+        {
+            Quaternionf result = new Quaternionf(delta).mul(t.createRotation());
+
+            if (t.rotationMode == Transform.RotationMode.QUATERNION)
+            {
+                t.quat.set(result);
+            }
+            else
+            {
+                result.getEulerAnglesZYX(t.rotate);
+                t.rotate2.set(0F, 0F, 0F);
+            }
         });
         this.postCallback();
 

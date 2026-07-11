@@ -4,8 +4,10 @@ import mchorse.bbs_mod.graphics.window.Window;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 /**
@@ -261,8 +263,16 @@ public abstract class DragStrategy
 
     protected void numericRotate(double value)
     {
-        boolean gizmoSpace = this.ctx.isGizmoSpace();
-        Vector3f source = gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
+        boolean quatMode = this.ctx.transform().rotationMode == Transform.RotationMode.QUATERNION;
+        boolean gizmoSpace = !quatMode && this.ctx.isGizmoSpace();
+
+        /* In quaternion mode the euler channels are stale, so read the base off
+         * the cache quaternion (its ZYX equivalent), bump the axis, and store
+         * the result back as a quaternion — the single-axis add is exact, so
+         * this stays gimbal-safe. */
+        Vector3f source = quatMode
+            ? new Quaternionf(this.ctx.cache().quat).getEulerAnglesZYX(new Vector3f())
+            : (gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate);
 
         float rx = MathUtils.toDeg(source.x);
         float ry = MathUtils.toDeg(source.y);
@@ -272,7 +282,8 @@ public abstract class DragStrategy
         if (this.axis == Axis.Y || this.axis2 == Axis.Y) ry += value;
         if (this.axis == Axis.Z || this.axis2 == Axis.Z) rz += value;
 
-        if (gizmoSpace) this.ctx.writeRotate2Deg(rx, ry, rz);
+        if (quatMode) this.ctx.writeRotationQuat(Matrices.toQuaternionZYXDegrees(rx, ry, rz));
+        else if (gizmoSpace) this.ctx.writeRotate2Deg(rx, ry, rz);
         else this.ctx.writeRotateDeg(rx, ry, rz);
     }
 
@@ -291,10 +302,10 @@ public abstract class DragStrategy
 
         Vector3f source = gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
 
-        Matrix3f composed = new Matrix3f()
-            .rotation(MathUtils.toRad((float) degrees), localAxis)
-            .mul(RotationDragMath.eulerZYX(source));
-
-        RotationDragMath.writeEulerUnwrapped(this.ctx, gizmoSpace, composed, source);
+        RotationDragMath.applyLocalDelta(
+            this.ctx, gizmoSpace,
+            new Matrix3f().rotation(MathUtils.toRad((float) degrees), localAxis),
+            source, source
+        );
     }
 }

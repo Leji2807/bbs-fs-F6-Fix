@@ -3,6 +3,7 @@ package mchorse.bbs_mod.ui.framework.elements.input.drag;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.pose.Transform;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 /**
@@ -62,4 +63,10 @@ public interface DragContext
     void writeRotateDeg(float xDeg, float yDeg, float zDeg);
 
     void writeRotate2Deg(float xDeg, float yDeg, float zDeg);
+
+    /** Store the full local rotation as a quaternion (for a bone in
+     *  {@link mchorse.bbs_mod.utils.pose.Transform.RotationMode#QUATERNION} mode),
+     *  flipping the edited transform(s) into quaternion storage. No euler
+     *  decomposition, so the gizmo drag stays gimbal-free. */
+    void writeRotationQuat(Quaternionf quat);
 }

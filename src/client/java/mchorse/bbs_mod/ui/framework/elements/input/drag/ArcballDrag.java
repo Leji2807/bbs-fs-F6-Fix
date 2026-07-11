@@ -213,18 +213,16 @@ public class ArcballDrag extends SphereDrag
         }
 
         Vector3f source = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
+        Vector3f live = this.gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
 
         Quaternionf arc = new Quaternionf()
             .rotationTo(this.startLocal, this.currentLocal)
             .mul(this.accum);
 
-        Matrix3f composed = new Matrix3f()
+        Matrix3f deltaLocal = new Matrix3f()
             .rotation(MathUtils.toRad(this.rollDeg), this.viewLocal)
-            .rotate(arc)
-            .mul(RotationDragMath.eulerZYX(source));
+            .rotate(arc);
 
-        Vector3f live = this.gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
-
-        RotationDragMath.writeEulerUnwrapped(this.ctx, this.gizmoSpace, composed, live);
+        RotationDragMath.applyLocalDelta(this.ctx, this.gizmoSpace, deltaLocal, source, live);
     }
 }

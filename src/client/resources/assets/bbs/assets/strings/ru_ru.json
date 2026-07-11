@@ -1501,6 +1501,7 @@
 	"bbs.ui.transforms.keys.toggle_fix": "Переключить фиксацию (0 / 1)",
 	"bbs.ui.transforms.keys.mirror_edit": "Переключить зеркальное редактирование",
 	"bbs.ui.transforms.keys.pivot_mode": "Переключить режим пивота",
+	"bbs.ui.transforms.keys.rotation_mode": "Переключить режим поворота (Эйлер / Кватернион)",
 	"bbs.ui.transforms.pivot.active": "Пивот: активная кость",
 	"bbs.ui.transforms.pivot.individual": "Пивот: каждая кость вокруг себя",
 	"bbs.ui.transforms.pivot.median": "Пивот: общий центр выделения",

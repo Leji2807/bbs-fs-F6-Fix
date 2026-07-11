@@ -135,15 +135,13 @@ public class TrackballDrag extends SphereDrag
         }
 
         Vector3f source = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
-
-        Matrix3f composed = new Matrix3f()
-            .rotation(roll, this.viewLocal)
-            .rotate(yaw, this.upLocal.x, this.upLocal.y, this.upLocal.z)
-            .rotate(pitch, this.rightLocal.x, this.rightLocal.y, this.rightLocal.z)
-            .mul(RotationDragMath.eulerZYX(source));
-
         Vector3f live = this.gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
 
-        RotationDragMath.writeEulerUnwrapped(this.ctx, this.gizmoSpace, composed, live);
+        Matrix3f deltaLocal = new Matrix3f()
+            .rotation(roll, this.viewLocal)
+            .rotate(yaw, this.upLocal.x, this.upLocal.y, this.upLocal.z)
+            .rotate(pitch, this.rightLocal.x, this.rightLocal.y, this.rightLocal.z);
+
+        RotationDragMath.applyLocalDelta(this.ctx, this.gizmoSpace, deltaLocal, source, live);
     }
 }
