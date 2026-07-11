@@ -6,6 +6,7 @@ import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.joml.Vector2f;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
@@ -319,7 +320,17 @@ public class GizmoDrag
      */
     public static Matrix3f computeRotateAxes(Transform transform, Supplier<Matrix4f> matrixSampler)
     {
-        Vector3f saved = new Vector3f(transform.rotate);
+        boolean quat = transform.rotationMode == Transform.RotationMode.QUATERNION;
+        Vector3f savedRotate = new Vector3f(transform.rotate);
+        Quaternionf savedQuat = new Quaternionf(transform.quat);
+
+        /* In quaternion mode the euler channels don't drive the render, so
+         * perturbing transform.rotate leaves no trace and the axes collapse to
+         * identity — losing the model's flips (e.g. the cubic Ry(180)). Instead
+         * perturb the QUATERNION with the euler-bumped equivalent of its own ZYX
+         * angles, which reproduces the euler perturbation exactly, so the axes
+         * (and their signs) match the euler path. */
+        Vector3f source = quat ? new Quaternionf(transform.quat).getEulerAnglesZYX(new Vector3f()) : savedRotate;
         float delta = 0.05F;
 
         try
@@ -344,11 +355,14 @@ public class GizmoDrag
 
             for (int i = 0; i < 3; i++)
             {
-                transform.rotate.set(saved);
+                Vector3f bumped = new Vector3f(source);
 
-                if (i == 0) transform.rotate.x += delta;
-                else if (i == 1) transform.rotate.y += delta;
-                else transform.rotate.z += delta;
+                if (i == 0) bumped.x += delta;
+                else if (i == 1) bumped.y += delta;
+                else bumped.z += delta;
+
+                if (quat) transform.quat.set(new Quaternionf().rotationZYX(bumped.z, bumped.y, bumped.x));
+                else transform.rotate.set(bumped);
 
                 matrixSampler.get().get3x3(perturbed);
                 relative.set(perturbed).mul(baseInverse);
@@ -381,7 +395,8 @@ public class GizmoDrag
         }
         finally
         {
-            transform.rotate.set(saved);
+            transform.rotate.set(savedRotate);
+            transform.quat.set(savedQuat);
         }
     }
 }
