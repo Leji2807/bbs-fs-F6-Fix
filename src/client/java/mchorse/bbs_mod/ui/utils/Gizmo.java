@@ -13,6 +13,7 @@ import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.ui.framework.UIBaseMenu;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformOp;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MatrixStackUtils;
@@ -537,7 +538,7 @@ public class Gizmo
                 case MOVE:
                 case SCALE:
                 case ROTATE:
-                    transform.enableMode(handle.op.modeOrdinal, handle.axis, handle.axis2, drag);
+                    transform.enableMode(handle.op.transformOp, handle.axis, handle.axis2, drag);
                     break;
                 case SCALE_ALL:
                     transform.enableUniformScale(drag);
@@ -779,7 +780,7 @@ public class Gizmo
     {
         UIPropTransform transform = this.currentTransform;
 
-        if (transform == null || !transform.isEditing() || transform.getMode() != Op.ROTATE.modeOrdinal)
+        if (transform == null || !transform.isEditing() || transform.getOp() != TransformOp.ROTATE)
         {
             return;
         }
@@ -1318,10 +1319,10 @@ public class Gizmo
             return null;
         }
 
-        int op = transform.getMode();
+        TransformOp op = transform.getOp();
         Axis axis = transform.getAxis();
 
-        if (op == 2)
+        if (op == TransformOp.ROTATE)
         {
             if (transform.isSphereRotate()) return Handle.TRACKBALL;
             if (transform.isViewRotate()) return Handle.VIEW;
@@ -1332,17 +1333,17 @@ public class Gizmo
             return null;
         }
 
-        if (op == 0 && transform.isScreenTranslate())
+        if (op == TransformOp.TRANSLATE && transform.isScreenTranslate())
         {
             return Handle.SCREEN;
         }
 
-        if (op == 1 && transform.isScaleAll())
+        if (op == TransformOp.SCALE && transform.isScaleAll())
         {
             return Handle.SCALE_ALL;
         }
 
-        Op handleOp = op == 1 ? Op.SCALE : Op.MOVE;
+        Op handleOp = op == TransformOp.SCALE ? Op.SCALE : Op.MOVE;
         Axis axis2 = transform.getAxis2();
 
         for (Handle handle : Handle.values())
@@ -1643,7 +1644,7 @@ public class Gizmo
         return this.hasBakedRotation
             && this.currentTransform != null
             && this.currentTransform.isEditing()
-            && this.currentTransform.getMode() == Op.ROTATE.modeOrdinal
+            && this.currentTransform.getOp() == TransformOp.ROTATE
             && !this.currentTransform.isSphereRotate()
             && !this.currentTransform.isViewRotate();
     }
@@ -1774,21 +1775,27 @@ public class Gizmo
     }
 
     /**
-     * Kind of transform a handle drives. {@link #modeOrdinal} matches the
-     * {@code mode} argument {@link UIPropTransform#enableMode(int, Axis, Axis, GizmoDrag)}
-     * expects (0 translate, 1 scale, 2 rotate); VIEW and TRACKBALL are rotate
-     * variants routed through their own enable* calls, and SCALE_ALL is the
-     * uniform (three-axis) scale variant routed through its own enable call.
+     * Kind of transform a handle drives. {@link #transformOp} is the operation
+     * {@link UIPropTransform#enableMode(TransformOp, Axis, Axis, GizmoDrag)}
+     * expects; VIEW and TRACKBALL are rotate variants routed through their own
+     * enable* calls, and SCALE_ALL is the uniform (three-axis) scale variant
+     * routed through its own enable call.
      */
     public static enum Op
     {
-        MOVE(0), SCALE(1), SCALE_ALL(1), ROTATE(2), VIEW(2), TRACKBALL(2), SCREEN(0);
+        MOVE(TransformOp.TRANSLATE),
+        SCALE(TransformOp.SCALE),
+        SCALE_ALL(TransformOp.SCALE),
+        ROTATE(TransformOp.ROTATE),
+        VIEW(TransformOp.ROTATE),
+        TRACKBALL(TransformOp.ROTATE),
+        SCREEN(TransformOp.TRANSLATE);
 
-        public final int modeOrdinal;
+        public final TransformOp transformOp;
 
-        Op(int modeOrdinal)
+        Op(TransformOp transformOp)
         {
-            this.modeOrdinal = modeOrdinal;
+            this.transformOp = transformOp;
         }
     }
 
