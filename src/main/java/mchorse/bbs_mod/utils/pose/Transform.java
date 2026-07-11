@@ -43,16 +43,39 @@ public class Transform implements IMapSerializable
     {
         this.translate.lerp(transform.translate, a);
         this.scale.lerp(transform.scale, a);
-        this.rotate.lerp(transform.rotate, a);
-        this.rotate2.lerp(transform.rotate2, a);
+
+        if (this.rotationMode == RotationMode.QUATERNION || transform.rotationMode == RotationMode.QUATERNION)
+        {
+            this.quat.set(this.createRotation()).slerp(transform.createRotation(), a);
+            this.rotationMode = RotationMode.QUATERNION;
+        }
+        else
+        {
+            this.rotate.lerp(transform.rotate, a);
+            this.rotate2.lerp(transform.rotate2, a);
+        }
     }
 
     public void lerp(Transform preA, Transform a, Transform b, Transform postB, IInterp interp, float x)
     {
         this.lerp(this.translate, preA.translate, a.translate, b.translate, postB.translate, interp, x);
         this.lerp(this.scale, preA.scale, a.scale, b.scale, postB.scale, interp, x);
-        this.lerp(this.rotate, preA.rotate, a.rotate, b.rotate, postB.rotate, interp, x);
-        this.lerp(this.rotate2, preA.rotate2, a.rotate2, b.rotate2, postB.rotate2, interp, x);
+
+        /* Quaternion keyframes interpolate by slerp — no gimbal lock, no euler
+         * pole swing — using the curve's easing as the a→b progress. */
+        if (a.rotationMode == RotationMode.QUATERNION || b.rotationMode == RotationMode.QUATERNION)
+        {
+            float t = (float) interp.interpolate(IInterp.context.set(0, 0, 1, 1, x));
+
+            this.quat.set(a.createRotation()).slerp(b.createRotation(), t);
+            this.rotationMode = RotationMode.QUATERNION;
+        }
+        else
+        {
+            this.lerp(this.rotate, preA.rotate, a.rotate, b.rotate, postB.rotate, interp, x);
+            this.lerp(this.rotate2, preA.rotate2, a.rotate2, b.rotate2, postB.rotate2, interp, x);
+            this.rotationMode = RotationMode.EULER;
+        }
     }
 
     private void lerp(Vector3f target, Vector3f preA, Vector3f a, Vector3f b, Vector3f postB, IInterp interp, float x)
@@ -66,8 +89,20 @@ public class Transform implements IMapSerializable
     {
         this.autoLerp(this.translate, preA.translate, a.translate, b.translate, postB.translate, pt, at, bt, qt, clamped, x);
         this.autoLerp(this.scale, preA.scale, a.scale, b.scale, postB.scale, pt, at, bt, qt, clamped, x);
-        this.autoLerp(this.rotate, preA.rotate, a.rotate, b.rotate, postB.rotate, pt, at, bt, qt, clamped, x);
-        this.autoLerp(this.rotate2, preA.rotate2, a.rotate2, b.rotate2, postB.rotate2, pt, at, bt, qt, clamped, x);
+
+        if (a.rotationMode == RotationMode.QUATERNION || b.rotationMode == RotationMode.QUATERNION)
+        {
+            float t = (float) AutoBezier.get(0, 0, 1, 1, pt, at, bt, qt, clamped, x);
+
+            this.quat.set(a.createRotation()).slerp(b.createRotation(), t);
+            this.rotationMode = RotationMode.QUATERNION;
+        }
+        else
+        {
+            this.autoLerp(this.rotate, preA.rotate, a.rotate, b.rotate, postB.rotate, pt, at, bt, qt, clamped, x);
+            this.autoLerp(this.rotate2, preA.rotate2, a.rotate2, b.rotate2, postB.rotate2, pt, at, bt, qt, clamped, x);
+            this.rotationMode = RotationMode.EULER;
+        }
     }
 
     private void autoLerp(Vector3f target, Vector3f preA, Vector3f a, Vector3f b, Vector3f postB, float pt, float at, float bt, float qt, boolean clamped, float x)
