@@ -901,14 +901,20 @@ public class UIPropTransform extends UITransform
 
     public void rejectChanges()
     {
-        this.disable();
-
         if (this.transform == null)
         {
+            this.disable();
+
             return;
         }
 
+        /* Rewind BEFORE tearing down: restore() routes a pivot-session revert
+         * through the session's per-bone snapshots, and disable() nulls that
+         * session. Do it the other way round and the rewind falls back to the
+         * per-channel path, which fans the primary's values onto the whole
+         * selection — the bones come back crooked instead of where they were. */
         this.restore();
+        this.disable();
         this.setTransform(this.transform);
     }
 
