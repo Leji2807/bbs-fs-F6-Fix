@@ -55,6 +55,23 @@ public final class RotationDragMath
     }
 
     /**
+     * The cache's base euler for the parent-frame reconstruction
+     * ({@link #computeParentInverse}). In quaternion mode the euler channels are
+     * stale, so this returns the cache quaternion's ZYX equivalent — the exact
+     * source {@link GizmoDrag#computeRotateAxes} perturbs, so the two stay
+     * consistent. In euler mode it is the edited euler stack.
+     */
+    public static Vector3f cacheSourceEuler(DragContext ctx, boolean gizmoSpace)
+    {
+        if (ctx.transform().rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            return new Quaternionf(ctx.cache().quat).getEulerAnglesZYX(new Vector3f());
+        }
+
+        return gizmoSpace ? ctx.cache().rotate2 : ctx.cache().rotate;
+    }
+
+    /**
      * Read ZYX euler angles off {@code rotation} and write them into the
      * transform's rotate (or rotate2) channel, each component unwrapped to
      * the 360°-equivalent nearest {@code referenceRadians}. The orientation

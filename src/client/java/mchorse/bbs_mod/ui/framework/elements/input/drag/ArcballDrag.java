@@ -80,7 +80,7 @@ public class ArcballDrag extends SphereDrag
 
         this.gizmoSpace = this.ctx.isGizmoSpace();
 
-        Vector3f source = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
+        Vector3f source = RotationDragMath.cacheSourceEuler(this.ctx, this.gizmoSpace);
         Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag, source);
         float radius = this.ctx.sphereWorldRadius();
 

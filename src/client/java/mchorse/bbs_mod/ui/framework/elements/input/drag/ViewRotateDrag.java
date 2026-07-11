@@ -125,7 +125,7 @@ public class ViewRotateDrag extends DragStrategy
         /* Express the view axis once in the bone's parent frame, mapped at the
          * start orientation (the cache) it will be composed against; it stays
          * constant for the whole drag. */
-        Vector3f source = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
+        Vector3f source = RotationDragMath.cacheSourceEuler(this.ctx, this.gizmoSpace);
         Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag, source);
 
         if (parentInverse == null)
