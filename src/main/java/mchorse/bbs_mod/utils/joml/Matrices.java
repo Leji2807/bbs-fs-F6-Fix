@@ -105,25 +105,6 @@ public class Matrices
             m.m03() + ", " + m.m13() + ", " + m.m23() + ", " + m.m33() + "\n";
     }
 
-    public static Vector3f getEulerXYZ(Matrix3f m)
-    {
-        double yaw = Math.atan2(m.m02, Math.sqrt(m.m00 * m.m00 + m.m01 * m.m01));
-        double pitch = Math.atan2(m.m12, m.m22);
-        double roll = Math.atan2(m.m01, m.m00);
-
-        if (m.m00 < 0)
-        {
-            yaw = -yaw + Math.PI;
-            pitch = -pitch;
-        }
-        else
-        {
-            yaw += Math.PI;
-        }
-
-        return new Vector3f((float) pitch, (float) yaw, (float) roll);
-    }
-
     public static Quaternionf toQuaternionZYXDegrees(float xDeg, float yDeg, float zDeg)
     {
         float x = (float) (xDeg * Math.PI / 180.0);
