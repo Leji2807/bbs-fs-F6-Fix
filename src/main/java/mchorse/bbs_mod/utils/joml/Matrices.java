@@ -180,6 +180,21 @@ public class Matrices
         return q;
     }
 
+    /**
+     * Conjugate a rotation expressed in the cubic model's X-mirrored space back
+     * to the unmirrored frame: {@code D·R·D} with {@code D = diag(-1,1,1)}. The
+     * same YZ-plane mirror convention as
+     * {@link mchorse.bbs_mod.utils.pose.Transform#mirrorX()} applies to the
+     * channels — this is its matrix-level counterpart for the IK math.
+     */
+    private static Quaternionf unmirrorX(Matrix3f rotationMirrored)
+    {
+        Matrix3f mirror = new Matrix3f().scaling(-1F, 1F, 1F);
+        Matrix3f rot = new Matrix3f(mirror).mul(rotationMirrored).mul(mirror);
+
+        return new Quaternionf().setFromNormalized(rot);
+    }
+
     public static Quaternionf fromToMirroredX(Vector3f restDirLocal, Vector3f desiredDirLocal)
     {
         Vector3f restM = new Vector3f(restDirLocal);
@@ -193,11 +208,7 @@ public class Matrices
 
         Quaternionf qMir = new Quaternionf().rotationTo(restM, desM);
 
-        Matrix3f rotMir = TEMP_3F.identity().set(qMir);
-        Matrix3f mirror = new Matrix3f().scaling(-1F, 1F, 1F);
-        Matrix3f rot = new Matrix3f(mirror).mul(rotMir).mul(mirror);
-
-        return new Quaternionf().setFromNormalized(rot);
+        return unmirrorX(new Matrix3f().set(qMir));
     }
 
     /**
@@ -217,12 +228,8 @@ public class Matrices
     {
         Matrix3f rest = mirroredFrame(restDir, restNormal);
         Matrix3f to = mirroredFrame(toDir, toNormal);
-        Matrix3f rotMir = to.mul(rest.transpose());
 
-        Matrix3f mirror = new Matrix3f().scaling(-1F, 1F, 1F);
-        Matrix3f rot = new Matrix3f(mirror).mul(rotMir).mul(mirror);
-
-        return new Quaternionf().setFromNormalized(rot);
+        return unmirrorX(to.mul(rest.transpose()));
     }
 
     /**

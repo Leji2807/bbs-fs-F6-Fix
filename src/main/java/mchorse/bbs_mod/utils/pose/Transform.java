@@ -77,6 +77,22 @@ public class Transform implements IMapSerializable
         this.rotate2.set(0, 0, 0);
     }
 
+    /**
+     * THE channel mirror convention: reflect this transform across the model's
+     * YZ symmetry plane. For the ZYX euler order this is exactly
+     * {@code D·R·D} with {@code D = diag(-1,1,1)} — translate.x flips sign,
+     * rotate/rotate2 keep X and flip Y/Z, scale is untouched. An involution
+     * (applying it twice is a no-op), which the mirror-edit fan-out relies on.
+     * Every mirror/flip of pose channels goes through here so the negation
+     * pattern can't fork between call sites again.
+     */
+    public void mirrorX()
+    {
+        this.translate.mul(-1F, 1F, 1F);
+        this.rotate.mul(1F, -1F, -1F);
+        this.rotate2.mul(1F, -1F, -1F);
+    }
+
     /** The full local rotation of the channels ({@code ZYX(rotate) · ZYX(rotate2)}), radians. */
     public Quaternionf createRotation()
     {

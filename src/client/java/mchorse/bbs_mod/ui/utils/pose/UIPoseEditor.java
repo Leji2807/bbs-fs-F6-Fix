@@ -528,15 +528,16 @@ public class UIPoseEditor extends UIElement
 
     /**
      * Applies the edit to one bone: reflecting it across the model's symmetry when
-     * {@code edit.mirror} (the same negation as {@link Pose#flip}), and/or flipping
-     * its rotation when {@code edit.invert}. Both are involutions wrapped around the
-     * write, so whatever the edit does to that channel is reflected/inverted.
+     * {@code edit.mirror} (the shared {@link Transform#mirrorX} convention, same as
+     * {@link Pose#flip}), and/or flipping its rotation when {@code edit.invert}.
+     * Both are involutions wrapped around the write, so whatever the edit does to
+     * that channel is reflected/inverted.
      */
     public void applyToBone(BoneEdit edit, PoseTransform pt, Consumer<Transform> consumer)
     {
         if (edit.mirror)
         {
-            mirrorTransform(pt);
+            pt.mirrorX();
         }
 
         if (edit.invert)
@@ -553,14 +554,8 @@ public class UIPoseEditor extends UIElement
 
         if (edit.mirror)
         {
-            mirrorTransform(pt);
+            pt.mirrorX();
         }
-    }
-
-    private static void mirrorTransform(Transform transform)
-    {
-        transform.translate.mul(-1F, 1F, 1F);
-        transform.rotate.mul(1F, -1F, -1F);
     }
 
     private static void negateRotation(Transform transform)
