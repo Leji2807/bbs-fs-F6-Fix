@@ -109,6 +109,19 @@ public class UIPropTransform extends UITransform
             );
 
             menu.actions.add(0, menu.actions.remove(menu.actions.size() - 1));
+
+            /* Per-bone rotation mode (Blender's rotation_mode); the label names the
+             * mode the action switches TO, so the current one is always readable. */
+            if (this.transform != null)
+            {
+                boolean quat = this.transform.rotationMode == Transform.RotationMode.QUATERNION;
+
+                menu.action(
+                    Icons.CONVERT,
+                    quat ? UIKeys.TRANSFORMS_CONTEXT_MODE_EULER : UIKeys.TRANSFORMS_CONTEXT_MODE_QUATERNION,
+                    this::toggleRotationMode
+                );
+            }
         });
 
         this.iconT.callback = (b) -> this.toggleLocal();

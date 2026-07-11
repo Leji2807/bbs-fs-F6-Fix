@@ -1502,6 +1502,8 @@
 	"bbs.ui.transforms.context.paste_translation": "Paste translation",
 	"bbs.ui.transforms.context.paste_world": "Paste world transform",
 	"bbs.ui.transforms.context.reset": "Reset transformation",
+	"bbs.ui.transforms.context.mode_euler": "Rotation: switch to Euler",
+	"bbs.ui.transforms.context.mode_quaternion": "Rotation: switch to Quaternion",
 	"bbs.ui.transforms.context.switch_global": "Switch to global",
 	"bbs.ui.transforms.context.switch_local": "Switch to local",
 	"bbs.ui.transforms.combined": "Combined",

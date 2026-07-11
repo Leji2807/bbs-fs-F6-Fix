@@ -1185,6 +1185,8 @@ public class UIKeys
     public static final IKey TRANSFORMS_CONTEXT_RESET = L10n.lang("bbs.ui.transforms.context.reset");
     public static final IKey TRANSFORMS_CONTEXT_SWITCH_GLOBAL = L10n.lang("bbs.ui.transforms.context.switch_global");
     public static final IKey TRANSFORMS_CONTEXT_SWITCH_LOCAL = L10n.lang("bbs.ui.transforms.context.switch_local");
+    public static final IKey TRANSFORMS_CONTEXT_MODE_EULER = L10n.lang("bbs.ui.transforms.context.mode_euler");
+    public static final IKey TRANSFORMS_CONTEXT_MODE_QUATERNION = L10n.lang("bbs.ui.transforms.context.mode_quaternion");
     public static final IKey TRANSFORMS_EDITING = L10n.lang("bbs.ui.transforms.editing");
     public static final IKey TRANSFORMS_MIRROR_EDIT = L10n.lang("bbs.ui.transforms.mirror_edit");
     public static final IKey TRANSFORMS_ALTERNATE_INVERT = L10n.lang("bbs.ui.transforms.alternate_invert");
