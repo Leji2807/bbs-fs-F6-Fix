@@ -24,6 +24,7 @@ import mchorse.bbs_mod.ui.utils.resizers.AutomaticResizer;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.ui.utils.presets.UIDataContextMenu;
 import mchorse.bbs_mod.utils.Axis;
+import mchorse.bbs_mod.utils.MatrixStackUtils;
 import mchorse.bbs_mod.utils.CollectionUtils;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.pose.Pose;
@@ -401,11 +402,15 @@ public class UIPoseEditor extends UIElement
                  * value; the derivative degenerates and the capture falls back
                  * gracefully (identity axis / skipped shift) instead of crashing. */
                 Matrix4f scratch = new Matrix4f(sample);
+                /* Strip scale before axis extraction, exactly like the single-bone
+                 * gizmo (UIFormEditor.buildGizmoDrag): computeRotateAxes reads the
+                 * rotation off R_perturbed·R_base⁻¹, and any non-uniform scale (an
+                 * action can scale a bone) skews that product into a wrong axis. */
                 Matrix3f rotateAxes = GizmoDrag.computeRotateAxes(transform, () ->
                 {
                     provider.getWorldMatrix(bone, scratch);
 
-                    return scratch;
+                    return MatrixStackUtils.stripScale(scratch);
                 });
 
                 parentInverse = RotationDragMath.computeParentInverse(rotateAxes, transform.rotate);
