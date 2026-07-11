@@ -14,11 +14,13 @@ import org.joml.Vector3f;
  * world-space turn is spread across all three rotate components, so it stays
  * "common" to the three axes.
  *
- * <p>Rather than solving per-frame euler deltas (which the matrix inverse
- * makes unstable near gimbal lock — a full 360 sweep passes through it and
- * twitches), each step premultiplies the live rotation matrix by the spin
- * and reads the euler angles back out. The orientation stays continuous
- * through gimbal; only its euler representation jumps, which is invisible.
+ * <p>The rotation is rebuilt every frame from the FIXED start orientation
+ * (the cache) plus the total swept angle about the view axis anchored at
+ * grab time — a pure function of the gesture, never of the previous frame's
+ * euler readback. The euler angles are read out once per frame in the one
+ * shared place ({@link RotationDragMath#writeEulerUnwrapped}); the
+ * orientation stays continuous through gimbal lock, only its euler
+ * representation jumps, which the unwrap hides.
  */
 public class ViewRotateDrag extends DragStrategy
 {
@@ -90,6 +92,17 @@ public class ViewRotateDrag extends DragStrategy
             return;
         }
 
+        /* A re-anchor (cursor wrap, cursor control resumed after typed input)
+         * only moves the cursor reference; the anchored axis, the pie's start
+         * edge and the swept angle survive so the gesture continues instead
+         * of restarting. */
+        if (this.hasStart)
+        {
+            this.lastScreenAngle = RotationDragMath.screenAngle(this.screenCenter, mouseX, mouseY);
+
+            return;
+        }
+
         Vector3f viewAxis = new Vector3f(
             (float) (drag.cameraOrigin.x - drag.gizmoOrigin.x),
             (float) (drag.cameraOrigin.y - drag.gizmoOrigin.y),
@@ -98,28 +111,21 @@ public class ViewRotateDrag extends DragStrategy
 
         if (viewAxis.lengthSquared() < 1.0E-8F || !drag.projectToScreen(drag.gizmoOrigin, this.screenCenter))
         {
-            this.hasStart = false;
-
             return;
         }
 
         viewAxis.normalize();
-        this.lastScreenAngle = RotationDragMath.screenAngle(this.screenCenter, mouseX, mouseY);
-        this.grabScreenAngle = this.lastScreenAngle;
-        this.accumulatedDeg = 0;
 
         this.gizmoSpace = this.ctx.isGizmoSpace();
 
-        /* Express the view axis once in the bone's parent frame; it stays
-         * constant for the whole drag, while each step premultiplies the live
-         * rotation by a turn about it. */
-        Vector3f source = this.gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
+        /* Express the view axis once in the bone's parent frame, mapped at the
+         * start orientation (the cache) it will be composed against; it stays
+         * constant for the whole drag. */
+        Vector3f source = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
         Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag, source);
 
         if (parentInverse == null)
         {
-            this.hasStart = false;
-
             return;
         }
 
@@ -127,12 +133,13 @@ public class ViewRotateDrag extends DragStrategy
 
         if (this.viewLocalAxis.lengthSquared() < 1.0E-8F)
         {
-            this.hasStart = false;
-
             return;
         }
 
         this.viewLocalAxis.normalize();
+        this.lastScreenAngle = RotationDragMath.screenAngle(this.screenCenter, mouseX, mouseY);
+        this.grabScreenAngle = this.lastScreenAngle;
+        this.accumulatedDeg = 0F;
         this.hasStart = true;
     }
 
@@ -149,22 +156,21 @@ public class ViewRotateDrag extends DragStrategy
 
         this.lastScreenAngle = current;
 
-        float angle = delta * ROTATE_SIGN;
-
-        if (angle == 0F)
+        if (delta == 0F)
         {
             return;
         }
 
-        this.accumulatedDeg += MathUtils.toDeg(angle);
+        this.accumulatedDeg += MathUtils.toDeg(delta * ROTATE_SIGN);
 
-        Vector3f source = this.gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
+        Vector3f base = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
+        Vector3f live = this.gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
 
         Matrix3f composed = new Matrix3f()
-            .rotation(angle, this.viewLocalAxis)
-            .mul(RotationDragMath.eulerZYX(source));
+            .rotation(MathUtils.toRad(this.accumulatedDeg), this.viewLocalAxis)
+            .mul(RotationDragMath.eulerZYX(base));
 
-        RotationDragMath.writeEulerUnwrapped(this.ctx, this.gizmoSpace, composed, source);
+        RotationDragMath.writeEulerUnwrapped(this.ctx, this.gizmoSpace, composed, live);
     }
 
     @Override

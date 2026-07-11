@@ -308,6 +308,16 @@ public class UIPropTransform extends UITransform
         return this.strategy == null ? null : this.strategy.op();
     }
 
+    /**
+     * The live gesture driving the edit, or {@code null}. Every (re)start —
+     * including an axis switch mid-edit — builds a fresh instance, so the
+     * gizmo uses its identity to scope per-gesture state (the ring freeze).
+     */
+    public DragStrategy getStrategy()
+    {
+        return this.strategy;
+    }
+
     /** Whether the active rotation is one of the sphere's kinds (trackball or arcball). */
     public boolean isSphereRotate()
     {

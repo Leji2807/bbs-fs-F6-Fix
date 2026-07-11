@@ -14,12 +14,14 @@ import org.joml.Vector3f;
  * stays accurate when the ring faces the camera (where the plane hit
  * degenerates), and the per-frame deltas are unwrapped and accumulated
  * without limit so the user can wind several full turns in either direction.
+ *
+ * <p>The written angle is rebuilt every frame as the FIXED start value (the
+ * cache) plus the total sweep — a pure function of the gesture. A single
+ * euler component moves, so the angle canon does all the work here: winding
+ * past 360° is just a growing number, no quaternion round-trip involved.
  */
 public class RingRotateDrag extends DragStrategy
 {
-    /** World-space direction of the active handle, captured at drag start. */
-    private final Vector3f axisDir = new Vector3f();
-
     /** Original unit ring direction (perpendicular to the rotation axis) captured at drag start. */
     private final Vector3f initialRingVec = new Vector3f();
 
@@ -29,12 +31,12 @@ public class RingRotateDrag extends DragStrategy
     /** Previous cursor angle (radians) around {@link #screenCenter}, unwrapped each frame. */
     private float lastScreenAngle;
 
-    /** Maps screen-space angular motion to a rotation about {@link #axisDir} (+1 or -1). */
+    /** Maps screen-space angular motion to a rotation about the handle's axis (+1 or -1). */
     private float rotateSign = 1F;
 
     private float accumulatedDeg;
 
-    /** Start rotation (degrees); the active axis accumulates raw sweep into it. */
+    /** Start rotation (degrees) from the cache; the fixed base the sweep adds onto. */
     private final Vector3f startRotateDeg = new Vector3f();
 
     /** Whether the sweep lands on {@code rotate2} instead of {@code rotate}. */
@@ -69,6 +71,17 @@ public class RingRotateDrag extends DragStrategy
             return;
         }
 
+        /* A re-anchor (cursor wrap, cursor control resumed after typed input)
+         * only moves the cursor reference; the axis, the base angles, the
+         * pie's start edge and the swept angle survive so the gesture
+         * continues instead of restarting. */
+        if (this.hasStart)
+        {
+            this.lastScreenAngle = RotationDragMath.screenAngle(this.screenCenter, mouseX, mouseY);
+
+            return;
+        }
+
         /* Use the renderer's actual rotation axis (filled by the editor via
          * GizmoDrag.computeRotateAxes), not the visible gizmo arrow direction.
          * For cubic models these can differ in sign on X/Z because the renderer
@@ -80,21 +93,16 @@ public class RingRotateDrag extends DragStrategy
 
         if (axisDir.lengthSquared() < 1.0E-8F)
         {
-            this.hasStart = false;
-
             return;
         }
 
         axisDir.normalize();
-        this.axisDir.set(axisDir);
 
         /* Screen-space ring rotation pivots around the gizmo origin projected to
          * the viewport. If the origin can't be projected (behind the camera)
          * there's nothing sensible to orbit around, so bail. */
         if (!drag.projectToScreen(drag.gizmoOrigin, this.screenCenter))
         {
-            this.hasStart = false;
-
             return;
         }
 
@@ -117,11 +125,11 @@ public class RingRotateDrag extends DragStrategy
         }
 
         this.initialRingVec.set(this.computeStartRingVec(mouseX, mouseY, axisDir));
-        this.accumulatedDeg = 0;
+        this.accumulatedDeg = 0F;
 
         this.gizmoSpace = this.ctx.isGizmoSpace();
 
-        Vector3f source = this.gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
+        Vector3f source = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
 
         this.startRotateDeg.set(
             MathUtils.toDeg(source.x),
@@ -144,32 +152,20 @@ public class RingRotateDrag extends DragStrategy
         float delta = RotationDragMath.wrapSeamRad(current - this.lastScreenAngle);
 
         this.lastScreenAngle = current;
+        this.accumulatedDeg += MathUtils.toDeg(delta) * this.rotateSign;
 
-        float angleDeg = MathUtils.toDeg(delta) * this.rotateSign;
-
-        this.accumulatedDeg += angleDeg;
-
+        /* Snap only the driven axis, and only in the written value — the raw
+         * accumulation stays smooth, and the other two axes carry their start
+         * values and must not be rounded out from under the user. */
         float rx = this.startRotateDeg.x;
         float ry = this.startRotateDeg.y;
         float rz = this.startRotateDeg.z;
 
         switch (this.axis)
         {
-            case X: rx += angleDeg; break;
-            case Y: ry += angleDeg; break;
-            case Z: rz += angleDeg; break;
-        }
-
-        /* Keep the raw accumulation so the drag stays smooth, then snap only the
-         * axis the user is actually turning — the other two carry their start
-         * values and must not be rounded out from under the user. */
-        this.startRotateDeg.set(rx, ry, rz);
-
-        switch (this.axis)
-        {
-            case X: rx = (float) this.snapValue(rx); break;
-            case Y: ry = (float) this.snapValue(ry); break;
-            case Z: rz = (float) this.snapValue(rz); break;
+            case X: rx = (float) this.snapValue(rx + this.accumulatedDeg); break;
+            case Y: ry = (float) this.snapValue(ry + this.accumulatedDeg); break;
+            case Z: rz = (float) this.snapValue(rz + this.accumulatedDeg); break;
         }
 
         if (this.gizmoSpace) this.ctx.writeRotate2Deg(rx, ry, rz);

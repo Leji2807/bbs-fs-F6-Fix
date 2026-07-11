@@ -13,6 +13,7 @@ import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.ui.framework.UIBaseMenu;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.DragStrategy;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformOp;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.Axis;
@@ -121,11 +122,13 @@ public class Gizmo
     private boolean hasLastRenderMatrix;
 
     /* While an axis ring is dragged the whole gizmo is drawn from the
-     * orientation captured at grab time, so the ring stays put (only the pie
-     * sweeps) instead of writhing as the live rotation is recomposed from euler
-     * angles each frame — most visible in local/world space. */
+     * orientation captured at the gesture's first draw, so the ring stays put
+     * (only the pie sweeps) instead of writhing as the live rotation is
+     * recomposed from euler angles each frame — most visible in local/world
+     * space. Keyed to the gesture itself so it can never be forgotten by an
+     * edit entry point and re-freezes when the axis is switched mid-edit. */
     private final Matrix4f bakedRotationMatrix = new Matrix4f();
-    private boolean hasBakedRotation;
+    private DragStrategy bakedGesture;
 
     /* VBO caching for rotation rings to save resources */
     private VertexBuffer rotateRingVbo;
@@ -568,7 +571,7 @@ public class Gizmo
         if (this.currentTransform == transform)
         {
             this.currentTransform = null;
-            this.hasBakedRotation = false;
+            this.bakedGesture = null;
 
             if (this.index < STENCIL_X || this.index > STENCIL_MAX)
             {
@@ -1613,40 +1616,54 @@ public class Gizmo
     }
 
     /**
-     * Freeze the gizmo orientation at grab time while an axis ring is dragged:
-     * the drawing stack is rewound to {@link #bakedRotationMatrix} (the live
-     * {@link #lastRenderMatrix} is left untouched for pick/projection helpers).
-     * The origin is unchanged by a rotation, so only the orientation is pinned.
+     * Freeze the gizmo orientation while an axis ring is dragged. The first
+     * draw of a gesture snapshots the stack — still at the grab orientation,
+     * since the drag hasn't written anything by then — and every later draw
+     * (visual and stencil alike) rewinds to that snapshot. Keying the snapshot
+     * to the gesture makes the freeze self-maintaining: no edit entry point
+     * has to remember to bake, and switching the axis mid-edit re-freezes at
+     * the restored orientation. The live {@link #lastRenderMatrix} is left
+     * untouched for pick/projection helpers.
      */
     private void applyBakedRotation(MatrixStack stack)
     {
-        if (this.isBakingRotation())
+        DragStrategy gesture = this.ringDragGesture();
+
+        if (gesture == null)
         {
-            stack.peek().getPositionMatrix().set(this.bakedRotationMatrix);
+            this.bakedGesture = null;
+
+            return;
         }
+
+        if (this.bakedGesture != gesture)
+        {
+            this.bakedRotationMatrix.set(stack.peek().getPositionMatrix());
+            this.bakedGesture = gesture;
+        }
+
+        stack.peek().getPositionMatrix().set(this.bakedRotationMatrix);
     }
 
     /**
-     * Snapshot the current render orientation so the ring stays put for the
-     * coming drag. Called when an axis ring rotation begins.
+     * The live rotation gesture the gizmo should freeze its rings for, or
+     * {@code null} when none: the sphere and the view ring own their whole
+     * orientation and want the live frame instead.
      */
-    public void bakeRotation()
+    private DragStrategy ringDragGesture()
     {
-        if (this.hasLastRenderMatrix)
-        {
-            this.bakedRotationMatrix.set(this.lastRenderMatrix);
-            this.hasBakedRotation = true;
-        }
-    }
+        UIPropTransform transform = this.currentTransform;
 
-    private boolean isBakingRotation()
-    {
-        return this.hasBakedRotation
-            && this.currentTransform != null
-            && this.currentTransform.isEditing()
-            && this.currentTransform.getOp() == TransformOp.ROTATE
-            && !this.currentTransform.isSphereRotate()
-            && !this.currentTransform.isViewRotate();
+        if (transform == null
+            || !transform.isEditing()
+            || transform.getOp() != TransformOp.ROTATE
+            || transform.isSphereRotate()
+            || transform.isViewRotate())
+        {
+            return null;
+        }
+
+        return transform.getStrategy();
     }
 
     private void drawAxes(MatrixStack stack, StencilMap map, float axisSize, float axisOffset)
