@@ -142,8 +142,19 @@ public class Transform implements IMapSerializable
     public void mirrorX()
     {
         this.translate.mul(-1F, 1F, 1F);
-        this.rotate.mul(1F, -1F, -1F);
-        this.rotate2.mul(1F, -1F, -1F);
+
+        if (this.rotationMode == RotationMode.QUATERNION)
+        {
+            /* The quaternion mirror across the YZ plane: (w, x, -y, -z). Matches
+             * the euler convention (a pure-X turn is unchanged, Y/Z flip) since
+             * both are the D·R·D conjugation with D = diag(-1,1,1). */
+            this.quat.set(this.quat.x, -this.quat.y, -this.quat.z, this.quat.w);
+        }
+        else
+        {
+            this.rotate.mul(1F, -1F, -1F);
+            this.rotate2.mul(1F, -1F, -1F);
+        }
     }
 
     /**
