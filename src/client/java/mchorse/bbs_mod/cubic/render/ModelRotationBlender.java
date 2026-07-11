@@ -88,7 +88,7 @@ public final class ModelRotationBlender
             baseX[i] = bone.current.rotate.x;
             baseY[i] = bone.current.rotate.y;
             baseZ[i] = bone.current.rotate.z;
-            baseLocal[i] = Matrices.toLocalRotationZYXDegrees(bone.current.rotate, bone.current.rotate2);
+            baseLocal[i] = Matrices.toLocalRotationZYXDegrees(bone.current.rotate);
         }
 
         CubicRenderer.applyRotations(model, rootParentRotation, ids, positions);
@@ -96,7 +96,7 @@ public final class ModelRotationBlender
         for (int i = 0; i < rotCount; i++)
         {
             ModelGroup bone = bones[i];
-            Quaternionf solved = Matrices.toLocalRotationZYXDegrees(bone.current.rotate, bone.current.rotate2);
+            Quaternionf solved = Matrices.toLocalRotationZYXDegrees(bone.current.rotate);
             Quaternionf blended = new Quaternionf(baseLocal[i]).slerp(solved, factor);
             Vector3f euler = Matrices.toEulerZYXDegrees(blended);
 
@@ -105,7 +105,6 @@ public final class ModelRotationBlender
             euler.z = wrapDegreesNear(euler.z, baseZ[i]);
 
             bone.current.rotate.set(euler);
-            bone.current.rotate2.set(0F, 0F, 0F);
         }
     }
 
@@ -149,7 +148,7 @@ public final class ModelRotationBlender
             baseX[i] = bone.transform.rotate.x;
             baseY[i] = bone.transform.rotate.y;
             baseZ[i] = bone.transform.rotate.z;
-            baseLocal[i] = Matrices.toLocalRotationZYXRadians(bone.transform.rotate, bone.transform.rotate2);
+            baseLocal[i] = Matrices.toLocalRotationZYXRadians(bone.transform.rotate);
         }
 
         applyRotationsBobj(model, rootParentRotation, ids, positions);
@@ -157,7 +156,7 @@ public final class ModelRotationBlender
         for (int i = 0; i < rotCount; i++)
         {
             BOBJBone bone = bones[i];
-            Quaternionf solved = Matrices.toLocalRotationZYXRadians(bone.transform.rotate, bone.transform.rotate2);
+            Quaternionf solved = Matrices.toLocalRotationZYXRadians(bone.transform.rotate);
             Quaternionf blended = new Quaternionf(baseLocal[i]).slerp(solved, factor);
             Vector3f euler = new Quaternionf(blended).normalize().getEulerAnglesZYX(new Vector3f());
 
@@ -166,7 +165,6 @@ public final class ModelRotationBlender
             euler.z = wrapRadiansNear(euler.z, baseZ[i]);
 
             bone.transform.rotate.set(euler);
-            bone.transform.rotate2.set(0F, 0F, 0F);
             bone.orient = null;
         }
     }
@@ -216,7 +214,7 @@ public final class ModelRotationBlender
             desiredDirLocal.normalize();
 
             Quaternionf localRot = Matrices.fromToMirroredX(restDirLocal, desiredDirLocal);
-            localRot.mul(Matrices.twistAbout(Matrices.toLocalRotationZYXRadians(bone.transform.rotate, bone.transform.rotate2), restDirLocal));
+            localRot.mul(Matrices.twistAbout(Matrices.toLocalRotationZYXRadians(bone.transform.rotate), restDirLocal));
             Vector3f eulerRad = new Quaternionf(localRot).normalize().getEulerAnglesZYX(new Vector3f());
 
             eulerRad.x = wrapRadiansNear(eulerRad.x, bone.transform.rotate.x);
@@ -224,7 +222,6 @@ public final class ModelRotationBlender
             eulerRad.z = wrapRadiansNear(eulerRad.z, bone.transform.rotate.z);
 
             bone.transform.rotate.set(eulerRad);
-            bone.transform.rotate2.set(0F, 0F, 0F);
             bone.orient = null;
 
             parentWorld.mul(new Quaternionf().rotationZYX(eulerRad.z, eulerRad.y, eulerRad.x));

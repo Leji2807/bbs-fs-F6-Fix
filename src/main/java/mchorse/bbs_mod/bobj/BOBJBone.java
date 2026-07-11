@@ -112,19 +112,21 @@ public class BOBJBone
 
         if (this.orient != null)
         {
-            /* orient is the full local rotation (it already folds rotate2), so the euler triples are skipped. */
+            /* orient is the full local rotation, so the euler channel is skipped. */
             this.mat.rotate(this.orient);
+        }
+        else if (this.transform.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            this.mat.rotate(this.transform.quat);
         }
         else
         {
             Vector3f rotate = this.transform.rotate;
-            Vector3f rotate2 = this.transform.rotate2;
 
             /* Rest bones (all angles zero) skip the trig entirely; BOBJ channels are radians. */
-            if (rotate.x != 0F || rotate.y != 0F || rotate.z != 0F
-                || rotate2.x != 0F || rotate2.y != 0F || rotate2.z != 0F)
+            if (rotate.x != 0F || rotate.y != 0F || rotate.z != 0F)
             {
-                this.mat.rotate(Matrices.toLocalRotationZYXRadians(rotate, rotate2));
+                this.mat.rotate(Matrices.toLocalRotationZYXRadians(rotate));
             }
         }
 
@@ -141,7 +143,7 @@ public class BOBJBone
     {
         if (this.orient == null)
         {
-            this.orient = Matrices.toLocalRotationZYXRadians(this.transform.rotate, this.transform.rotate2);
+            this.orient = this.transform.createRotation();
         }
         else
         {

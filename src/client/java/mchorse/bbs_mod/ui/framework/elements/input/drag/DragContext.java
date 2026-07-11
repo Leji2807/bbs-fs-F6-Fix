@@ -38,9 +38,6 @@ public interface DragContext
 
     boolean isModel();
 
-    /** Whether rotation edits land on {@code rotate2} instead of {@code rotate}. */
-    boolean isGizmoSpace();
-
     /** Whether values of the given operation should snap to the configured step. */
     boolean shouldSnap(TransformOp op);
 
@@ -61,8 +58,6 @@ public interface DragContext
     void writeScale(float x, float y, float z);
 
     void writeRotateDeg(float xDeg, float yDeg, float zDeg);
-
-    void writeRotate2Deg(float xDeg, float yDeg, float zDeg);
 
     /** Store the full local rotation as a quaternion (for a bone in
      *  {@link mchorse.bbs_mod.utils.pose.Transform.RotationMode#QUATERNION} mode),

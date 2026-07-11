@@ -30,7 +30,6 @@ public abstract class SphereDrag extends DragStrategy
     /** Accumulated wheel-driven view-axis roll (degrees). */
     protected float rollDeg;
 
-    protected boolean gizmoSpace;
 
     /** Typed-angle target: {@link Axis#X} = horizontal (screen-up axis),
      *  {@link Axis#Y} = vertical (screen-right axis). */
@@ -131,12 +130,12 @@ public abstract class SphereDrag extends DragStrategy
             return;
         }
 
-        this.numericAxisRotation(value, this.numericAxis == Axis.Y ? this.rightLocal : this.upLocal, this.gizmoSpace);
+        this.numericAxisRotation(value, this.numericAxis == Axis.Y ? this.rightLocal : this.upLocal);
     }
 
     @Override
     public String readout()
     {
-        return this.freeRotateReadout(this.gizmoSpace);
+        return this.freeRotateReadout();
     }
 }

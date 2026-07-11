@@ -46,9 +46,6 @@ public class RingRotateDrag extends DragStrategy
     /** Start rotation (degrees) from the cache; the fixed base the sweep adds onto. */
     private final Vector3f startRotateDeg = new Vector3f();
 
-    /** Whether the sweep lands on {@code rotate2} instead of {@code rotate}. */
-    private boolean gizmoSpace;
-
     /** Whether the edited bone stores its rotation as a quaternion. */
     private boolean quatMode;
 
@@ -139,14 +136,13 @@ public class RingRotateDrag extends DragStrategy
         this.accumulatedDeg = 0F;
 
         this.quatMode = this.ctx.transform().rotationMode == Transform.RotationMode.QUATERNION;
-        this.gizmoSpace = !this.quatMode && this.ctx.isGizmoSpace();
 
         /* The ring bumps one local euler channel, so in quaternion mode read the
          * base off the cache quaternion's ZYX equivalent (the euler channels are
          * stale there) and store the swept result back as a quaternion. */
         Vector3f source = this.quatMode
             ? new Quaternionf(this.ctx.cache().quat).getEulerAnglesZYX(new Vector3f())
-            : (this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate);
+            : this.ctx.cache().rotate;
 
         this.startRotateDeg.set(
             MathUtils.toDeg(source.x),
@@ -199,7 +195,6 @@ public class RingRotateDrag extends DragStrategy
         }
 
         if (this.quatMode) this.ctx.writeRotationQuat(Matrices.toQuaternionZYXDegrees(rx, ry, rz));
-        else if (this.gizmoSpace) this.ctx.writeRotate2Deg(rx, ry, rz);
         else this.ctx.writeRotateDeg(rx, ry, rz);
     }
 

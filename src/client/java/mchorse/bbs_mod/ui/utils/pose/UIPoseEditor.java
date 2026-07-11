@@ -523,12 +523,6 @@ public class UIPoseEditor extends UIElement
             this.syncTargetTransform();
         }
 
-        @Override
-        public void setR2(Axis axis, double x, double y, double z)
-        {
-            super.setR2(axis, x, y, z);
-            this.syncTargetTransform();
-        }
     }
 
     protected void pickBone(String bone)

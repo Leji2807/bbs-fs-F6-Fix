@@ -167,7 +167,7 @@ public class Model implements IMapSerializable, IModel
                  * gizmo/IK sampling, not the render (which follows orient). */
                 if (group.orient == null)
                 {
-                    group.orient = Matrices.toLocalRotationZYXDegrees(group.current.rotate, group.current.rotate2);
+                    group.orient = Matrices.toLocalRotationZYXDegrees(group.current.rotate);
                 }
 
                 group.orient.mul(transform.createRotation());
@@ -187,30 +187,14 @@ public class Model implements IMapSerializable, IModel
                     (float) Math.toDegrees(transform.rotate.y),
                     (float) Math.toDegrees(transform.rotate.z)
                 );
-                group.current.rotate2.add(
-                    (float) Math.toDegrees(transform.rotate2.x),
-                    (float) Math.toDegrees(transform.rotate2.y),
-                    (float) Math.toDegrees(transform.rotate2.z)
-                );
 
-                /* Compose the pose rotation into the orientation quaternion (rotate then rotate2, render order).
+                /* Compose the pose rotation into the orientation quaternion.
                  * The euler readback above is kept for gizmo/IK; orient is the render truth past the first layer. */
-                Quaternionf delta = Matrices.toQuaternionZYXDegrees(
+                group.composeOrient(Matrices.toQuaternionZYXDegrees(
                     (float) Math.toDegrees(transform.rotate.x),
                     (float) Math.toDegrees(transform.rotate.y),
                     (float) Math.toDegrees(transform.rotate.z)
-                );
-
-                if (transform.rotate2.x != 0F || transform.rotate2.y != 0F || transform.rotate2.z != 0F)
-                {
-                    delta.mul(Matrices.toQuaternionZYXDegrees(
-                        (float) Math.toDegrees(transform.rotate2.x),
-                        (float) Math.toDegrees(transform.rotate2.y),
-                        (float) Math.toDegrees(transform.rotate2.z)
-                    ));
-                }
-
-                group.composeOrient(delta);
+                ));
             }
         }
     }

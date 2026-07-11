@@ -141,7 +141,7 @@ public class UIPropTransform extends UITransform
 
         /* Each finished value-field drag closes the current undo block, so dragging a
          * field several times in a row undoes one drag at a time (see endGesture). */
-        for (UITrackpad field : new UITrackpad[]{this.tx, this.ty, this.tz, this.sx, this.sy, this.sz, this.rx, this.ry, this.rz, this.r2x, this.r2y, this.r2z})
+        for (UITrackpad field : new UITrackpad[]{this.tx, this.ty, this.tz, this.sx, this.sy, this.sz, this.rx, this.ry, this.rz})
         {
             field.getEvents().register(UITrackpadDragEndEvent.class, (e) -> this.endGesture());
         }
@@ -489,7 +489,6 @@ public class UIPropTransform extends UITransform
             this.fillT(0, 0, 0);
             this.fillS(1, 1, 1);
             this.fillR(0, 0, 0);
-            this.fillR2(0, 0, 0);
 
             return;
         }
@@ -512,17 +511,14 @@ public class UIPropTransform extends UITransform
 
         if (transform.rotationMode == Transform.RotationMode.QUATERNION)
         {
-            /* Show the quaternion's ZYX-euler equivalent in the rotate fields so
-             * the value is legible; rotate2 is unused in quaternion mode. */
+            /* Show the quaternion's ZYX-euler equivalent in the rotate fields so the value is legible. */
             Vector3f euler = new Quaternionf(transform.quat).getEulerAnglesZYX(new Vector3f());
 
             this.fillR(MathUtils.toDeg(euler.x), MathUtils.toDeg(euler.y), MathUtils.toDeg(euler.z));
-            this.fillR2(0F, 0F, 0F);
         }
         else
         {
             this.fillR(MathUtils.toDeg(transform.rotate.x), MathUtils.toDeg(transform.rotate.y), MathUtils.toDeg(transform.rotate.z));
-            this.fillR2(MathUtils.toDeg(transform.rotate2.x), MathUtils.toDeg(transform.rotate2.y), MathUtils.toDeg(transform.rotate2.z));
         }
     }
 
@@ -929,8 +925,15 @@ public class UIPropTransform extends UITransform
 
         this.setT(null, this.cache.translate.x, this.cache.translate.y, this.cache.translate.z);
         this.setS(null, this.cache.scale.x, this.cache.scale.y, this.cache.scale.z);
-        this.setR(null, MathUtils.toDeg(this.cache.rotate.x), MathUtils.toDeg(this.cache.rotate.y), MathUtils.toDeg(this.cache.rotate.z));
-        this.setR2(null, MathUtils.toDeg(this.cache.rotate2.x), MathUtils.toDeg(this.cache.rotate2.y), MathUtils.toDeg(this.cache.rotate2.z));
+
+        if (this.cache.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            this.setRQuat(new Quaternionf(this.cache.quat));
+        }
+        else
+        {
+            this.setR(null, MathUtils.toDeg(this.cache.rotate.x), MathUtils.toDeg(this.cache.rotate.y), MathUtils.toDeg(this.cache.rotate.z));
+        }
     }
 
     private void disable()
@@ -1184,19 +1187,6 @@ public class UIPropTransform extends UITransform
     }
 
     @Override
-    public void setR2(Axis axis, double x, double y, double z)
-    {
-        if (this.transform == null)
-        {
-            return;
-        }
-
-        this.preCallback();
-        this.transform.rotate2.set(MathUtils.toRad((float) x), MathUtils.toRad((float) y), MathUtils.toRad((float) z));
-        this.postCallback();
-    }
-
-    @Override
     protected boolean subKeyPressed(UIContext context)
     {
         if (this.editing)
@@ -1293,7 +1283,7 @@ public class UIPropTransform extends UITransform
         }
         else if (op == TransformOp.ROTATE)
         {
-            return this.local && BBSSettings.gizmos.get() ? this.transform.rotate2 : this.transform.rotate;
+            return this.transform.rotate;
         }
 
         return this.transform.translate;
@@ -1616,12 +1606,6 @@ public class UIPropTransform extends UITransform
             return UIPropTransform.this.model;
         }
 
-        @Override
-        public boolean isGizmoSpace()
-        {
-            return UIPropTransform.this.local && BBSSettings.gizmos.get();
-        }
-
         /* Blender-style snapping: every gesture is free by default and snaps to
          * the configured step only while Ctrl is held. Typed numeric input is
          * exact already, so it never snaps. */
@@ -1674,12 +1658,6 @@ public class UIPropTransform extends UITransform
         public void writeRotateDeg(float xDeg, float yDeg, float zDeg)
         {
             UIPropTransform.this.setR(null, xDeg, yDeg, zDeg);
-        }
-
-        @Override
-        public void writeRotate2Deg(float xDeg, float yDeg, float zDeg)
-        {
-            UIPropTransform.this.setR2(null, xDeg, yDeg, zDeg);
         }
 
         @Override

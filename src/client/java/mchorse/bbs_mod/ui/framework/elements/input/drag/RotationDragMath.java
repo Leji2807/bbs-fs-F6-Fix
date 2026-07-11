@@ -61,24 +61,23 @@ public final class RotationDragMath
      * source {@link GizmoDrag#computeRotateAxes} perturbs, so the two stay
      * consistent. In euler mode it is the edited euler stack.
      */
-    public static Vector3f cacheSourceEuler(DragContext ctx, boolean gizmoSpace)
+    public static Vector3f cacheSourceEuler(DragContext ctx)
     {
         if (ctx.transform().rotationMode == Transform.RotationMode.QUATERNION)
         {
             return new Quaternionf(ctx.cache().quat).getEulerAnglesZYX(new Vector3f());
         }
 
-        return gizmoSpace ? ctx.cache().rotate2 : ctx.cache().rotate;
+        return ctx.cache().rotate;
     }
 
     /**
      * Read ZYX euler angles off {@code rotation} and write them into the
-     * transform's rotate (or rotate2) channel, each component unwrapped to
-     * the 360°-equivalent nearest {@code referenceRadians}. The orientation
-     * stays continuous through gimbal lock; only its euler representation
-     * jumps, which the unwrap hides.
+     * transform's rotate channel, each component unwrapped to the 360°-equivalent
+     * nearest {@code referenceRadians}. The orientation stays continuous through
+     * gimbal lock; only its euler representation jumps, which the unwrap hides.
      */
-    public static void writeEulerUnwrapped(DragContext ctx, boolean gizmoSpace, Matrix3f rotation, Vector3f referenceRadians)
+    public static void writeEulerUnwrapped(DragContext ctx, Matrix3f rotation, Vector3f referenceRadians)
     {
         Vector3f euler = rotation.getEulerAnglesZYX(new Vector3f());
 
@@ -86,8 +85,7 @@ public final class RotationDragMath
         float ry = unwrapDeg(MathUtils.toDeg(euler.y), MathUtils.toDeg(referenceRadians.y));
         float rz = unwrapDeg(MathUtils.toDeg(euler.z), MathUtils.toDeg(referenceRadians.z));
 
-        if (gizmoSpace) ctx.writeRotate2Deg(rx, ry, rz);
-        else ctx.writeRotateDeg(rx, ry, rz);
+        ctx.writeRotateDeg(rx, ry, rz);
     }
 
     /**
@@ -102,7 +100,7 @@ public final class RotationDragMath
      * @param baseEuler  the grab euler stack the euler path composes onto.
      * @param liveEuler  the live euler stack the euler path unwraps against.
      */
-    public static void applyLocalDelta(DragContext ctx, boolean gizmoSpace, Matrix3f deltaLocal, Vector3f baseEuler, Vector3f liveEuler)
+    public static void applyLocalDelta(DragContext ctx, Matrix3f deltaLocal, Vector3f baseEuler, Vector3f liveEuler)
     {
         if (ctx.transform().rotationMode == Transform.RotationMode.QUATERNION)
         {
@@ -112,7 +110,7 @@ public final class RotationDragMath
         }
         else
         {
-            writeEulerUnwrapped(ctx, gizmoSpace, new Matrix3f(deltaLocal).mul(eulerZYX(baseEuler)), liveEuler);
+            writeEulerUnwrapped(ctx, new Matrix3f(deltaLocal).mul(eulerZYX(baseEuler)), liveEuler);
         }
     }
 

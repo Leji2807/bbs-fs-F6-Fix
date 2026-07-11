@@ -240,7 +240,7 @@ public class CubicRenderer
             desiredDirLocal.normalize();
 
             Quaternionf localRot = Matrices.fromToMirroredX(restDirLocal, desiredDirLocal);
-            localRot.mul(twistAround(bone.current.rotate, bone.current.rotate2, restDirLocal));
+            localRot.mul(twistAround(bone.current.rotate, restDirLocal));
             Vector3f eulerDeg = Matrices.toEulerZYXDegrees(localRot);
 
             float rx = bone.current.rotate.x;
@@ -251,7 +251,6 @@ public class CubicRenderer
             eulerDeg.z = wrapDegreesNear(eulerDeg.z, rz);
 
             bone.current.rotate.set(eulerDeg);
-            bone.current.rotate2.set(0F, 0F, 0F);
 
             /* This solve finalizes the bone in euler — drop any composed orientation so the renderer
              * falls back to this euler (IK/physics own these bones, byte-identical to before). */
@@ -261,16 +260,9 @@ public class CubicRenderer
         }
     }
 
-    private static Quaternionf twistAround(Vector3f rotate, Vector3f rotate2, Vector3f axisLocal)
+    private static Quaternionf twistAround(Vector3f rotate, Vector3f axisLocal)
     {
-        Quaternionf local = Matrices.toQuaternionZYXDegrees(rotate.x, rotate.y, rotate.z);
-
-        if (rotate2.x != 0F || rotate2.y != 0F || rotate2.z != 0F)
-        {
-            local.mul(Matrices.toQuaternionZYXDegrees(rotate2.x, rotate2.y, rotate2.z));
-        }
-
-        return Matrices.twistAbout(local, axisLocal);
+        return Matrices.twistAbout(Matrices.toQuaternionZYXDegrees(rotate.x, rotate.y, rotate.z), axisLocal);
     }
 
     private static float wrapDegreesNear(float angle, float reference)

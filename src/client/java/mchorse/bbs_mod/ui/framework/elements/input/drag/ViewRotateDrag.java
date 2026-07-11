@@ -45,7 +45,6 @@ public class ViewRotateDrag extends DragStrategy
 
     private float accumulatedDeg;
 
-    private boolean gizmoSpace;
 
     public ViewRotateDrag(DragContext ctx)
     {
@@ -120,12 +119,11 @@ public class ViewRotateDrag extends DragStrategy
         viewAxis.normalize();
         this.viewWorldAxis.set(viewAxis);
 
-        this.gizmoSpace = this.ctx.isGizmoSpace();
 
         /* Express the view axis once in the bone's parent frame, mapped at the
          * start orientation (the cache) it will be composed against; it stays
          * constant for the whole drag. */
-        Vector3f source = RotationDragMath.cacheSourceEuler(this.ctx, this.gizmoSpace);
+        Vector3f source = RotationDragMath.cacheSourceEuler(this.ctx);
         Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag, source);
 
         if (parentInverse == null)
@@ -178,12 +176,12 @@ public class ViewRotateDrag extends DragStrategy
             return;
         }
 
-        Vector3f base = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
-        Vector3f live = this.gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
+        Vector3f base = this.ctx.cache().rotate;
+        Vector3f live = this.ctx.transform().rotate;
 
         Matrix3f deltaLocal = new Matrix3f().rotation(MathUtils.toRad(this.accumulatedDeg), this.viewLocalAxis);
 
-        RotationDragMath.applyLocalDelta(this.ctx, this.gizmoSpace, deltaLocal, base, live);
+        RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, base, live);
     }
 
     @Override
@@ -198,12 +196,12 @@ public class ViewRotateDrag extends DragStrategy
             return;
         }
 
-        this.numericAxisRotation(value, this.viewLocalAxis, this.gizmoSpace);
+        this.numericAxisRotation(value, this.viewLocalAxis);
     }
 
     @Override
     public String readout()
     {
-        return this.freeRotateReadout(this.gizmoSpace);
+        return this.freeRotateReadout();
     }
 }

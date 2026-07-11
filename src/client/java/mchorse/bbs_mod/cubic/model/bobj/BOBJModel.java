@@ -15,6 +15,7 @@ import mchorse.bbs_mod.utils.pose.Pose;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -161,18 +162,27 @@ public class BOBJModel implements IModel
             // TODO: bone.color.copy(transform.color);
             bone.transform.translate.add(transform.translate);
             bone.transform.scale.add(transform.scale).sub(1, 1, 1);
-            bone.transform.rotate.add(transform.rotate);
-            bone.transform.rotate2.add(transform.rotate2);
 
-            /* Compose the pose rotation into the orientation quaternion (radians, rotate then rotate2). */
-            Quaternionf delta = Matrices.toQuaternionZYXRadians(transform.rotate.x, transform.rotate.y, transform.rotate.z);
-
-            if (transform.rotate2.x != 0F || transform.rotate2.y != 0F || transform.rotate2.z != 0F)
+            if (transform.rotationMode == Transform.RotationMode.QUATERNION)
             {
-                delta.mul(Matrices.toQuaternionZYXRadians(transform.rotate2.x, transform.rotate2.y, transform.rotate2.z));
-            }
+                /* Quaternion pose: seed orient from the euler so far, compose the
+                 * pose quaternion straight in (gimbal-free), keep the euler readback
+                 * for gizmo/IK. Mirrors Model.applyPose. */
+                if (bone.orient == null)
+                {
+                    bone.orient = Matrices.toLocalRotationZYXRadians(bone.transform.rotate);
+                }
 
-            bone.composeOrient(delta);
+                bone.orient.mul(transform.createRotation());
+                bone.transform.rotate.add(new Quaternionf(transform.quat).getEulerAnglesZYX(new Vector3f()));
+            }
+            else
+            {
+                bone.transform.rotate.add(transform.rotate);
+
+                /* Compose the pose rotation into the orientation quaternion (radians). */
+                bone.composeOrient(Matrices.toQuaternionZYXRadians(transform.rotate.x, transform.rotate.y, transform.rotate.z));
+            }
         }
     }
 

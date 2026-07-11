@@ -86,8 +86,7 @@ public class AdditiveDrag extends DragStrategy
             return;
         }
 
-        boolean gizmoSpace = this.op == TransformOp.ROTATE && this.ctx.isGizmoSpace();
-        Vector3f live = this.liveValue(transform, gizmoSpace);
+        Vector3f live = this.liveValue(transform);
         Vector3f value = new Vector3f(live);
 
         if (this.op == TransformOp.ROTATE)
@@ -111,13 +110,12 @@ public class AdditiveDrag extends DragStrategy
                 this.ctx.writeScale(value.x, value.y, value.z);
                 break;
             default:
-                if (gizmoSpace) this.ctx.writeRotate2Deg(value.x, value.y, value.z);
-                else this.ctx.writeRotateDeg(value.x, value.y, value.z);
+                this.ctx.writeRotateDeg(value.x, value.y, value.z);
                 break;
         }
     }
 
-    private Vector3f liveValue(Transform transform, boolean gizmoSpace)
+    private Vector3f liveValue(Transform transform)
     {
         if (this.op == TransformOp.SCALE)
         {
@@ -126,7 +124,7 @@ public class AdditiveDrag extends DragStrategy
 
         if (this.op == TransformOp.ROTATE)
         {
-            return gizmoSpace ? transform.rotate2 : transform.rotate;
+            return transform.rotate;
         }
 
         return transform.translate;
@@ -170,9 +168,8 @@ public class AdditiveDrag extends DragStrategy
             return null;
         }
 
-        boolean gizmoSpace = this.ctx.isGizmoSpace();
-        Vector3f now = gizmoSpace ? transform.rotate2 : transform.rotate;
-        Vector3f start = gizmoSpace ? cache.rotate2 : cache.rotate;
+        Vector3f now = transform.rotate;
+        Vector3f start = cache.rotate;
         float delta = this.axis == Axis.X ? now.x - start.x : (this.axis == Axis.Y ? now.y - start.y : now.z - start.z);
 
         return String.format("%.1f°", MathUtils.toDeg(delta));

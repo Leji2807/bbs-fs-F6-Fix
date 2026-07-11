@@ -78,9 +78,8 @@ public class ArcballDrag extends SphereDrag
             return;
         }
 
-        this.gizmoSpace = this.ctx.isGizmoSpace();
 
-        Vector3f source = RotationDragMath.cacheSourceEuler(this.ctx, this.gizmoSpace);
+        Vector3f source = RotationDragMath.cacheSourceEuler(this.ctx);
         Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag, source);
         float radius = this.ctx.sphereWorldRadius();
 
@@ -212,8 +211,8 @@ public class ArcballDrag extends SphereDrag
             return;
         }
 
-        Vector3f source = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
-        Vector3f live = this.gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
+        Vector3f source = this.ctx.cache().rotate;
+        Vector3f live = this.ctx.transform().rotate;
 
         Quaternionf arc = new Quaternionf()
             .rotationTo(this.startLocal, this.currentLocal)
@@ -223,6 +222,6 @@ public class ArcballDrag extends SphereDrag
             .rotation(MathUtils.toRad(this.rollDeg), this.viewLocal)
             .rotate(arc);
 
-        RotationDragMath.applyLocalDelta(this.ctx, this.gizmoSpace, deltaLocal, source, live);
+        RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, source, live);
     }
 }

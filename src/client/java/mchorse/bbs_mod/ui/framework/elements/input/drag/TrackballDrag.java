@@ -65,9 +65,8 @@ public class TrackballDrag extends SphereDrag
             return;
         }
 
-        this.gizmoSpace = this.ctx.isGizmoSpace();
 
-        Vector3f source = RotationDragMath.cacheSourceEuler(this.ctx, this.gizmoSpace);
+        Vector3f source = RotationDragMath.cacheSourceEuler(this.ctx);
         Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag, source);
 
         if (parentInverse == null || !this.captureScreenAxes(drag, parentInverse))
@@ -134,14 +133,14 @@ public class TrackballDrag extends SphereDrag
             return;
         }
 
-        Vector3f source = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
-        Vector3f live = this.gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
+        Vector3f source = this.ctx.cache().rotate;
+        Vector3f live = this.ctx.transform().rotate;
 
         Matrix3f deltaLocal = new Matrix3f()
             .rotation(roll, this.viewLocal)
             .rotate(yaw, this.upLocal.x, this.upLocal.y, this.upLocal.z)
             .rotate(pitch, this.rightLocal.x, this.rightLocal.y, this.rightLocal.z);
 
-        RotationDragMath.applyLocalDelta(this.ctx, this.gizmoSpace, deltaLocal, source, live);
+        RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, source, live);
     }
 }

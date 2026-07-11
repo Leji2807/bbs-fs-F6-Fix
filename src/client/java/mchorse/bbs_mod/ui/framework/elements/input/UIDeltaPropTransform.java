@@ -155,7 +155,6 @@ public abstract class UIDeltaPropTransform extends UIPropTransform
             else
             {
                 result.getEulerAnglesZYX(t.rotate);
-                t.rotate2.set(0F, 0F, 0F);
             }
         });
         this.postCallback();

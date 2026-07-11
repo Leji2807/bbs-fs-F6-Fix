@@ -197,10 +197,10 @@ public abstract class DragStrategy
     }
 
     /** Per-axis rotation deltas (degrees) of a free rotation, measured from the cache. */
-    protected String freeRotateReadout(boolean gizmoSpace)
+    protected String freeRotateReadout()
     {
-        Vector3f start = gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
-        Vector3f now = gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
+        Vector3f start = this.ctx.cache().rotate;
+        Vector3f now = this.ctx.transform().rotate;
 
         return String.format("X %+.1f°  Y %+.1f°  Z %+.1f°",
             MathUtils.toDeg(now.x - start.x),
@@ -264,7 +264,6 @@ public abstract class DragStrategy
     protected void numericRotate(double value)
     {
         boolean quatMode = this.ctx.transform().rotationMode == Transform.RotationMode.QUATERNION;
-        boolean gizmoSpace = !quatMode && this.ctx.isGizmoSpace();
 
         /* In quaternion mode the euler channels are stale, so read the base off
          * the cache quaternion (its ZYX equivalent), bump the axis, and store
@@ -272,7 +271,7 @@ public abstract class DragStrategy
          * this stays gimbal-safe. */
         Vector3f source = quatMode
             ? new Quaternionf(this.ctx.cache().quat).getEulerAnglesZYX(new Vector3f())
-            : (gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate);
+            : this.ctx.cache().rotate;
 
         float rx = MathUtils.toDeg(source.x);
         float ry = MathUtils.toDeg(source.y);
@@ -283,7 +282,6 @@ public abstract class DragStrategy
         if (this.axis == Axis.Z || this.axis2 == Axis.Z) rz += value;
 
         if (quatMode) this.ctx.writeRotationQuat(Matrices.toQuaternionZYXDegrees(rx, ry, rz));
-        else if (gizmoSpace) this.ctx.writeRotate2Deg(rx, ry, rz);
         else this.ctx.writeRotateDeg(rx, ry, rz);
     }
 
@@ -293,17 +291,17 @@ public abstract class DragStrategy
      * back — the same composition the cursor-driven view/trackball drags
      * use, but from a single exact angle.
      */
-    protected void numericAxisRotation(double degrees, Vector3f localAxis, boolean gizmoSpace)
+    protected void numericAxisRotation(double degrees, Vector3f localAxis)
     {
         if (localAxis.lengthSquared() < 1.0E-8F)
         {
             return;
         }
 
-        Vector3f source = gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
+        Vector3f source = this.ctx.cache().rotate;
 
         RotationDragMath.applyLocalDelta(
-            this.ctx, gizmoSpace,
+            this.ctx,
             new Matrix3f().rotation(MathUtils.toRad((float) degrees), localAxis),
             source, source
         );
