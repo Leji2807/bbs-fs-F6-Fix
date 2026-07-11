@@ -324,7 +324,7 @@ public class UIModelBlockPanel extends UIDashboardPanel implements IFlightSuppor
             ));
             drag.setRotateAxes(GizmoDrag.computeRotateAxes(
                 transform,
-                () -> MatrixStackUtils.stripScale(new Matrix4f(transform.createMatrix()))
+                () -> MatrixStackUtils.stripScale(transform.createMatrix())
             ));
         }
 
@@ -455,7 +455,7 @@ public class UIModelBlockPanel extends UIDashboardPanel implements IFlightSuppor
             Transform transform = this.modelBlock.getProperties().getTransform().copy();
 
             transform.translate.set(0F, 0F, 0F);
-            palette.editor.renderer.setTransform(new Matrix4f(transform.createMatrix()));
+            palette.editor.renderer.setTransform(transform.createMatrix());
         }
     }
 

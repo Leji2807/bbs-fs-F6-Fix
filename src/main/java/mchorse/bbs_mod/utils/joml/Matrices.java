@@ -147,6 +147,39 @@ public class Matrices
         return radZYX.mul((float) (180.0 / Math.PI));
     }
 
+    /**
+     * THE composition of a transform's two euler stacks into its full local
+     * rotation: {@code ZYX(rotate) · ZYX(rotate2)} — the renderer's order.
+     * Every consumer of a rotate/rotate2 pair (bone renderers, orient seeds,
+     * IK blending, the pose matrix) goes through these two methods, so the
+     * convention can never fork again. Degrees flavour for cubic model
+     * channels, radians for poses and BOBJ bones.
+     */
+    public static Quaternionf toLocalRotationZYXDegrees(Vector3f rotateDeg, Vector3f rotate2Deg)
+    {
+        Quaternionf q = toQuaternionZYXDegrees(rotateDeg.x, rotateDeg.y, rotateDeg.z);
+
+        if (rotate2Deg.x != 0F || rotate2Deg.y != 0F || rotate2Deg.z != 0F)
+        {
+            q.mul(toQuaternionZYXDegrees(rotate2Deg.x, rotate2Deg.y, rotate2Deg.z));
+        }
+
+        return q;
+    }
+
+    /** See {@link #toLocalRotationZYXDegrees}; angles in radians. */
+    public static Quaternionf toLocalRotationZYXRadians(Vector3f rotate, Vector3f rotate2)
+    {
+        Quaternionf q = toQuaternionZYXRadians(rotate.x, rotate.y, rotate.z);
+
+        if (rotate2.x != 0F || rotate2.y != 0F || rotate2.z != 0F)
+        {
+            q.mul(toQuaternionZYXRadians(rotate2.x, rotate2.y, rotate2.z));
+        }
+
+        return q;
+    }
+
     public static Quaternionf fromToMirroredX(Vector3f restDirLocal, Vector3f desiredDirLocal)
     {
         Vector3f restM = new Vector3f(restDirLocal);

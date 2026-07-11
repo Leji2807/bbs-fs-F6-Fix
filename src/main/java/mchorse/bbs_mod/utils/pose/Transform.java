@@ -9,6 +9,7 @@ import mchorse.bbs_mod.utils.interps.IInterp;
 import mchorse.bbs_mod.utils.joml.Matrices;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 public class Transform implements IMapSerializable
@@ -76,34 +77,33 @@ public class Transform implements IMapSerializable
         this.rotate2.set(0, 0, 0);
     }
 
+    /** The full local rotation of the channels ({@code ZYX(rotate) · ZYX(rotate2)}), radians. */
+    public Quaternionf createRotation()
+    {
+        return Matrices.toLocalRotationZYXRadians(this.rotate, this.rotate2);
+    }
+
     public Matrix3f createRotationMatrix()
     {
-        Matrix3f matrix = new Matrix3f();
-
-        matrix.rotateZ(this.rotate.z);
-        matrix.rotateY(this.rotate.y);
-        matrix.rotateX(this.rotate.x);
-        matrix.rotateZ(this.rotate2.z);
-        matrix.rotateY(this.rotate2.y);
-        matrix.rotateX(this.rotate2.x);
-
-        return matrix;
+        return new Matrix3f().rotation(this.createRotation());
     }
 
     public Matrix4f createMatrix()
     {
-        return this.setupMatrix(Matrices.TEMP_4F.identity());
+        return this.setupMatrix(new Matrix4f());
     }
 
+    /**
+     * THE local matrix of a transform's channels, appended onto {@code matrix}:
+     * {@code translate · rotation · scale}, with the rotation composed in the
+     * one shared place ({@link Matrices#toLocalRotationZYXRadians}). Every
+     * pose/slot consumer builds through here, so the composition order can't
+     * fork between call sites.
+     */
     public Matrix4f setupMatrix(Matrix4f matrix)
     {
         matrix.translate(this.translate);
-        matrix.rotateZ(this.rotate.z);
-        matrix.rotateY(this.rotate.y);
-        matrix.rotateX(this.rotate.x);
-        matrix.rotateZ(this.rotate2.z);
-        matrix.rotateY(this.rotate2.y);
-        matrix.rotateX(this.rotate2.x);
+        matrix.rotate(this.createRotation());
         matrix.scale(this.scale);
 
         return matrix;

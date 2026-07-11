@@ -69,12 +69,7 @@ public class ModelGroup implements IMapSerializable
     {
         if (this.orient == null)
         {
-            this.orient = Matrices.toQuaternionZYXDegrees(this.current.rotate.x, this.current.rotate.y, this.current.rotate.z);
-
-            if (this.current.rotate2.x != 0F || this.current.rotate2.y != 0F || this.current.rotate2.z != 0F)
-            {
-                this.orient.mul(Matrices.toQuaternionZYXDegrees(this.current.rotate2.x, this.current.rotate2.y, this.current.rotate2.z));
-            }
+            this.orient = Matrices.toLocalRotationZYXDegrees(this.current.rotate, this.current.rotate2);
         }
         else
         {

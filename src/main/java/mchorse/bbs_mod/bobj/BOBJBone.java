@@ -117,13 +117,15 @@ public class BOBJBone
         }
         else
         {
-            if (this.transform.rotate.z != 0F) this.mat.rotateZ(this.transform.rotate.z);
-            if (this.transform.rotate.y != 0F) this.mat.rotateY(this.transform.rotate.y);
-            if (this.transform.rotate.x != 0F) this.mat.rotateX(this.transform.rotate.x);
+            Vector3f rotate = this.transform.rotate;
+            Vector3f rotate2 = this.transform.rotate2;
 
-            if (this.transform.rotate2.z != 0F) this.mat.rotateZ(this.transform.rotate2.z);
-            if (this.transform.rotate2.y != 0F) this.mat.rotateY(this.transform.rotate2.y);
-            if (this.transform.rotate2.x != 0F) this.mat.rotateX(this.transform.rotate2.x);
+            /* Rest bones (all angles zero) skip the trig entirely; BOBJ channels are radians. */
+            if (rotate.x != 0F || rotate.y != 0F || rotate.z != 0F
+                || rotate2.x != 0F || rotate2.y != 0F || rotate2.z != 0F)
+            {
+                this.mat.rotate(Matrices.toLocalRotationZYXRadians(rotate, rotate2));
+            }
         }
 
         this.mat.scale(this.transform.scale);
@@ -139,12 +141,7 @@ public class BOBJBone
     {
         if (this.orient == null)
         {
-            this.orient = Matrices.toQuaternionZYXRadians(this.transform.rotate.x, this.transform.rotate.y, this.transform.rotate.z);
-
-            if (this.transform.rotate2.x != 0F || this.transform.rotate2.y != 0F || this.transform.rotate2.z != 0F)
-            {
-                this.orient.mul(Matrices.toQuaternionZYXRadians(this.transform.rotate2.x, this.transform.rotate2.y, this.transform.rotate2.z));
-            }
+            this.orient = Matrices.toLocalRotationZYXRadians(this.transform.rotate, this.transform.rotate2);
         }
         else
         {
