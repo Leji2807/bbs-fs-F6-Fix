@@ -3,6 +3,7 @@ package mchorse.bbs_mod.ui.framework.elements.input.drag;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.utils.Axis;
+import mchorse.bbs_mod.utils.MathUtils;
 import org.joml.Matrix3f;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
@@ -20,6 +21,11 @@ public abstract class SphereDrag extends DragStrategy
     protected final Vector3f rightLocal = new Vector3f();
     protected final Vector3f upLocal = new Vector3f();
     protected final Vector3f viewLocal = new Vector3f();
+
+    /** The same screen axes in world space, for the common-pivot selection session. */
+    protected final Vector3f rightWorldAxis = new Vector3f();
+    protected final Vector3f upWorldAxis = new Vector3f();
+    protected final Vector3f viewWorldAxis = new Vector3f();
 
     /** Accumulated wheel-driven view-axis roll (degrees). */
     protected float rollDeg;
@@ -53,9 +59,13 @@ public abstract class SphereDrag extends DragStrategy
     {
         Matrix3f invView = drag.view.get3x3(new Matrix3f()).invert();
 
-        parentInverse.transform(invView.getColumn(0, new Vector3f()).normalize(), this.rightLocal);
-        parentInverse.transform(invView.getColumn(1, new Vector3f()).normalize(), this.upLocal);
-        parentInverse.transform(invView.getColumn(2, new Vector3f()).normalize(), this.viewLocal);
+        invView.getColumn(0, this.rightWorldAxis).normalize();
+        invView.getColumn(1, this.upWorldAxis).normalize();
+        invView.getColumn(2, this.viewWorldAxis).normalize();
+
+        parentInverse.transform(this.rightWorldAxis, this.rightLocal);
+        parentInverse.transform(this.upWorldAxis, this.upLocal);
+        parentInverse.transform(this.viewWorldAxis, this.viewLocal);
 
         if (this.rightLocal.lengthSquared() < 1.0E-8F || this.upLocal.lengthSquared() < 1.0E-8F)
         {
@@ -110,6 +120,17 @@ public abstract class SphereDrag extends DragStrategy
     @Override
     public void applyNumeric(double value)
     {
+        SelectionPivotSession session = this.ctx.pivotSession();
+
+        if (session != null && this.hasStart)
+        {
+            Vector3f axis = this.numericAxis == Axis.Y ? this.rightWorldAxis : this.upWorldAxis;
+
+            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), axis));
+
+            return;
+        }
+
         this.numericAxisRotation(value, this.numericAxis == Axis.Y ? this.rightLocal : this.upLocal, this.gizmoSpace);
     }
 

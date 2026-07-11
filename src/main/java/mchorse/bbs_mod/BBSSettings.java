@@ -60,6 +60,7 @@ public class BBSSettings {
 	public static ValueBoolean gizmos;
 	public static ValueBoolean defaultLocalTransform;
 	public static ValueBoolean transformHotkeys3dRay;
+	public static ValueInt pivotMode;
 	public static ValueBoolean poseMirrorEdit;
 	public static ValueBoolean poseAlternateInvert;
 	public static ValueBoolean poseShowDisabledBones;
@@ -480,6 +481,8 @@ public class BBSSettings {
 		gizmoOpacity = builder.getFloat("gizmo_opacity", 1F, 0.05F, 1F);
 		defaultLocalTransform = builder.getBoolean("default_local", false);
 		transformHotkeys3dRay = builder.getBoolean("hotkeys_3d_ray", true);
+		pivotMode = builder.getInt("pivot_mode", 0);
+		pivotMode.invisible();
 		poseMirrorEdit = builder.getBoolean("pose_mirror_edit", false);
 		poseMirrorEdit.invisible();
 		poseAlternateInvert = builder.getBoolean("pose_alternate_invert", false);

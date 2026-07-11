@@ -115,12 +115,26 @@ public class TrackballDrag extends SphereDrag
     @Override
     protected void updateRotation()
     {
-        Vector3f source = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
-
         float sensitivity = BBSSettings.trackballSensitivity.get();
         float yaw = MathUtils.toRad(this.accumX * sensitivity);
         float pitch = MathUtils.toRad(this.accumY * sensitivity);
         float roll = MathUtils.toRad(this.rollDeg);
+
+        /* Common-pivot selection: the same turn, composed about the world
+         * screen axes, drives every selected bone through the session. */
+        SelectionPivotSession session = this.ctx.pivotSession();
+
+        if (session != null)
+        {
+            session.applyRotation(new Matrix3f()
+                .rotation(roll, this.viewWorldAxis)
+                .rotate(yaw, this.upWorldAxis.x, this.upWorldAxis.y, this.upWorldAxis.z)
+                .rotate(pitch, this.rightWorldAxis.x, this.rightWorldAxis.y, this.rightWorldAxis.z));
+
+            return;
+        }
+
+        Vector3f source = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
 
         Matrix3f composed = new Matrix3f()
             .rotation(roll, this.viewLocal)

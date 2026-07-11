@@ -80,7 +80,14 @@ public final class RotationDragMath
      */
     public static Matrix3f computeParentInverse(GizmoDrag drag, Vector3f sourceRadians)
     {
-        Matrix3f rotateAxesInverse = new Matrix3f(drag.rotateAxes);
+        return computeParentInverse(drag.rotateAxes, sourceRadians);
+    }
+
+    /** See {@link #computeParentInverse(GizmoDrag, Vector3f)}; takes the measured
+     *  rotate axes directly so per-bone captures can use it without a drag. */
+    public static Matrix3f computeParentInverse(Matrix3f rotateAxes, Vector3f sourceRadians)
+    {
+        Matrix3f rotateAxesInverse = new Matrix3f(rotateAxes);
 
         if (Math.abs(rotateAxesInverse.determinant()) < 1.0E-4F)
         {

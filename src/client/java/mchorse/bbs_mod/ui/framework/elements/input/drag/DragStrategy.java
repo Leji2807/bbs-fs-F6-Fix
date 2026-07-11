@@ -211,10 +211,9 @@ public abstract class DragStrategy
      * the exact same semantics: an offset for translate (units) and rotate
      * (degrees), a factor for scale. */
 
-    protected void numericTranslate(double value)
+    /** The typed offset in translate-channel units, honoring the local toggle and the gesture's axes. */
+    protected Vector3f numericTranslateOffset(double value)
     {
-        Transform cache = this.ctx.cache();
-
         if (this.ctx.isLocal())
         {
             Vector3f offset = this.ctx.localTranslateVector(value, this.axis);
@@ -224,22 +223,28 @@ public abstract class DragStrategy
                 offset.add(this.ctx.localTranslateVector(value, this.axis2));
             }
 
-            this.ctx.writeTranslate(
-                cache.translate.x + offset.x,
-                cache.translate.y + offset.y,
-                cache.translate.z + offset.z
-            );
+            return offset;
         }
-        else
-        {
-            Vector3f t = new Vector3f(cache.translate);
 
-            if (this.axis == Axis.X || this.axis2 == Axis.X) t.x = cache.translate.x + (float) value;
-            if (this.axis == Axis.Y || this.axis2 == Axis.Y) t.y = cache.translate.y + (float) value;
-            if (this.axis == Axis.Z || this.axis2 == Axis.Z) t.z = cache.translate.z + (float) value;
+        Vector3f offset = new Vector3f();
 
-            this.ctx.writeTranslate(t.x, t.y, t.z);
-        }
+        if (this.axis == Axis.X || this.axis2 == Axis.X) offset.x = (float) value;
+        if (this.axis == Axis.Y || this.axis2 == Axis.Y) offset.y = (float) value;
+        if (this.axis == Axis.Z || this.axis2 == Axis.Z) offset.z = (float) value;
+
+        return offset;
+    }
+
+    protected void numericTranslate(double value)
+    {
+        Transform cache = this.ctx.cache();
+        Vector3f offset = this.numericTranslateOffset(value);
+
+        this.ctx.writeTranslate(
+            cache.translate.x + offset.x,
+            cache.translate.y + offset.y,
+            cache.translate.z + offset.z
+        );
     }
 
     protected void numericScale(double value, boolean all)

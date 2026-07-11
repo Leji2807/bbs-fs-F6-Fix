@@ -31,6 +31,9 @@ public class ViewRotateDrag extends DragStrategy
     /** View axis expressed in the bone's parent frame, captured at drag start. */
     private final Vector3f viewLocalAxis = new Vector3f();
 
+    /** The same axis in world space, for the common-pivot selection session. */
+    private final Vector3f viewWorldAxis = new Vector3f();
+
     /** Projected gizmo origin in viewport pixels, captured at drag start. */
     private final Vector2f screenCenter = new Vector2f();
 
@@ -115,6 +118,7 @@ public class ViewRotateDrag extends DragStrategy
         }
 
         viewAxis.normalize();
+        this.viewWorldAxis.set(viewAxis);
 
         this.gizmoSpace = this.ctx.isGizmoSpace();
 
@@ -163,6 +167,17 @@ public class ViewRotateDrag extends DragStrategy
 
         this.accumulatedDeg += MathUtils.toDeg(delta * ROTATE_SIGN);
 
+        /* Common-pivot selection: the total world sweep about the view axis
+         * drives every selected bone through the session. */
+        SelectionPivotSession session = this.ctx.pivotSession();
+
+        if (session != null)
+        {
+            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad(this.accumulatedDeg), this.viewWorldAxis));
+
+            return;
+        }
+
         Vector3f base = this.gizmoSpace ? this.ctx.cache().rotate2 : this.ctx.cache().rotate;
         Vector3f live = this.gizmoSpace ? this.ctx.transform().rotate2 : this.ctx.transform().rotate;
 
@@ -176,6 +191,15 @@ public class ViewRotateDrag extends DragStrategy
     @Override
     public void applyNumeric(double value)
     {
+        SelectionPivotSession session = this.ctx.pivotSession();
+
+        if (session != null && this.hasStart)
+        {
+            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), this.viewWorldAxis));
+
+            return;
+        }
+
         this.numericAxisRotation(value, this.viewLocalAxis, this.gizmoSpace);
     }
 

@@ -12,7 +12,12 @@ import mchorse.bbs_mod.ui.framework.elements.input.UIColor;
 import mchorse.bbs_mod.ui.framework.elements.input.UIDeltaPropTransform;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.PivotMode;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.RotationDragMath;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.SelectionPivotSession;
 import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
+import mchorse.bbs_mod.ui.utils.GizmoDrag;
+import mchorse.bbs_mod.ui.utils.IWorldTransformProvider;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.resizers.AutomaticResizer;
@@ -25,6 +30,9 @@ import mchorse.bbs_mod.utils.pose.Pose;
 import mchorse.bbs_mod.utils.pose.PoseManager;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
 import mchorse.bbs_mod.utils.pose.Transform;
+import org.joml.Matrix3f;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -347,6 +355,107 @@ public class UIPoseEditor extends UIElement
     }
 
     /**
+     * Capture a common-pivot session over the selected bones ({@link PivotMode#MEDIAN}
+     * / {@link PivotMode#ACTIVE}), or {@code null} to keep the per-channel fan-out:
+     * the mode is off, fewer than two bones are selected, or the host can't sample
+     * per-bone world matrices. Every per-bone quantity the session needs — world
+     * origin, channel rotation axes, translate Jacobian — is measured here through
+     * the same finite-difference samplers the single-bone gizmo drag uses, so the
+     * pixel scale, mirroring and parent chain of the model are all accounted for
+     * without modelling them.
+     */
+    protected SelectionPivotSession buildPivotSession(IWorldTransformProvider provider, Runnable preWrite, Runnable postWrite, Runnable refresh)
+    {
+        PivotMode mode = PivotMode.current();
+        List<String> selected = this.groups.list.getCurrent();
+
+        if (mode == PivotMode.INDIVIDUAL || provider == null || this.model == null || selected.size() < 2)
+        {
+            return null;
+        }
+
+        List<SelectionPivotSession.BoneCapture> captures = new ArrayList<>();
+        Vector3f pivot = new Vector3f();
+        Matrix4f sample = new Matrix4f();
+
+        for (String bone : selected)
+        {
+            if (!provider.getWorldMatrix(bone, sample))
+            {
+                return null;
+            }
+
+            PoseTransform transform = this.pose.get(bone);
+            Vector3f origin = sample.getTranslation(new Vector3f());
+            boolean driver = !this.hasSelectedAncestor(bone, selected);
+            Matrix3f parentInverse = null;
+            Matrix3f jacobianInverse = null;
+
+            if (driver)
+            {
+                /* If a perturbed sample fails, the scratch keeps its previous
+                 * value; the derivative degenerates and the capture falls back
+                 * gracefully (identity axis / skipped shift) instead of crashing. */
+                Matrix4f scratch = new Matrix4f(sample);
+                Matrix3f rotateAxes = GizmoDrag.computeRotateAxes(transform, () ->
+                {
+                    provider.getWorldMatrix(bone, scratch);
+
+                    return scratch;
+                });
+
+                parentInverse = RotationDragMath.computeParentInverse(rotateAxes, transform.rotate);
+
+                Matrix3f jacobian = GizmoDrag.computeTranslateJacobian(transform, () ->
+                {
+                    provider.getWorldMatrix(bone, scratch);
+
+                    return scratch.getTranslation(new Vector3f());
+                });
+
+                if (Math.abs(jacobian.determinant()) > 1.0E-8F)
+                {
+                    jacobianInverse = jacobian.invert(new Matrix3f());
+                }
+            }
+
+            captures.add(new SelectionPivotSession.BoneCapture(transform, origin, parentInverse, jacobianInverse, driver));
+
+            if (mode == PivotMode.MEDIAN)
+            {
+                pivot.add(origin);
+            }
+        }
+
+        if (mode == PivotMode.MEDIAN)
+        {
+            pivot.div(captures.size());
+        }
+        else
+        {
+            pivot.set(captures.get(0).worldOrigin);
+        }
+
+        return new SelectionPivotSession(captures, pivot, preWrite, postWrite, refresh);
+    }
+
+    /** Whether any ancestor of the bone is part of the selection (the bone then rides it). */
+    private boolean hasSelectedAncestor(String bone, List<String> selected)
+    {
+        String parent = bone;
+
+        while ((parent = this.model.getParentGroupKey(parent)) != null && !parent.isEmpty())
+        {
+            if (selected.contains(parent))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Applies each transform edit as a per-channel delta to every selected bone,
      * so a multi-selection keeps each bone's own pose instead of collapsing onto
      * the primary's. See {@link UIDeltaPropTransform}.
@@ -362,6 +471,23 @@ public class UIPoseEditor extends UIElement
         protected boolean supportsMirror()
         {
             return true;
+        }
+
+        @Override
+        protected boolean supportsPivotModes()
+        {
+            return true;
+        }
+
+        @Override
+        protected SelectionPivotSession createPivotSession()
+        {
+            return UIPoseEditor.this.buildPivotSession(
+                this.getWorldProvider(),
+                this::preCallback,
+                this::postCallback,
+                this::syncTargetTransform
+            );
         }
 
         @Override

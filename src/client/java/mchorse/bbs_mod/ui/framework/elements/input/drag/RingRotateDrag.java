@@ -4,6 +4,7 @@ import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
+import org.joml.Matrix3f;
 import org.joml.Vector2f;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
@@ -22,6 +23,9 @@ import org.joml.Vector3f;
  */
 public class RingRotateDrag extends DragStrategy
 {
+    /** World-space unit rotation axis of the grabbed ring, captured at drag start. */
+    private final Vector3f axisDir = new Vector3f();
+
     /** Original unit ring direction (perpendicular to the rotation axis) captured at drag start. */
     private final Vector3f initialRingVec = new Vector3f();
 
@@ -97,6 +101,7 @@ public class RingRotateDrag extends DragStrategy
         }
 
         axisDir.normalize();
+        this.axisDir.set(axisDir);
 
         /* Screen-space ring rotation pivots around the gizmo origin projected to
          * the viewport. If the origin can't be projected (behind the camera)
@@ -153,6 +158,19 @@ public class RingRotateDrag extends DragStrategy
 
         this.lastScreenAngle = current;
         this.accumulatedDeg += MathUtils.toDeg(delta) * this.rotateSign;
+
+        /* Common-pivot selection: hand the session the total world turn about
+         * the ring's axis; it drives every selected bone, the primary included. */
+        SelectionPivotSession session = this.ctx.pivotSession();
+
+        if (session != null)
+        {
+            float sweepDeg = (float) this.snapValue(this.accumulatedDeg);
+
+            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad(sweepDeg), this.axisDir));
+
+            return;
+        }
 
         /* Snap only the driven axis, and only in the written value — the raw
          * accumulation stays smooth, and the other two axes carry their start
@@ -220,6 +238,15 @@ public class RingRotateDrag extends DragStrategy
     @Override
     public void applyNumeric(double value)
     {
+        SelectionPivotSession session = this.ctx.pivotSession();
+
+        if (session != null && this.hasStart)
+        {
+            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), this.axisDir));
+
+            return;
+        }
+
         this.numericRotate(value);
     }
 
