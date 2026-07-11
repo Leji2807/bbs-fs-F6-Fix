@@ -20,8 +20,24 @@ public class Transform implements IMapSerializable
 
     public final Vector3f translate = new Vector3f();
     public final Vector3f scale = new Vector3f(DEFAULT_SCALE);
+
+    /**
+     * How this transform stores its rotation, Blender-style per-bone
+     * {@code rotation_mode}. {@link RotationMode#EULER} uses {@link #rotate} /
+     * {@link #rotate2} (keeps &gt;360° spins and per-component curves);
+     * {@link RotationMode#QUATERNION} uses {@link #quat} (no gimbal lock). The
+     * default is EULER, so untouched data and old scenes behave exactly as
+     * before. {@link #createRotation()} is the single point that reads the right
+     * one, so every consumer (render, gizmo, IK, keyframes) follows the mode
+     * without knowing about it.
+     */
+    public RotationMode rotationMode = RotationMode.EULER;
+
     public final Vector3f rotate = new Vector3f();
     public final Vector3f rotate2 = new Vector3f();
+
+    /** The rotation when {@link #rotationMode} is {@link RotationMode#QUATERNION}; identity otherwise. */
+    public final Quaternionf quat = new Quaternionf();
 
     public void lerp(Transform transform, float a)
     {
@@ -75,6 +91,8 @@ public class Transform implements IMapSerializable
         this.scale.set(1, 1, 1);
         this.rotate.set(0, 0, 0);
         this.rotate2.set(0, 0, 0);
+        this.quat.identity();
+        this.rotationMode = RotationMode.EULER;
     }
 
     /**
@@ -93,10 +111,44 @@ public class Transform implements IMapSerializable
         this.rotate2.mul(1F, -1F, -1F);
     }
 
-    /** The full local rotation of the channels ({@code ZYX(rotate) · ZYX(rotate2)}), radians. */
+    /**
+     * THE full local rotation of this transform, radians — the single point every
+     * consumer reads, so the storage mode stays invisible to them. In quaternion
+     * mode it is {@link #quat}; in euler mode it is {@code ZYX(rotate) · ZYX(rotate2)}.
+     */
     public Quaternionf createRotation()
     {
-        return Matrices.toLocalRotationZYXRadians(this.rotate, this.rotate2);
+        return this.rotationMode == RotationMode.QUATERNION
+            ? new Quaternionf(this.quat)
+            : Matrices.toLocalRotationZYXRadians(this.rotate, this.rotate2);
+    }
+
+    /**
+     * Switch to quaternion storage, folding the current euler stacks into
+     * {@link #quat}. A no-op if already in quaternion mode.
+     */
+    public void setModeQuaternion()
+    {
+        if (this.rotationMode != RotationMode.QUATERNION)
+        {
+            this.quat.set(Matrices.toLocalRotationZYXRadians(this.rotate, this.rotate2));
+            this.rotationMode = RotationMode.QUATERNION;
+        }
+    }
+
+    /**
+     * Switch to euler storage, decomposing the current quaternion into
+     * {@link #rotate} (ZYX) and clearing {@link #rotate2}. A no-op if already in
+     * euler mode.
+     */
+    public void setModeEuler()
+    {
+        if (this.rotationMode != RotationMode.EULER)
+        {
+            new Quaternionf(this.quat).normalize().getEulerAnglesZYX(this.rotate);
+            this.rotate2.set(0F, 0F, 0F);
+            this.rotationMode = RotationMode.EULER;
+        }
     }
 
     public Matrix3f createRotationMatrix()
@@ -137,10 +189,16 @@ public class Transform implements IMapSerializable
         {
             Transform transform = (Transform) obj;
 
-            return this.translate.equals(transform.translate)
-                && this.scale.equals(transform.scale)
-                && this.rotate.equals(transform.rotate)
-                && this.rotate2.equals(transform.rotate2);
+            if (this.rotationMode != transform.rotationMode
+                || !this.translate.equals(transform.translate)
+                || !this.scale.equals(transform.scale))
+            {
+                return false;
+            }
+
+            return this.rotationMode == RotationMode.QUATERNION
+                ? this.quat.equals(transform.quat)
+                : this.rotate.equals(transform.rotate) && this.rotate2.equals(transform.rotate2);
         }
 
         return false;
@@ -161,6 +219,8 @@ public class Transform implements IMapSerializable
         this.scale.set(transform.scale);
         this.rotate.set(transform.rotate);
         this.rotate2.set(transform.rotate2);
+        this.quat.set(transform.quat);
+        this.rotationMode = transform.rotationMode;
     }
 
     public boolean isDefault()
@@ -195,8 +255,18 @@ public class Transform implements IMapSerializable
         {
             data.put("t", DataStorageUtils.vector3fToData(this.translate));
             data.put("s", DataStorageUtils.vector3fToData(this.scale));
-            data.put("r", DataStorageUtils.vector3fToData(this.rotate));
-            data.put("r2", DataStorageUtils.vector3fToData(this.rotate2));
+
+            /* The presence of "q" is itself the mode discriminator, so no separate
+             * flag is needed and old scenes (only r/r2) read back as EULER. */
+            if (this.rotationMode == RotationMode.QUATERNION)
+            {
+                data.put("q", DataStorageUtils.quaternionfToData(this.quat));
+            }
+            else
+            {
+                data.put("r", DataStorageUtils.vector3fToData(this.rotate));
+                data.put("r2", DataStorageUtils.vector3fToData(this.rotate2));
+            }
         }
     }
 
@@ -207,7 +277,23 @@ public class Transform implements IMapSerializable
 
         this.translate.set(DataStorageUtils.vector3fFromData(data.getList("t")));
         this.scale.set(DataStorageUtils.vector3fFromData(data.getList("s"), DEFAULT_SCALE));
-        this.rotate.set(DataStorageUtils.vector3fFromData(data.getList("r")));
-        this.rotate2.set(DataStorageUtils.vector3fFromData(data.getList("r2")));
+
+        if (data.has("q"))
+        {
+            this.rotationMode = RotationMode.QUATERNION;
+            this.quat.set(DataStorageUtils.quaternionfFromData(data.getList("q")));
+        }
+        else
+        {
+            this.rotationMode = RotationMode.EULER;
+            this.rotate.set(DataStorageUtils.vector3fFromData(data.getList("r")));
+            this.rotate2.set(DataStorageUtils.vector3fFromData(data.getList("r2")));
+        }
+    }
+
+    /** Per-transform rotation storage, Blender's {@code rotation_mode} (Euler | Quaternion). */
+    public enum RotationMode
+    {
+        EULER, QUATERNION
     }
 }
