@@ -41,7 +41,20 @@ public class Transform implements IMapSerializable
     {
         this.translate.lerp(transform.translate, a);
         this.scale.lerp(transform.scale, a);
+        this.lerpRotation(transform, a);
+    }
 
+    /**
+     * Blend this transform's rotation toward {@code transform}'s by {@code a},
+     * mode-aware — the rotation half of {@link #lerp(Transform, float)}, factored
+     * out so the pose-fix blend paths (form pose overlays) keep a quaternion bone
+     * on a slerp instead of a component-wise euler lerp that would drop its
+     * rotation. This is pose BLEND (a single shortest-arc slerp), not keyframe
+     * interpolation — the latter lives in {@link #interpolateQuat} with per-component
+     * curves.
+     */
+    public void lerpRotation(Transform transform, float a)
+    {
         if (this.rotationMode == RotationMode.QUATERNION || transform.rotationMode == RotationMode.QUATERNION)
         {
             this.quat.set(this.createRotation()).slerp(transform.createRotation(), a);
@@ -155,13 +168,23 @@ public class Transform implements IMapSerializable
     {
         this.translate.add(transform.translate);
         this.scale.mul(transform.scale);
+        this.addRotation(transform);
+    }
 
-        /* Additive rotation stacking (action layers over a base pose). Same
-         * mode-discriminator as lerp: if either side is quaternion the result is
-         * quaternion — the layer composes as {@code base · layer} (matching the
-         * orient composition in applyPose), so a quat layer's rotation is no
-         * longer silently dropped onto the euler triple. Both euler keeps the
-         * legacy component-wise angle add. */
+    /**
+     * Additively stack {@code transform}'s rotation onto this one, mode-aware — the
+     * rotation half of {@link #add(Transform)}, factored out so every overlay path
+     * (action layers, form additional transforms, pose overlays) composes rotation
+     * the same way instead of hand-rolling a component-wise euler add that silently
+     * drops a quaternion bone's rotation. If either side is quaternion the result is
+     * the quaternion product {@code base · layer} (matching the orient composition in
+     * applyPose) and the mode flips to quaternion; both-euler keeps the legacy
+     * component-wise angle add. Note the caller owns translate/scale — this touches
+     * rotation only, so callers with a different scale convention (additive
+     * {@code +scale-1} instead of {@code ·scale}) can still reuse it.
+     */
+    public void addRotation(Transform transform)
+    {
         if (this.rotationMode == RotationMode.QUATERNION || transform.rotationMode == RotationMode.QUATERNION)
         {
             this.quat.set(this.createRotation()).mul(transform.createRotation());
@@ -242,6 +265,25 @@ public class Transform implements IMapSerializable
             new Quaternionf(this.quat).normalize().getEulerAnglesZYX(this.rotate);
             this.rotationMode = RotationMode.EULER;
         }
+    }
+
+    /**
+     * The effective local rotation as euler ZYX angles (radians), written into
+     * {@code dest} — {@link #rotate} directly in euler mode, or {@link #quat}
+     * decomposed in quaternion mode. THE read for euler-only destinations that
+     * cannot hold a quaternion (vanilla Minecraft {@code ModelPart} pitch/yaw/roll),
+     * so a quaternion bone still contributes its rotation there instead of being
+     * silently dropped — lossy only at a gimbal pole, which is inherent to any
+     * three-angle target.
+     */
+    public Vector3f getEulerRotation(Vector3f dest)
+    {
+        if (this.rotationMode == RotationMode.QUATERNION)
+        {
+            return this.quat.getEulerAnglesZYX(dest);
+        }
+
+        return dest.set(this.rotate);
     }
 
     public Matrix3f createRotationMatrix()
