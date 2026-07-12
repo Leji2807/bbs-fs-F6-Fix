@@ -56,11 +56,16 @@ public abstract class SphereDrag extends DragStrategy
      */
     protected boolean captureScreenAxes(GizmoDrag drag, Matrix3f parentInverse)
     {
-        Matrix3f invView = drag.view.get3x3(new Matrix3f()).invert();
+        Matrix3f cameraBasis = drag.cameraBasis();
 
-        invView.getColumn(0, this.rightWorldAxis).normalize();
-        invView.getColumn(1, this.upWorldAxis).normalize();
-        invView.getColumn(2, this.viewWorldAxis).normalize();
+        if (cameraBasis == null)
+        {
+            return false;
+        }
+
+        cameraBasis.getColumn(0, this.rightWorldAxis).normalize();
+        cameraBasis.getColumn(1, this.upWorldAxis).normalize();
+        cameraBasis.getColumn(2, this.viewWorldAxis).normalize();
 
         parentInverse.transform(this.rightWorldAxis, this.rightLocal);
         parentInverse.transform(this.upWorldAxis, this.upLocal);

@@ -237,35 +237,94 @@ public class GizmoDrag
     }
 
     /**
-     * The world-space orthonormal basis a {@link TransformSpace} aligns to, whose
-     * columns are the world directions the gizmo's X/Y/Z map to in that space.
-     * {@link TransformSpace#LOCAL} is the bone's own render axes ({@link #rotateAxes},
-     * so it exactly reproduces the historical behaviour); {@link TransformSpace#GLOBAL}
-     * is the world identity; {@link TransformSpace#VIEW} is the camera's
-     * right/up/back (the inverse of the rotation-only {@link #view}). Constrained
-     * drags rotate/slide along a column of this, and the gizmo (Phase C) draws its
-     * handles in it.
+     * The world-space orthonormal basis a {@link TransformSpace} aligns the gizmo
+     * GEOMETRY to: the frame its handles are drawn and picked in, and the world
+     * directions a constrained translate slides along or a scale levers along.
+     * {@link TransformSpace#LOCAL} is the bone's rendered frame ({@link #gizmoWorldAxes},
+     * the visible arrows); {@link TransformSpace#GLOBAL} is the world identity;
+     * {@link TransformSpace#VIEW} is the camera's right/up/forward
+     * ({@link #cameraBasis}, world axes when the view is degenerate);
+     * {@link TransformSpace#PARENT} is {@link #gizmoWorldAxes} as well &mdash;
+     * in that space the gizmo is PLACED on the cache's origin-flavour matrix
+     * (the bone's frame before its own rotation, i.e. the parent frame), so the
+     * drawn arrows already are the parent axes.
+     *
+     * <p>This is NOT the frame rotation composes in &mdash; see {@link #rotationBasis}:
+     * on cubic models the renderer post-multiplies {@code Ry(180°)} after the
+     * bone's own rotation, so the drawn X/Z arrows point opposite to the axes the
+     * rotate channels turn about. The two bases agree everywhere else.
      */
-    public Matrix3f spaceBasis(TransformSpace space)
+    public Matrix3f frameBasis(TransformSpace space)
     {
         switch (space)
         {
             case GLOBAL:
                 return new Matrix3f();
             case VIEW:
-                /* view is world→camera (rotation only), so its inverse takes the
-                 * camera's own axes back into world space. */
-                Matrix3f viewAxes = this.view.get3x3(new Matrix3f());
+                Matrix3f camera = this.cameraBasis();
 
-                if (Math.abs(viewAxes.determinant()) < PARALLEL_EPSILON)
-                {
-                    return new Matrix3f();
-                }
-
-                return viewAxes.invert();
+                /* Constrained drags need axes whatever happens, so a degenerate
+                 * view falls back to the world frame. */
+                return camera == null ? new Matrix3f() : camera;
             default:
-                return new Matrix3f(this.rotateAxes);
+                /* LOCAL and PARENT: the frame the gizmo was drawn in IS the
+                 * space frame — the placement matrix carries the bone's own
+                 * frame in LOCAL and the origin/parent frame in PARENT. */
+                return new Matrix3f(this.gizmoWorldAxes);
         }
+    }
+
+    /**
+     * The world-space axes a rotation gesture turns about in a {@link TransformSpace}.
+     * Differs from {@link #frameBasis} only in {@link TransformSpace#LOCAL}, where it
+     * is the MEASURED {@link #rotateAxes} &mdash; the renderer's actual response to
+     * the rotate channels, which on cubic models folds in the post-multiplied
+     * {@code Ry(180°)} sign flip on X/Z that the drawn arrows don't carry. A ring
+     * sweeping a drawn arrow's direction there would turn backwards, so every
+     * rotation consumer (the ring drag, the pie preview) reads this basis.
+     */
+    public Matrix3f rotationBasis(TransformSpace space)
+    {
+        return space == TransformSpace.LOCAL ? new Matrix3f(this.rotateAxes) : this.frameBasis(space);
+    }
+
+    /**
+     * The camera's world-space right/up/forward as the columns of an orthonormal
+     * basis &mdash; the single source of the screen frame. {@link #view} is the
+     * rotation-only world&rarr;camera map, so its inverse takes the camera's own
+     * axes back into world space. This is {@link #frameBasis}'s VIEW frame, and
+     * the inherently screen-relative gestures (the screen translate, the sphere's
+     * trackball/arcball tumble) read their right/up axes from here instead of
+     * re-inverting the view matrix themselves. Returns {@code null} when the view
+     * is degenerate; those gestures then don't start.
+     */
+    public Matrix3f cameraBasis()
+    {
+        Matrix3f viewAxes = this.view.get3x3(new Matrix3f());
+
+        if (Math.abs(viewAxes.determinant()) < PARALLEL_EPSILON)
+        {
+            return null;
+        }
+
+        return viewAxes.invert();
+    }
+
+    /**
+     * The 3&times;3 the gizmo's view-space drawing frame gets for a
+     * {@link TransformSpace} ({@link Gizmo#reorientForSpace}). The drawing stack
+     * already carries world&rarr;view, so this is {@code view · frameBasis(space)}
+     * simplified: {@link TransformSpace#GLOBAL} is the view rotation itself
+     * ({@code view · identity}) and {@link TransformSpace#VIEW} the identity
+     * ({@code view · view⁻¹}). {@link TransformSpace#LOCAL} and
+     * {@link TransformSpace#PARENT} never reach this &mdash; the reorient keeps
+     * the placement frame for them (bone frame / origin-flavour parent frame).
+     * Keeping it here ties the drawn frame to the same space&rarr;basis mapping
+     * the drags read.
+     */
+    public static Matrix3f stackBasisForSpace(TransformSpace space, Matrix4f view)
+    {
+        return space == TransformSpace.GLOBAL ? view.get3x3(new Matrix3f()) : new Matrix3f();
     }
 
     public GizmoDrag setJacobian(Matrix3f jacobian)

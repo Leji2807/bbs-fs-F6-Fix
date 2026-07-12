@@ -28,6 +28,7 @@ import mchorse.bbs_mod.ui.framework.elements.UIScrollView;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.events.UIRemovedEvent;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
 import mchorse.bbs_mod.ui.framework.elements.utils.FontRenderer;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
@@ -373,9 +374,14 @@ public class UIModelBlockPanel extends UIDashboardPanel implements IFlightSuppor
         stack.push();
         this.applyGizmoOrigin(stack, cameraPos);
         /* Reorient into the active space (GLOBAL world axes / VIEW screen axes);
-         * LOCAL keeps the block rotation applied above. One capture feeds both the
-         * visual and the pick stencil, so they stay in lockstep. */
-        Gizmo.INSTANCE.reorientForSpace(stack, this.transform.getSpace(), this.gizmoCamera.view);
+         * LOCAL keeps the block rotation applied above. The block's transform
+         * composes straight onto the world, so its parent frame IS the world
+         * frame — PARENT maps to GLOBAL here (bone editors instead keep their
+         * placement frame, which carries the real parent frame). One capture
+         * feeds both the visual and the pick stencil, so they stay in lockstep. */
+        TransformSpace space = this.transform.getSpace();
+
+        Gizmo.INSTANCE.reorientForSpace(stack, space == TransformSpace.PARENT ? TransformSpace.GLOBAL : space, this.gizmoCamera.view);
         Gizmo.INSTANCE.captureVisual(stack);
         stack.pop();
     }

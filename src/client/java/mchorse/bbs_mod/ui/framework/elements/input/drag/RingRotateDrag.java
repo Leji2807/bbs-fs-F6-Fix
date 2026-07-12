@@ -100,8 +100,9 @@ public class RingRotateDrag extends DragStrategy
         /* The world axis this ring turns around, in the active space. LOCAL is
          * the renderer's actual rotation axis (GizmoDrag.computeRotateAxes) — not
          * the visible arrow, since cubic models post-multiply Ry(180°) and flip
-         * bone-local X/Z; GLOBAL is the world axis; VIEW is the camera axis. */
-        Vector3f axisDir = drag.spaceBasis(this.space).getColumn(this.axis.ordinal(), new Vector3f());
+         * bone-local X/Z; GLOBAL is the world axis; VIEW is the camera axis;
+         * PARENT is the parent frame's axis (the frame the placement carries). */
+        Vector3f axisDir = drag.rotationBasis(this.space).getColumn(this.axis.ordinal(), new Vector3f());
 
         if (axisDir.lengthSquared() < 1.0E-8F)
         {

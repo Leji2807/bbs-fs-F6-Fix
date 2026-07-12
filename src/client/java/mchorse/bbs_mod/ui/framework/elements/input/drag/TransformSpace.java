@@ -9,15 +9,16 @@ package mchorse.bbs_mod.ui.framework.elements.input.drag;
  * <p>{@link #LOCAL} is the historical behaviour: the gizmo aligns to the bone's
  * own axes and a constrained edit runs along them (the panel also switches to
  * relative local nudges here). {@link #GLOBAL} aligns to the world axes and
- * {@link #VIEW} to the camera's right/up/forward. The three-way cycle replaces
- * the old local/global boolean, so {@code space == LOCAL} is exactly the former
- * {@code local} flag and every consumer that only distinguished local from
- * not-local keeps working with {@link #isLocal()}.
- *
- * <p>{@link #PARENT} is a reserved slot: it shows up in the picker but is not
- * wired into the drag/gizmo math yet ({@link #implemented} is {@code false}),
- * so it is never selected and the frame consumers never see it. Flip its flag
- * once the parent-frame basis is implemented and it lights up everywhere.
+ * {@link #VIEW} to the camera's right/up/forward. {@link #PARENT} aligns to
+ * the frame the bone's channels compose in &mdash; its parent bone (or the
+ * model root / world for a top-level bone). The non-local gizmo placement
+ * already carries that frame: the matrix cache's origin flavour is the bone's
+ * frame BEFORE its own rotation, so PARENT simply keeps the placed axes
+ * (see {@code Gizmo.reorientForSpace}); the model block maps it to GLOBAL,
+ * its transform composing straight onto the world. The four-way cycle
+ * replaces the old local/global boolean, so {@code space == LOCAL} is exactly
+ * the former {@code local} flag and every consumer that only distinguished
+ * local from not-local keeps working with {@link #isLocal()}.
  */
 public enum TransformSpace
 {
@@ -30,8 +31,8 @@ public enum TransformSpace
     /** The camera's right/up/forward — a constrained edit runs in screen space. */
     VIEW(true),
 
-    /** The parent bone's frame — reserved, not implemented yet (see class docs). */
-    PARENT(false);
+    /** The parent's frame — the frame the bone's own channels compose in. */
+    PARENT(true);
 
     /** Whether the frame math is wired up; unimplemented spaces are shown but not selectable. */
     public final boolean implemented;

@@ -71,33 +71,21 @@ public class ScreenTranslateDrag extends TranslateDrag
             return;
         }
 
-        Matrix3f invView = drag.view.get3x3(new Matrix3f());
+        /* The camera's world right/up/forward from the one shared screen-frame
+         * source (GizmoDrag.cameraBasis); with a degenerate view there is no
+         * screen plane to drag in. */
+        Matrix3f cameraBasis = drag.cameraBasis();
 
-        if (Math.abs(invView.determinant()) < 1.0E-8F)
+        if (cameraBasis == null)
         {
             this.hasStart = false;
 
             return;
         }
 
-        invView.invert();
-
-        Vector3f right = invView.getColumn(0, new Vector3f());
-        Vector3f up = invView.getColumn(1, new Vector3f());
-        Vector3f forward = invView.getColumn(2, new Vector3f());
-
-        if (right.lengthSquared() < 1.0E-8F || up.lengthSquared() < 1.0E-8F || forward.lengthSquared() < 1.0E-8F)
-        {
-            this.hasStart = false;
-
-            return;
-        }
-
-        right.normalize();
-        up.normalize();
-        forward.normalize();
-
-        Matrix3f cameraBasis = new Matrix3f();
+        Vector3f right = cameraBasis.getColumn(0, new Vector3f()).normalize();
+        Vector3f up = cameraBasis.getColumn(1, new Vector3f()).normalize();
+        Vector3f forward = cameraBasis.getColumn(2, new Vector3f()).normalize();
 
         cameraBasis.setColumn(0, right);
         cameraBasis.setColumn(1, up);

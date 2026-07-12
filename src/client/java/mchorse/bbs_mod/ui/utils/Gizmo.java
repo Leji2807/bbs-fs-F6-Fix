@@ -1188,7 +1188,7 @@ public class Gizmo
          * so the sweep still reads correctly there); for GLOBAL/VIEW it is the
          * world/camera axis, so the pie sweeps with the corrected rotation instead
          * of following the raw bone axis backwards. */
-        Vector3f dragAxisDir = this.currentTransform.getDrag().spaceBasis(this.currentTransform.getSpace()).getColumn(axis.ordinal(), new Vector3f());
+        Vector3f dragAxisDir = this.currentTransform.getDrag().rotationBasis(this.currentTransform.getSpace()).getColumn(axis.ordinal(), new Vector3f());
 
         float gx = initialVec.dot(axisX);
         float gy = initialVec.dot(axisY);
@@ -1627,26 +1627,26 @@ public class Gizmo
      * place, BEFORE it is captured &mdash; so the visual ({@link #renderInterface})
      * and the pick stencil, both rebuilt from the captured frame, stay in
      * lockstep. The frame's origin (its translation) is kept and only its axes
-     * are replaced: {@link TransformSpace#GLOBAL} draws the world axes (the
-     * camera's rotation-only world&rarr;view {@code view}, which matches the view
-     * already folded into the frame), {@link TransformSpace#VIEW} draws the
-     * screen axes (identity in the already-view-space frame). {@link TransformSpace#LOCAL}
-     * leaves the bone's own axes untouched. Call right after the gizmo origin is
-     * multiplied onto the stack and before {@link #render}/{@link #renderStencil}/
-     * {@link #captureVisual}.
+     * are replaced with {@link GizmoDrag#stackBasisForSpace} &mdash; the drawn
+     * twin of the frame the drags slide/turn in ({@link GizmoDrag#frameBasis}).
+     * {@link TransformSpace#LOCAL} leaves the bone's own axes untouched, and
+     * {@link TransformSpace#PARENT} keeps the placed frame too: the non-local
+     * placement matrix is the cache's origin flavour &mdash; the bone's frame
+     * BEFORE its own rotation, which is exactly the parent frame. Call right
+     * after the gizmo origin is multiplied onto the stack and before
+     * {@link #render}/{@link #renderStencil}/{@link #captureVisual}.
      */
     public void reorientForSpace(MatrixStack stack, TransformSpace space, Matrix4f cameraView)
     {
-        if (space == null || space == TransformSpace.LOCAL || cameraView == null)
+        if (space == null || space == TransformSpace.LOCAL || space == TransformSpace.PARENT || cameraView == null)
         {
             return;
         }
 
         Matrix4f matrix = stack.peek().getPositionMatrix();
         Vector3f translation = matrix.getTranslation(new Vector3f());
-        Matrix3f basis = space == TransformSpace.GLOBAL ? cameraView.get3x3(new Matrix3f()) : new Matrix3f();
 
-        matrix.set(new Matrix4f(basis).setTranslation(translation));
+        matrix.set(new Matrix4f(GizmoDrag.stackBasisForSpace(space, cameraView)).setTranslation(translation));
     }
 
     /**

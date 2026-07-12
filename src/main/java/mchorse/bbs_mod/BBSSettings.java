@@ -482,9 +482,10 @@ public class BBSSettings {
 		gizmoOpacity = builder.getFloat("gizmo_opacity", 1F, 0.05F, 1F);
 		defaultLocalTransform = builder.getBoolean("default_local", false);
 		/* The transform editors' currently picked space, remembered across restarts
-		 * (the picker writes it, all editors read it). Seeded from the old
-		 * default_local toggle so existing configs keep their previous frame. */
-		transformSpace = builder.getInt("transform_space", defaultLocalTransform.get() ? 0 : 1);
+		 * (the picker writes it, all editors read it). Defaults to PARENT (ordinal 3
+		 * in TransformSpace: LOCAL, GLOBAL, VIEW, PARENT); the default_local toggle
+		 * seeds LOCAL (0) instead. Existing configs keep their stored pick. */
+		transformSpace = builder.getInt("transform_space", defaultLocalTransform.get() ? 0 : 3);
 		transformSpace.invisible();
 		transformHotkeys3dRay = builder.getBoolean("hotkeys_3d_ray", true);
 		pivotMode = builder.getInt("pivot_mode", 0);

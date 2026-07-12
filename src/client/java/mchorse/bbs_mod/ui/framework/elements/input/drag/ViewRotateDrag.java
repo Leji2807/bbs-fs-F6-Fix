@@ -8,11 +8,12 @@ import org.joml.Vector2f;
 import org.joml.Vector3f;
 
 /**
- * View-plane rotation: the axis is fixed to the gizmo-to-camera direction,
- * and the angle comes from sweeping the cursor around the projected gizmo
- * center, exactly like a per-axis ring. Unlike a single ring, the resulting
- * world-space turn is spread across all three rotate components, so it stays
- * "common" to the three axes.
+ * View-plane rotation: the axis is the screen's perpendicular (the shared
+ * camera basis' forward column, pointing at the viewer &mdash; Blender's view
+ * axis), and the angle comes from sweeping the cursor around the projected
+ * gizmo center, exactly like a per-axis ring. Unlike a single ring, the
+ * resulting world-space turn is spread across all three rotate components,
+ * so it stays "common" to the three axes.
  *
  * <p>The rotation is rebuilt every frame from the FIXED start orientation
  * (the cache) plus the total swept angle about the view axis anchored at
@@ -105,18 +106,18 @@ public class ViewRotateDrag extends DragStrategy
             return;
         }
 
-        Vector3f viewAxis = new Vector3f(
-            (float) (drag.cameraOrigin.x - drag.gizmoOrigin.x),
-            (float) (drag.cameraOrigin.y - drag.gizmoOrigin.y),
-            (float) (drag.cameraOrigin.z - drag.gizmoOrigin.z)
-        );
+        /* The screen's perpendicular from the one shared camera basis, pointing
+         * at the viewer (same sign convention as before) — so every object
+         * turns about the same screen-aligned axis wherever it sits in frame. */
+        Matrix3f cameraBasis = drag.cameraBasis();
 
-        if (viewAxis.lengthSquared() < 1.0E-8F || !drag.projectToScreen(drag.gizmoOrigin, this.screenCenter))
+        if (cameraBasis == null || !drag.projectToScreen(drag.gizmoOrigin, this.screenCenter))
         {
             return;
         }
 
-        viewAxis.normalize();
+        Vector3f viewAxis = cameraBasis.getColumn(2, new Vector3f()).normalize();
+
         this.viewWorldAxis.set(viewAxis);
 
 

@@ -165,7 +165,7 @@ public class UIPropTransform extends UITransform
         /* Space + translate + scale rows are CONTROL_HEIGHT; the rotate row is as tall
          * as its 20px toggle icon. */
         this.h(3 * UIConstants.CONTROL_HEIGHT + 20);
-        this.updateLocalUI();
+        this.updateSpaceLabel();
 
         /* Each finished value-field drag closes the current undo block, so dragging a
          * field several times in a row undoes one drag at a time (see endGesture). */
@@ -323,7 +323,8 @@ public class UIPropTransform extends UITransform
     }
 
     /** The space remembered from the last session, guarded against an out-of-range
-     *  or not-yet-implemented stored value (then falls back to the old default). */
+     *  or not-yet-implemented stored value (then falls back to the default: PARENT,
+     *  or LOCAL when the {@code default_local} toggle is on). */
     private static TransformSpace loadSpace()
     {
         TransformSpace[] values = TransformSpace.values();
@@ -331,13 +332,13 @@ public class UIPropTransform extends UITransform
 
         if (!space.implemented)
         {
-            return BBSSettings.defaultLocalTransform.get() ? TransformSpace.LOCAL : TransformSpace.GLOBAL;
+            return BBSSettings.defaultLocalTransform.get() ? TransformSpace.LOCAL : TransformSpace.PARENT;
         }
 
         return space;
     }
 
-    /** Hotkey cycle: step to the next implemented space (PARENT is skipped for now). */
+    /** Hotkey cycle: step to the next implemented space. */
     private void cycleSpace()
     {
         this.selectSpace(this.space.next());
@@ -353,19 +354,11 @@ public class UIPropTransform extends UITransform
 
         this.space = space;
         BBSSettings.transformSpace.set(space.ordinal());
-
-        /* Leaving LOCAL turns the relative nudge fields back into absolute
-         * world values, so refill them from the current transform. */
-        if (space != TransformSpace.LOCAL && this.transform != null)
-        {
-            this.fillT(this.transform.translate.x, this.transform.translate.y, this.transform.translate.z);
-        }
-
-        this.updateLocalUI();
+        this.updateSpaceLabel();
     }
 
-    /** Open the clip-style space list: each implemented frame with its icon and colour,
-     *  the reserved PARENT slot greyed out and inert. */
+    /** Open the clip-style space list: each implemented frame with its icon and colour
+     *  (a not-yet-implemented frame would show greyed out and inert). */
     private void openSpaceMenu()
     {
         UIContext context = this.getContext();
@@ -391,17 +384,12 @@ public class UIPropTransform extends UITransform
         });
     }
 
-    private void updateLocalUI()
+    /** Refresh the space picker's label to the active frame. The translate pads
+     *  read and write {@code transform.translate} directly in every frame now,
+     *  like the scale and rotate pads (the former LOCAL relative-nudge fields are
+     *  gone; the gizmo still drags along the local axes). */
+    private void updateSpaceLabel()
     {
-        boolean local = this.space == TransformSpace.LOCAL;
-
-        this.tx.forcedLabel(local ? UIKeys.GENERAL_X : null);
-        this.ty.forcedLabel(local ? UIKeys.GENERAL_Y : null);
-        this.tz.forcedLabel(local ? UIKeys.GENERAL_Z : null);
-        this.tx.relative(local);
-        this.ty.relative(local);
-        this.tz.relative(local);
-
         if (this.spaceButton != null)
         {
             this.spaceButton.label = this.spaceLabel(this.space);
@@ -1316,37 +1304,6 @@ public class UIPropTransform extends UITransform
     }
 
     @Override
-    protected void internalSetT(double x, Axis axis)
-    {
-        if (this.transform == null)
-        {
-            return;
-        }
-
-        if (this.isLocal())
-        {
-            try
-            {
-                Vector3f vector3f = this.calculateLocalVector(x, axis);
-
-                this.setT(null,
-                    this.transform.translate.x + vector3f.x,
-                    this.transform.translate.y + vector3f.y,
-                    this.transform.translate.z + vector3f.z
-                );
-            }
-            catch (Exception e)
-            {
-                e.printStackTrace();
-            }
-        }
-        else
-        {
-            super.internalSetT(x, axis);
-        }
-    }
-
-    @Override
     public void setT(Axis axis, double x, double y, double z)
     {
         if (this.transform == null)
@@ -1910,7 +1867,7 @@ public class UIPropTransform extends UITransform
 
     /**
      * Dropdown trigger for the transform space: a normal button whose label is the
-     * active frame's name (kept current by {@link #updateLocalUI}), with that frame's
+     * active frame's name (kept current by {@link #updateSpaceLabel}), with that frame's
      * coloured icon drawn on the left. Clicking opens the clip-style space list.
      */
     private class UISpaceButton extends UIButton

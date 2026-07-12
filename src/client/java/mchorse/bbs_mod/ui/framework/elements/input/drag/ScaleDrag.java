@@ -44,7 +44,11 @@ public class ScaleDrag extends DragStrategy
             return;
         }
 
-        this.worldBasis.set(drag.gizmoWorldAxes);
+        /* Always the bone's own frame: a per-axis scale in any other frame is a
+         * shear on a rotated bone, which the T·R·S channels can't represent, so
+         * scale deliberately ignores the space toggle (the editor hides its
+         * space chip for the same reason). */
+        this.worldBasis.set(drag.frameBasis(TransformSpace.LOCAL));
 
         if (this.axis2 == null)
         {
