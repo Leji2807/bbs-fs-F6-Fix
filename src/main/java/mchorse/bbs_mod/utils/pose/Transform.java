@@ -58,14 +58,15 @@ public class Transform implements IMapSerializable
         this.lerp(this.translate, preA.translate, a.translate, b.translate, postB.translate, interp, x);
         this.lerp(this.scale, preA.scale, a.scale, b.scale, postB.scale, interp, x);
 
-        /* Quaternion keyframes interpolate by slerp — no gimbal lock, no euler
-         * pole swing — using the curve's easing as the a→b progress. */
+        /* Quaternion keyframes interpolate PER COMPONENT (w,x,y,z) through the
+         * very same curve as every other channel, then re-normalize — Blender's
+         * quaternion F-curve model. This gives smooth (C1) tangents across key
+         * joins that a per-segment slerp can't, and keeps euler and quaternion
+         * on one uniform interpolation path. */
         if (a.rotationMode == RotationMode.QUATERNION || b.rotationMode == RotationMode.QUATERNION)
         {
-            float t = (float) interp.interpolate(IInterp.context.set(0, 0, 1, 1, x));
-
-            this.quat.set(a.createRotation()).slerp(b.createRotation(), t);
-            this.rotationMode = RotationMode.QUATERNION;
+            this.interpolateQuat(preA, a, b, postB,
+                (pre, av, bv, post) -> interp.interpolate(IInterp.context.set(pre, av, bv, post, x)));
         }
         else
         {
@@ -88,10 +89,8 @@ public class Transform implements IMapSerializable
 
         if (a.rotationMode == RotationMode.QUATERNION || b.rotationMode == RotationMode.QUATERNION)
         {
-            float t = (float) AutoBezier.get(0, 0, 1, 1, pt, at, bt, qt, clamped, x);
-
-            this.quat.set(a.createRotation()).slerp(b.createRotation(), t);
-            this.rotationMode = RotationMode.QUATERNION;
+            this.interpolateQuat(preA, a, b, postB,
+                (pre, av, bv, post) -> AutoBezier.get(pre, av, bv, post, pt, at, bt, qt, clamped, x));
         }
         else
         {
@@ -105,6 +104,51 @@ public class Transform implements IMapSerializable
         target.x = (float) AutoBezier.get(preA.x, a.x, b.x, postB.x, pt, at, bt, qt, clamped, x);
         target.y = (float) AutoBezier.get(preA.y, a.y, b.y, postB.y, pt, at, bt, qt, clamped, x);
         target.z = (float) AutoBezier.get(preA.z, a.z, b.z, postB.z, pt, at, bt, qt, clamped, x);
+    }
+
+    /**
+     * Interpolate the quaternion rotation of a keyframe window per component,
+     * shared by both the manual-curve {@link #lerp} and the auto-bezier
+     * {@link #autoLerp}. The four control rotations are read through
+     * {@link #createRotation()} (so euler and quaternion keys can mix), then
+     * sign-aligned into a single hemisphere around {@code a}: since {@code q}
+     * and {@code -q} are the same orientation, a neighbour in the opposite
+     * hemisphere would otherwise make the component curves wind the long way.
+     * This is Blender's "make quaternion keyframes compatible", done locally at
+     * evaluation time. The kernel supplies the actual per-component curve
+     * (manual easing or auto bezier); the result is re-normalized back onto the
+     * unit sphere. Writes {@link #quat} and switches to quaternion mode.
+     */
+    private void interpolateQuat(Transform preA, Transform a, Transform b, Transform postB, QuatComponent kernel)
+    {
+        Quaternionf qpre = preA.createRotation();
+        Quaternionf qa = a.createRotation();
+        Quaternionf qb = b.createRotation();
+        Quaternionf qpost = postB.createRotation();
+
+        if (qb.dot(qa) < 0F) negate(qb);
+        if (qpre.dot(qa) < 0F) negate(qpre);
+        if (qpost.dot(qb) < 0F) negate(qpost);
+
+        this.quat.set(
+            (float) kernel.get(qpre.x, qa.x, qb.x, qpost.x),
+            (float) kernel.get(qpre.y, qa.y, qb.y, qpost.y),
+            (float) kernel.get(qpre.z, qa.z, qb.z, qpost.z),
+            (float) kernel.get(qpre.w, qa.w, qb.w, qpost.w)
+        ).normalize();
+        this.rotationMode = RotationMode.QUATERNION;
+    }
+
+    private static void negate(Quaternionf q)
+    {
+        q.set(-q.x, -q.y, -q.z, -q.w);
+    }
+
+    /** One interpolated quaternion component from its four window values (preA, a, b, postB). */
+    @FunctionalInterface
+    private interface QuatComponent
+    {
+        double get(float preA, float a, float b, float postB);
     }
 
     public void add(Transform transform)
