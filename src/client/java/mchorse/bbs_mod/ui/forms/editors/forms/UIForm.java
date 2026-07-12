@@ -15,6 +15,7 @@ import mchorse.bbs_mod.ui.forms.editors.panels.UIGeneralFormPanel;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.UIPanelBase;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.utils.UIUtils;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.utils.Direction;
@@ -59,6 +60,12 @@ public abstract class UIForm <T extends Form> extends UIPanelBase<UIFormPanel<T>
     public Matrix4f getOrigin(float transition)
     {
         return this.getOrigin(transition, FormUtils.getPath(this.form), this.generalPanel != null && this.generalPanel.transform.isLocal());
+    }
+
+    /** The space the gizmo should be drawn in (the active panel's transform space). */
+    public TransformSpace getGizmoSpace()
+    {
+        return this.generalPanel != null ? this.generalPanel.transform.getSpace() : TransformSpace.LOCAL;
     }
 
     /**

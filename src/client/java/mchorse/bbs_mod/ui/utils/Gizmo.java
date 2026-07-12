@@ -15,6 +15,7 @@ import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.DragStrategy;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformOp;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MatrixStackUtils;
@@ -1613,6 +1614,33 @@ public class Gizmo
     {
         this.lastRenderMatrix.set(stack.peek().getPositionMatrix());
         this.hasLastRenderMatrix = true;
+    }
+
+    /**
+     * Bake a transform-space reorientation into the gizmo's drawing frame, in
+     * place, BEFORE it is captured &mdash; so the visual ({@link #renderInterface})
+     * and the pick stencil, both rebuilt from the captured frame, stay in
+     * lockstep. The frame's origin (its translation) is kept and only its axes
+     * are replaced: {@link TransformSpace#GLOBAL} draws the world axes (the
+     * camera's rotation-only world&rarr;view {@code view}, which matches the view
+     * already folded into the frame), {@link TransformSpace#VIEW} draws the
+     * screen axes (identity in the already-view-space frame). {@link TransformSpace#LOCAL}
+     * leaves the bone's own axes untouched. Call right after the gizmo origin is
+     * multiplied onto the stack and before {@link #render}/{@link #renderStencil}/
+     * {@link #captureVisual}.
+     */
+    public void reorientForSpace(MatrixStack stack, TransformSpace space, Matrix4f cameraView)
+    {
+        if (space == null || space == TransformSpace.LOCAL || cameraView == null)
+        {
+            return;
+        }
+
+        Matrix4f matrix = stack.peek().getPositionMatrix();
+        Vector3f translation = matrix.getTranslation(new Vector3f());
+        Matrix3f basis = space == TransformSpace.GLOBAL ? cameraView.get3x3(new Matrix3f()) : new Matrix3f();
+
+        matrix.set(new Matrix4f(basis).setTranslation(translation));
     }
 
     /**

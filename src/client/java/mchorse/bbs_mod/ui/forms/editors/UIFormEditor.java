@@ -48,6 +48,7 @@ import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.UIElement;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.framework.elements.overlay.UIOverlay;
 import mchorse.bbs_mod.ui.framework.elements.utils.EventPropagation;
 import mchorse.bbs_mod.ui.framework.elements.utils.UIDraggable;
@@ -949,6 +950,23 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
         }
 
         return this.editor.getOrigin(transition);
+    }
+
+    /** The space the displayed gizmo should be drawn in, matching the active
+     *  editing panel (mirrors {@link #getOrigin(float)}'s dispatch). */
+    public TransformSpace getGizmoSpace()
+    {
+        if (this.statesEditor.isVisible())
+        {
+            return TransformSpace.LOCAL;
+        }
+
+        if (this.isBodyPartGizmoMode())
+        {
+            return this.bodyPartEditor.transform.getSpace();
+        }
+
+        return this.editor.getGizmoSpace();
     }
 
     /**
