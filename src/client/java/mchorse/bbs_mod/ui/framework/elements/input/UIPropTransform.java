@@ -19,10 +19,12 @@ import mchorse.bbs_mod.ui.framework.elements.input.drag.PivotMode;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.SelectionPivotSession;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformNumericInput;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformOp;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.utils.Gizmo;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.ui.utils.UIUtils;
 import mchorse.bbs_mod.ui.utils.keys.KeyAction;
+import mchorse.bbs_mod.ui.utils.icons.Icon;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
@@ -66,7 +68,10 @@ public class UIPropTransform extends UITransform
     private Timer checker = new Timer(30);
 
     private boolean model;
-    private boolean local;
+
+    /** The reference frame the gizmo and constrained edits operate in. Replaces
+     *  the old local/global boolean; {@code space == LOCAL} is the former {@code local}. */
+    private TransformSpace space;
 
     /** Drag snapshot the active gesture works against (kept for the gizmo's pie preview). */
     private GizmoDrag drag;
@@ -98,14 +103,14 @@ public class UIPropTransform extends UITransform
     public UIPropTransform()
     {
         this.handler = new UITransformHandler(this);
-        this.local = BBSSettings.defaultLocalTransform.get();
+        this.space = BBSSettings.defaultLocalTransform.get() ? TransformSpace.LOCAL : TransformSpace.GLOBAL;
 
         this.context((menu) ->
         {
             menu.action(
-                this.local ? Icons.FULLSCREEN : Icons.MINIMIZE,
-                this.local ? UIKeys.TRANSFORMS_CONTEXT_SWITCH_GLOBAL : UIKeys.TRANSFORMS_CONTEXT_SWITCH_LOCAL,
-                this::toggleLocal
+                this.spaceIcon(),
+                this.spaceSwitchLabel(),
+                this::cycleSpace
             );
 
             menu.actions.add(0, menu.actions.remove(menu.actions.size() - 1));
@@ -124,7 +129,7 @@ public class UIPropTransform extends UITransform
             }
         });
 
-        this.iconT.callback = (b) -> this.toggleLocal();
+        this.iconT.callback = (b) -> this.cycleSpace();
         this.iconT.hoverColor = Colors.LIGHTEST_GRAY;
         this.iconT.setEnabled(true);
         this.updateLocalUI();
@@ -207,7 +212,13 @@ public class UIPropTransform extends UITransform
 
     public boolean isLocal()
     {
-        return this.local;
+        return this.space == TransformSpace.LOCAL;
+    }
+
+    /** The reference frame the gizmo and constrained edits operate in. */
+    public TransformSpace getSpace()
+    {
+        return this.space;
     }
 
     @Override
@@ -270,11 +281,13 @@ public class UIPropTransform extends UITransform
         return BBSSettings.poseAlternateInvert.get();
     }
 
-    private void toggleLocal()
+    private void cycleSpace()
     {
-        this.local = !this.local;
+        this.space = this.space.next();
 
-        if (!this.local && this.transform != null)
+        /* Leaving LOCAL turns the relative nudge fields back into absolute
+         * world values, so refill them from the current transform. */
+        if (this.space != TransformSpace.LOCAL && this.transform != null)
         {
             this.fillT(this.transform.translate.x, this.transform.translate.y, this.transform.translate.z);
         }
@@ -284,13 +297,37 @@ public class UIPropTransform extends UITransform
 
     private void updateLocalUI()
     {
-        this.tx.forcedLabel(this.local ? UIKeys.GENERAL_X : null);
-        this.ty.forcedLabel(this.local ? UIKeys.GENERAL_Y : null);
-        this.tz.forcedLabel(this.local ? UIKeys.GENERAL_Z : null);
-        this.tx.relative(this.local);
-        this.ty.relative(this.local);
-        this.tz.relative(this.local);
-        this.iconT.tooltip(this.local ? UIKeys.TRANSFORMS_CONTEXT_SWITCH_GLOBAL : UIKeys.TRANSFORMS_CONTEXT_SWITCH_LOCAL);
+        boolean local = this.space == TransformSpace.LOCAL;
+
+        this.tx.forcedLabel(local ? UIKeys.GENERAL_X : null);
+        this.ty.forcedLabel(local ? UIKeys.GENERAL_Y : null);
+        this.tz.forcedLabel(local ? UIKeys.GENERAL_Z : null);
+        this.tx.relative(local);
+        this.ty.relative(local);
+        this.tz.relative(local);
+        this.iconT.tooltip(this.spaceSwitchLabel());
+    }
+
+    /** The icon standing for the current space (the gizmo frame it edits in). */
+    private Icon spaceIcon()
+    {
+        switch (this.space)
+        {
+            case GLOBAL: return Icons.GLOBE;
+            case VIEW: return Icons.CAMERA;
+            default: return Icons.FULLSCREEN;
+        }
+    }
+
+    /** The label describing what a press does: switch to the NEXT space in the cycle. */
+    private IKey spaceSwitchLabel()
+    {
+        switch (this.space.next())
+        {
+            case GLOBAL: return UIKeys.TRANSFORMS_CONTEXT_SWITCH_GLOBAL;
+            case VIEW: return UIKeys.TRANSFORMS_CONTEXT_SWITCH_VIEW;
+            default: return UIKeys.TRANSFORMS_CONTEXT_SWITCH_LOCAL;
+        }
     }
 
     private Vector3f calculateLocalVector(double factor, Axis axis)
@@ -334,7 +371,7 @@ public class UIPropTransform extends UITransform
         this.keys().register(Keys.TRANSFORMATIONS_Z, () -> this.setEditingAxis(Axis.Z)).active(active).category(category);
         this.keys().register(Keys.TRANSFORMATIONS_TOGGLE_LOCAL, () ->
         {
-            this.toggleLocal();
+            this.cycleSpace();
             UIUtils.playClick();
         }).active(enabled).category(category);
         this.keys().register(Keys.TRANSFORMATIONS_ROTATION_MODE, this::toggleRotationMode).active(enabled).category(category);
@@ -1095,7 +1132,7 @@ public class UIPropTransform extends UITransform
             return;
         }
 
-        if (this.local)
+        if (this.isLocal())
         {
             try
             {
@@ -1256,7 +1293,7 @@ public class UIPropTransform extends UITransform
         return Colors.A100 | Colors.BLUE;
     }
 
-    /** Local/global chip; scale ignores the space toggle, so it gets none. */
+    /** Space chip; scale ignores the space toggle, so it gets none. */
     private String editingSpaceLabel()
     {
         if (this.getOp() == TransformOp.SCALE)
@@ -1264,7 +1301,18 @@ public class UIPropTransform extends UITransform
             return null;
         }
 
-        return (this.local ? UIKeys.TRANSFORMS_SPACE_LOCAL : UIKeys.TRANSFORMS_SPACE_GLOBAL).get();
+        return this.spaceLabel().get();
+    }
+
+    /** The name of the current space, for the cursor chip. */
+    private IKey spaceLabel()
+    {
+        switch (this.space)
+        {
+            case GLOBAL: return UIKeys.TRANSFORMS_SPACE_GLOBAL;
+            case VIEW: return UIKeys.TRANSFORMS_SPACE_VIEW;
+            default: return UIKeys.TRANSFORMS_SPACE_LOCAL;
+        }
     }
 
     /** The live vector of the edited channel, for the cursor's value card. */
@@ -1597,7 +1645,13 @@ public class UIPropTransform extends UITransform
         @Override
         public boolean isLocal()
         {
-            return UIPropTransform.this.local;
+            return UIPropTransform.this.isLocal();
+        }
+
+        @Override
+        public TransformSpace space()
+        {
+            return UIPropTransform.this.space;
         }
 
         @Override

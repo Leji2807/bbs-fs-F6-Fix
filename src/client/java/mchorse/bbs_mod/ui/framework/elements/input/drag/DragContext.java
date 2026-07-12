@@ -36,6 +36,9 @@ public interface DragContext
 
     boolean isLocal();
 
+    /** The reference frame this edit operates in (LOCAL is the former {@link #isLocal()}). */
+    TransformSpace space();
+
     boolean isModel();
 
     /** Whether values of the given operation should snap to the configured step. */
