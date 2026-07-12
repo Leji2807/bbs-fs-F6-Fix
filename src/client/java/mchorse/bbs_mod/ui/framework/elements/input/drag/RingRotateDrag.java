@@ -6,6 +6,7 @@ import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
+import org.joml.Quaternionf;
 import org.joml.Vector2f;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
@@ -142,9 +143,14 @@ public class RingRotateDrag extends DragStrategy
 
         this.quatMode = this.ctx.transform().rotationMode == Transform.RotationMode.QUATERNION;
 
-        /* The euler LOCAL ring adds its sweep onto the start angles; a quaternion
-         * ring composes a delta instead (below) and never reads these. */
-        Vector3f source = this.ctx.cache().rotate;
+        /* The euler LOCAL ring adds its sweep onto the start angles; every other
+         * path reads this as the pose the parent frame is recovered at. In
+         * quaternion mode the euler channels are stale, so use the cache
+         * quaternion's ZYX equivalent — the exact angles computeRotateAxes
+         * perturbed, so the source and the axes stay consistent. */
+        Vector3f source = this.quatMode
+            ? new Quaternionf(this.ctx.cache().quat).getEulerAnglesZYX(new Vector3f())
+            : this.ctx.cache().rotate;
 
         this.startRotateDeg.set(
             MathUtils.toDeg(source.x),
@@ -153,15 +159,16 @@ public class RingRotateDrag extends DragStrategy
         );
 
         /* Every path except an euler LOCAL ring turns around a world axis, so map
-         * it once into the bone's parent frame (constant for the drag, recovered
-         * analytically) and apply the turn as a parent-frame delta — exactly
-         * ViewRotateDrag's gimbal-free path, just axis-locked. A quaternion LOCAL
-         * ring uses it too, so it rotates about the ring's real world axis instead
-         * of bumping one euler channel through a gimbal. Only the euler LOCAL ring
-         * keeps the single-channel sweep below (needed for >360° winding). */
+         * it once into the bone's parent frame (constant for the drag) and apply
+         * the turn as a parent-frame delta — ViewRotateDrag's gimbal-free path,
+         * just axis-locked. Built from the measured rotateAxes (which fold in the
+         * parent AND the cubic Ry(180) post-flip), NOT the raw bone orientation:
+         * that flip is post-multiplied after the bone's own rotation, so the raw
+         * orientation would leave X/Z turning backwards in GLOBAL/VIEW while the
+         * euler LOCAL ring (also on rotateAxes) stays correct. */
         if (!this.channelPath())
         {
-            Matrix3f parentInverse = RotationDragMath.parentInverse(this.ctx, drag);
+            Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag.rotateAxes, source);
 
             if (parentInverse == null)
             {
