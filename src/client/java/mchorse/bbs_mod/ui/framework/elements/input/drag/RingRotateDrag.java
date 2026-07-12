@@ -4,10 +4,8 @@ import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
-import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
-import org.joml.Quaternionf;
 import org.joml.Vector2f;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
@@ -144,12 +142,9 @@ public class RingRotateDrag extends DragStrategy
 
         this.quatMode = this.ctx.transform().rotationMode == Transform.RotationMode.QUATERNION;
 
-        /* The ring bumps one local euler channel, so in quaternion mode read the
-         * base off the cache quaternion's ZYX equivalent (the euler channels are
-         * stale there) and store the swept result back as a quaternion. */
-        Vector3f source = this.quatMode
-            ? new Quaternionf(this.ctx.cache().quat).getEulerAnglesZYX(new Vector3f())
-            : this.ctx.cache().rotate;
+        /* The euler LOCAL ring adds its sweep onto the start angles; a quaternion
+         * ring composes a delta instead (below) and never reads these. */
+        Vector3f source = this.ctx.cache().rotate;
 
         this.startRotateDeg.set(
             MathUtils.toDeg(source.x),
@@ -157,13 +152,16 @@ public class RingRotateDrag extends DragStrategy
             MathUtils.toDeg(source.z)
         );
 
-        /* A non-local ring turns around a world axis, so map it once into the
-         * bone's parent frame (constant for the drag) and apply the world turn
-         * as a parent-frame delta — exactly ViewRotateDrag's gimbal-free path,
-         * just axis-locked. LOCAL keeps the single-euler-channel sweep below. */
-        if (this.space != TransformSpace.LOCAL)
+        /* Every path except an euler LOCAL ring turns around a world axis, so map
+         * it once into the bone's parent frame (constant for the drag, recovered
+         * analytically) and apply the turn as a parent-frame delta — exactly
+         * ViewRotateDrag's gimbal-free path, just axis-locked. A quaternion LOCAL
+         * ring uses it too, so it rotates about the ring's real world axis instead
+         * of bumping one euler channel through a gimbal. Only the euler LOCAL ring
+         * keeps the single-channel sweep below (needed for >360° winding). */
+        if (!this.channelPath())
         {
-            Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag, RotationDragMath.cacheSourceEuler(this.ctx));
+            Matrix3f parentInverse = RotationDragMath.parentInverse(this.ctx, drag);
 
             if (parentInverse == null)
             {
@@ -210,10 +208,10 @@ public class RingRotateDrag extends DragStrategy
             return;
         }
 
-        /* Non-local: apply the swept world turn about the ring's axis as a
-         * parent-frame delta onto the grab pose (gimbal-free, quat- and
-         * euler-aware through the shared applyLocalDelta). */
-        if (this.space != TransformSpace.LOCAL)
+        /* World-axis ring (GLOBAL/VIEW, or any quaternion ring): apply the swept
+         * world turn about the ring's axis as a parent-frame delta onto the grab
+         * pose (gimbal-free, quat- and euler-aware through applyLocalDelta). */
+        if (!this.channelPath())
         {
             float sweepDeg = (float) this.snapValue(this.accumulatedDeg);
             Matrix3f deltaLocal = new Matrix3f().rotation(MathUtils.toRad(sweepDeg), this.axisLocalParent);
@@ -223,9 +221,10 @@ public class RingRotateDrag extends DragStrategy
             return;
         }
 
-        /* Local: snap only the driven axis, and only in the written value — the
-         * raw accumulation stays smooth, and the other two axes carry their start
-         * values and must not be rounded out from under the user. */
+        /* Euler LOCAL: bump the single driven channel. Snap only the driven axis,
+         * and only in the written value — the raw accumulation stays smooth, and
+         * the other two axes carry their start values and must not be rounded out
+         * from under the user. */
         float rx = this.startRotateDeg.x;
         float ry = this.startRotateDeg.y;
         float rz = this.startRotateDeg.z;
@@ -237,8 +236,15 @@ public class RingRotateDrag extends DragStrategy
             case Z: rz = (float) this.snapValue(rz + this.accumulatedDeg); break;
         }
 
-        if (this.quatMode) this.ctx.writeRotationQuat(Matrices.toQuaternionZYXDegrees(rx, ry, rz));
-        else this.ctx.writeRotateDeg(rx, ry, rz);
+        this.ctx.writeRotateDeg(rx, ry, rz);
+    }
+
+    /** The euler LOCAL ring is the only path that bumps a single euler channel
+     *  (to keep &gt;360° winding); every other space and the quaternion mode turn
+     *  about the ring's world axis through the gimbal-free parent-frame delta. */
+    private boolean channelPath()
+    {
+        return this.space == TransformSpace.LOCAL && !this.quatMode;
     }
 
     private double snapValue(double value)
@@ -298,9 +304,10 @@ public class RingRotateDrag extends DragStrategy
             return;
         }
 
-        /* A non-local numeric turn is an axis rotation in the ring's world axis
-         * (mapped to the parent frame), not a bump of one euler channel. */
-        if (this.space != TransformSpace.LOCAL)
+        /* A world-axis ring (GLOBAL/VIEW, or any quaternion ring) takes a numeric
+         * turn as an axis rotation about the ring's world axis mapped to the
+         * parent frame; only the euler LOCAL ring bumps a single channel. */
+        if (!this.channelPath())
         {
             this.numericAxisRotation(value, this.axisLocalParent);
 

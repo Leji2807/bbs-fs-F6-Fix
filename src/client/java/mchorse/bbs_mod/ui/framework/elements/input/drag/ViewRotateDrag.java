@@ -120,11 +120,10 @@ public class ViewRotateDrag extends DragStrategy
         this.viewWorldAxis.set(viewAxis);
 
 
-        /* Express the view axis once in the bone's parent frame, mapped at the
-         * start orientation (the cache) it will be composed against; it stays
-         * constant for the whole drag. */
-        Vector3f source = RotationDragMath.cacheSourceEuler(this.ctx);
-        Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag, source);
+        /* Express the view axis once in the bone's parent frame (recovered
+         * analytically from the bone's world rotation), against the start
+         * orientation it will be composed onto; it stays constant for the drag. */
+        Matrix3f parentInverse = RotationDragMath.parentInverse(this.ctx, drag);
 
         if (parentInverse == null)
         {

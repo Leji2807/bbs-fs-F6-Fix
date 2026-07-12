@@ -47,6 +47,7 @@ import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UIPoseTra
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UITransformKeyframeFactory;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.graphs.IUIKeyframeGraph;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
+import mchorse.bbs_mod.utils.MatrixStackUtils;
 import mchorse.bbs_mod.utils.Pair;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.settings.values.core.ValueLink;
@@ -60,6 +61,7 @@ import mchorse.bbs_mod.settings.values.base.BaseValue;
 import mchorse.bbs_mod.settings.values.base.BaseValueBasic;
 import mchorse.bbs_mod.utils.pose.Pose;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -807,6 +809,9 @@ public class UIReplaysEditorUtils
             transform.getTransform(),
             () -> matrixSampler.get().getTranslation(new Vector3f())
         ));
+        /* Sampled with the transform already restored, so this is the bone's
+         * unperturbed world rotation — the analytic parent frame for quat drags. */
+        drag.setBoneRotation(new Matrix3f(MatrixStackUtils.stripScale(matrixSampler.get())));
 
         /* Restore the form to its unperturbed state */
         Form form = entity.getForm();
@@ -866,6 +871,9 @@ public class UIReplaysEditorUtils
             transform.getTransform(),
             () -> matrixSampler.get().getTranslation(new Vector3f())
         ));
+        /* Sampled with the transform already restored, so this is the bone's
+         * unperturbed world rotation — the analytic parent frame for quat drags. */
+        drag.setBoneRotation(new Matrix3f(MatrixStackUtils.stripScale(matrixSampler.get())));
 
         /* Restore the form to its unperturbed state */
         Form form = entity.getForm();

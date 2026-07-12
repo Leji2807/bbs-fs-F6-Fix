@@ -89,15 +89,16 @@ public class TranslateDrag extends DragStrategy
         }
         else
         {
-            /* Global (Parent space): handles align with the bone's origin axes
-             * (which includes parent rotations and entity yaw).
-             * We use the rendered gizmo's world axes for the drag plane, and
-             * push them through the inverse Jacobian to find the matching
-             * change in translate-space. */
+            /* GLOBAL/VIEW: handles align with the active space's world axes
+             * (GLOBAL = world identity, VIEW = camera axes), matching how the
+             * gizmo is drawn (Gizmo.reorientForSpace). We use those axes for the
+             * drag plane and push them through the inverse Jacobian to find the
+             * matching change in translate-space. */
+            Matrix3f basis = drag.spaceBasis(this.ctx.space());
             Matrix3f inverse = invertedJacobian(jacobian);
 
-            this.translateBasis.set(inverse).mul(drag.gizmoWorldAxes);
-            this.worldBasis.set(drag.gizmoWorldAxes);
+            this.translateBasis.set(inverse).mul(basis);
+            this.worldBasis.set(basis);
         }
 
         if (this.axis2 == null)

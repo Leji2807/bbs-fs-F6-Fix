@@ -71,6 +71,19 @@ public class GizmoDrag
      */
     public final Matrix3f rotateAxes = new Matrix3f();
 
+    /**
+     * The bone's own world-space rotation in the drag frame (scale stripped),
+     * captured at drag start. Unlike {@link #rotateAxes} — the finite-difference
+     * axes each euler channel turns around — this is the bone's actual render
+     * orientation {@code P · localRotation}, from which the parent frame is
+     * recovered <em>analytically</em> ({@code parent = boneRotation · localRotation⁻¹})
+     * with no euler decomposition, so a quaternion bone's free rotation never
+     * inherits the gimbal singularity of an arbitrary euler split. Editors fill
+     * it from the same matrix sampler that feeds {@link #computeRotateAxes};
+     * defaults to identity.
+     */
+    public final Matrix3f boneRotation = new Matrix3f();
+
     public GizmoDrag setup(Camera camera, Area viewport, Vector3f gizmoOrigin)
     {
         return this.setup(camera, viewport, gizmoOrigin.x, gizmoOrigin.y, gizmoOrigin.z);
@@ -102,6 +115,10 @@ public class GizmoDrag
          * renderer's actual rotation axes (e.g. cubic models) can override via
          * setRotateAxes() to fix sign mismatches caused by post-applied flips. */
         drag.rotateAxes.set(drag.gizmoWorldAxes);
+        /* Same default for the analytic parent frame; editors override it from
+         * the bone's sampled world matrix (which, unlike the rendered gizmo
+         * axes, stays the bone's own even in GLOBAL/VIEW gizmo space). */
+        drag.boneRotation.set(drag.gizmoWorldAxes);
 
         return drag;
     }
@@ -278,6 +295,35 @@ public class GizmoDrag
     public GizmoDrag setRotateAxes(Matrix3f axes)
     {
         this.rotateAxes.set(axes);
+
+        return this;
+    }
+
+    /**
+     * Set the bone's world-space rotation (see {@link #boneRotation}). The
+     * columns are normalized so a scaled sample still yields a pure rotation;
+     * a degenerate sample is ignored, leaving the identity default.
+     */
+    public GizmoDrag setBoneRotation(Matrix3f rotation)
+    {
+        Matrix3f normalized = new Matrix3f(rotation);
+        Vector3f col = new Vector3f();
+
+        for (int i = 0; i < 3; i++)
+        {
+            normalized.getColumn(i, col);
+
+            float lenSq = col.lengthSquared();
+
+            if (lenSq < 1.0E-12F)
+            {
+                return this;
+            }
+
+            normalized.setColumn(i, col.div((float) Math.sqrt(lenSq)));
+        }
+
+        this.boneRotation.set(normalized);
 
         return this;
     }

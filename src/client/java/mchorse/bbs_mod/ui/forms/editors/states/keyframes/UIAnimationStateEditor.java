@@ -40,6 +40,7 @@ import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 import mchorse.bbs_mod.utils.keyframes.factories.KeyframeFactories;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector2i;
 import org.lwjgl.glfw.GLFW;
@@ -385,6 +386,17 @@ public class UIAnimationStateEditor extends UIElement
                     return origin == null ? new Matrix4f() : MatrixStackUtils.stripScale(origin);
                 }
             ));
+
+            /* Bone's unperturbed world rotation (transform already reverted by the
+             * compute* helpers) — the analytic parent frame for quaternion drags. */
+            this.editor.applyStateForSampling(tick);
+
+            Matrix4f boneMatrix = this.getOriginMatrix(transition);
+
+            if (boneMatrix != null)
+            {
+                drag.setBoneRotation(new Matrix3f(MatrixStackUtils.stripScale(boneMatrix)));
+            }
 
             /* Restore the previewed form to the unperturbed pose: the compute* helpers above have
              * already reverted the transform, so re-applying now poses it with the original values. */

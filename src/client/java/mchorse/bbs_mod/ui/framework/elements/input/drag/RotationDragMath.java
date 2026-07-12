@@ -55,20 +55,34 @@ public final class RotationDragMath
     }
 
     /**
-     * The cache's base euler for the parent-frame reconstruction
-     * ({@link #computeParentInverse}). In quaternion mode the euler channels are
-     * stale, so this returns the cache quaternion's ZYX equivalent — the exact
-     * source {@link GizmoDrag#computeRotateAxes} perturbs, so the two stay
-     * consistent. In euler mode it is the edited euler stack.
+     * The bone's parent-frame inverse, recovered <em>analytically</em> from the
+     * bone's sampled world rotation: {@code boneRotation = parent · localRotation},
+     * so {@code parentInverse = localRotation · boneRotation⁻¹}. It maps a
+     * world-space axis into the frame the edited local rotation sits in, then a
+     * world/view turn composes onto the pose as {@code delta · cache}.
+     *
+     * <p>Unlike the euler reconstruction it replaces (which went
+     * {@code cache.quat → getEulerAnglesZYX → eulerAxes → invert}), this touches
+     * no euler decomposition, so a quaternion bone whose arbitrary ZYX split
+     * happens to sit near a gimbal pole no longer produces a degenerate — and
+     * visibly wrong — parent frame. Works identically in euler mode, where
+     * {@code localRotation} is {@code ZYX(cache.rotate)}. Returns {@code null}
+     * when {@code boneRotation} is degenerate.
      */
-    public static Vector3f cacheSourceEuler(DragContext ctx)
+    public static Matrix3f parentInverse(DragContext ctx, GizmoDrag drag)
     {
-        if (ctx.transform().rotationMode == Transform.RotationMode.QUATERNION)
+        Matrix3f boneInverse = new Matrix3f(drag.boneRotation);
+
+        if (Math.abs(boneInverse.determinant()) < 1.0E-4F)
         {
-            return new Quaternionf(ctx.cache().quat).getEulerAnglesZYX(new Vector3f());
+            return null;
         }
 
-        return ctx.cache().rotate;
+        boneInverse.invert();
+
+        Matrix3f localRotation = new Matrix3f().rotation(ctx.cache().createRotation());
+
+        return localRotation.mul(boneInverse);
     }
 
     /**
@@ -115,19 +129,16 @@ public final class RotationDragMath
     }
 
     /**
-     * World-direction &rarr; bone-parent-frame map captured at drag start:
+     * World-direction &rarr; bone-parent-frame map from measured euler axes:
      * {@code parent^-1 = eulerAxes(source) * rotateAxes^-1}. {@code rotateAxes}
      * already folds in the parent and any model flips, so this recovers the
      * pure parent rotation; it is constant for the whole drag since the parent
      * doesn't move. Returns {@code null} when {@code rotateAxes} is degenerate.
+     *
+     * <p>Still used by the multi-bone pivot session, which captures per-bone
+     * {@code rotateAxes} without a live {@link DragContext}; single-bone drags
+     * use the euler-free {@link #parentInverse(DragContext, GizmoDrag)} instead.
      */
-    public static Matrix3f computeParentInverse(GizmoDrag drag, Vector3f sourceRadians)
-    {
-        return computeParentInverse(drag.rotateAxes, sourceRadians);
-    }
-
-    /** See {@link #computeParentInverse(GizmoDrag, Vector3f)}; takes the measured
-     *  rotate axes directly so per-bone captures can use it without a drag. */
     public static Matrix3f computeParentInverse(Matrix3f rotateAxes, Vector3f sourceRadians)
     {
         Matrix3f rotateAxesInverse = new Matrix3f(rotateAxes);

@@ -57,6 +57,7 @@ import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
@@ -326,6 +327,7 @@ public class UIModelBlockPanel extends UIDashboardPanel implements IFlightSuppor
                 transform,
                 () -> MatrixStackUtils.stripScale(transform.createMatrix())
             ));
+            drag.setBoneRotation(new Matrix3f(MatrixStackUtils.stripScale(transform.createMatrix())));
         }
 
         return drag;

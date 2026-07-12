@@ -66,8 +66,7 @@ public class TrackballDrag extends SphereDrag
         }
 
 
-        Vector3f source = RotationDragMath.cacheSourceEuler(this.ctx);
-        Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag, source);
+        Matrix3f parentInverse = RotationDragMath.parentInverse(this.ctx, drag);
 
         if (parentInverse == null || !this.captureScreenAxes(drag, parentInverse))
         {

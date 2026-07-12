@@ -79,8 +79,7 @@ public class ArcballDrag extends SphereDrag
         }
 
 
-        Vector3f source = RotationDragMath.cacheSourceEuler(this.ctx);
-        Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag, source);
+        Matrix3f parentInverse = RotationDragMath.parentInverse(this.ctx, drag);
         float radius = this.ctx.sphereWorldRadius();
 
         if (parentInverse == null || radius <= 0F)

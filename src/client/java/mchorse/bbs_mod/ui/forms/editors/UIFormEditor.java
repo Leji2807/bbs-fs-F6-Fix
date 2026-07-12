@@ -69,6 +69,7 @@ import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.Pair;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.presets.PresetManager;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
@@ -467,6 +468,16 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
                     return origin == null ? new Matrix4f() : MatrixStackUtils.stripScale(origin);
                 }
             ));
+
+            /* Bone's unperturbed world rotation (the compute* helpers above have
+             * already reverted the transform) — the analytic parent frame for
+             * quaternion drags. */
+            Matrix4f boneMatrix = this.getOriginMatrix(transition);
+
+            if (boneMatrix != null)
+            {
+                drag.setBoneRotation(new Matrix3f(MatrixStackUtils.stripScale(boneMatrix)));
+            }
         }
 
         return drag;
