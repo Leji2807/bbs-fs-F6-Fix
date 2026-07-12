@@ -47,6 +47,7 @@ public abstract class UITransform extends UIElement
     protected UIIcon iconR;
 
     protected UIElement scaleRow;
+    protected UIElement rotateRow;
 
     private boolean uniformDrag;
     private boolean uniformScale;
@@ -124,7 +125,7 @@ public abstract class UITransform extends UIElement
 
         this.add(UI.row(2, 0, UIConstants.CONTROL_HEIGHT, this.iconT, this.tx, this.ty, this.tz));
         this.add(this.scaleRow = UI.row(2, 0, UIConstants.CONTROL_HEIGHT, this.iconS, this.sx, this.sy, this.sz));
-        this.add(UI.row(2, 0, UIConstants.CONTROL_HEIGHT, this.iconR, this.rx, this.ry, this.rz));
+        this.add(this.rotateRow = UI.row(2, 0, UIConstants.CONTROL_HEIGHT, this.iconR, this.rx, this.ry, this.rz));
 
         this.context((menu) ->
         {

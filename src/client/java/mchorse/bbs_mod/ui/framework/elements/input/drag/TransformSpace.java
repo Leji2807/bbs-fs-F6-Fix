@@ -13,17 +13,33 @@ package mchorse.bbs_mod.ui.framework.elements.input.drag;
  * the old local/global boolean, so {@code space == LOCAL} is exactly the former
  * {@code local} flag and every consumer that only distinguished local from
  * not-local keeps working with {@link #isLocal()}.
+ *
+ * <p>{@link #PARENT} is a reserved slot: it shows up in the picker but is not
+ * wired into the drag/gizmo math yet ({@link #implemented} is {@code false}),
+ * so it is never selected and the frame consumers never see it. Flip its flag
+ * once the parent-frame basis is implemented and it lights up everywhere.
  */
 public enum TransformSpace
 {
     /** The bone's own axes — the gizmo and constrained edits follow the pose. */
-    LOCAL,
+    LOCAL(true),
 
     /** The world axes — a constrained edit runs along fixed global X/Y/Z. */
-    GLOBAL,
+    GLOBAL(true),
 
     /** The camera's right/up/forward — a constrained edit runs in screen space. */
-    VIEW;
+    VIEW(true),
+
+    /** The parent bone's frame — reserved, not implemented yet (see class docs). */
+    PARENT(false);
+
+    /** Whether the frame math is wired up; unimplemented spaces are shown but not selectable. */
+    public final boolean implemented;
+
+    TransformSpace(boolean implemented)
+    {
+        this.implemented = implemented;
+    }
 
     /** Whether this is the local frame; the single distinction older consumers make. */
     public boolean isLocal()
@@ -31,10 +47,18 @@ public enum TransformSpace
         return this == LOCAL;
     }
 
+    /** The next selectable frame in the cycle, skipping any that aren't implemented yet. */
     public TransformSpace next()
     {
         TransformSpace[] values = values();
+        TransformSpace next = this;
 
-        return values[(this.ordinal() + 1) % values.length];
+        do
+        {
+            next = values[(next.ordinal() + 1) % values.length];
+        }
+        while (!next.implemented && next != this);
+
+        return next;
     }
 }

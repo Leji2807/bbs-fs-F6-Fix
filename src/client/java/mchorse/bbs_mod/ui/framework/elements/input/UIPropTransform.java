@@ -8,8 +8,10 @@ import mchorse.bbs_mod.settings.values.IValueNotifier;
 import mchorse.bbs_mod.settings.values.ui.ValueOrder;
 import mchorse.bbs_mod.ui.Keys;
 import mchorse.bbs_mod.ui.UIKeys;
+import mchorse.bbs_mod.ui.dashboard.panels.UIDashboardPanels;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.UIElement;
+import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.events.UITrackpadDragEndEvent;
 import mchorse.bbs_mod.ui.framework.elements.utils.FontRenderer;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.DragContext;
@@ -22,11 +24,14 @@ import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformOp;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.utils.Gizmo;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
+import mchorse.bbs_mod.ui.utils.UI;
+import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.UIUtils;
 import mchorse.bbs_mod.ui.utils.keys.KeyAction;
 import mchorse.bbs_mod.ui.utils.icons.Icon;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.utils.Axis;
+import mchorse.bbs_mod.utils.Direction;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.Timer;
 import mchorse.bbs_mod.utils.colors.Colors;
@@ -73,6 +78,20 @@ public class UIPropTransform extends UITransform
      *  the old local/global boolean; {@code space == LOCAL} is the former {@code local}. */
     private TransformSpace space;
 
+    /** Dropdown trigger for {@link #space}; shows the active frame's icon and name. */
+    private UISpaceButton spaceButton;
+
+    /* Quaternion rotation pads (w, x, y, z), shown in place of the euler x/y/z pads
+     * while the edited bone is in QUATERNION mode. Editing any of them rebuilds a
+     * normalised quaternion from all four and commits it through setRQuat. */
+    private UITrackpad qw;
+    private UITrackpad qx;
+    private UITrackpad qy;
+    private UITrackpad qz;
+
+    /** Whether the rotate row currently shows the four quaternion pads (vs the three euler pads). */
+    private boolean quatFields;
+
     /** Drag snapshot the active gesture works against (kept for the gizmo's pie preview). */
     private GizmoDrag drag;
     private boolean hotkeyMode;
@@ -103,18 +122,12 @@ public class UIPropTransform extends UITransform
     public UIPropTransform()
     {
         this.handler = new UITransformHandler(this);
-        this.space = BBSSettings.defaultLocalTransform.get() ? TransformSpace.LOCAL : TransformSpace.GLOBAL;
+        this.space = loadSpace();
+
+        this.buildQuaternionFields();
 
         this.context((menu) ->
         {
-            menu.action(
-                this.spaceIcon(),
-                this.spaceSwitchLabel(),
-                this::cycleSpace
-            );
-
-            menu.actions.add(0, menu.actions.remove(menu.actions.size() - 1));
-
             /* Per-bone rotation mode (Blender's rotation_mode); the label names the
              * mode the action switches TO, so the current one is always readable. */
             if (this.transform != null)
@@ -127,31 +140,60 @@ public class UIPropTransform extends UITransform
                     this::toggleRotationMode
                 );
             }
+
+            /* Pivot mode used to live on the rotation-row icon; that icon now toggles
+             * the rotation mode, so the pivot switch moved here (and stays on its hotkey). */
+            if (this.supportsPivotModes())
+            {
+                menu.action(Icons.CIRCLE, this.pivotLabel(), this::cyclePivotMode);
+            }
         });
 
-        this.iconT.callback = (b) -> this.cycleSpace();
-        this.iconT.hoverColor = Colors.LIGHTEST_GRAY;
-        this.iconT.setEnabled(true);
-        this.updateLocalUI();
+        /* The rotation-row icon toggles the bone's rotation storage (euler / quaternion);
+         * the active state is drawn as a highlight in render(), like the other toggles.
+         * It gets the standard 20px icon box (the panel's icons default to 16). */
+        this.iconR.callback = (b) -> this.toggleRotationMode();
+        this.iconR.tooltip(UIKeys.TRANSFORMS_ROTATION_MODE_TOOLTIP);
+        this.iconR.wh(18, 18);
+        this.iconR.setEnabled(true);
 
-        /* Bone-selection editors get the pivot mode switch on the rotation
-         * row's icon (otherwise a decorative placeholder). */
-        if (this.supportsPivotModes())
-        {
-            this.iconR.callback = (b) -> this.cyclePivotMode();
-            this.iconR.hoverColor = Colors.LIGHTEST_GRAY;
-            this.iconR.setEnabled(true);
-            this.updatePivotUI();
-        }
+        /* The space picker is a dropdown on its own row above T/S/R (it replaced the
+         * old click-to-cycle on the translate-row icon, which is decorative again). */
+        this.spaceButton = new UISpaceButton();
+        this.spaceButton.tooltip(UIKeys.TRANSFORMS_SPACE_TOOLTIP);
+        this.prepend(UI.labelRow(UIKeys.TRANSFORMS_SPACE_TITLE, this.spaceButton));
+        /* Space + translate + scale rows are CONTROL_HEIGHT; the rotate row is as tall
+         * as its 20px toggle icon. */
+        this.h(3 * UIConstants.CONTROL_HEIGHT + 20);
+        this.updateLocalUI();
 
         /* Each finished value-field drag closes the current undo block, so dragging a
          * field several times in a row undoes one drag at a time (see endGesture). */
-        for (UITrackpad field : new UITrackpad[]{this.tx, this.ty, this.tz, this.sx, this.sy, this.sz, this.rx, this.ry, this.rz})
+        for (UITrackpad field : new UITrackpad[]{this.tx, this.ty, this.tz, this.sx, this.sy, this.sz, this.rx, this.ry, this.rz, this.qw, this.qx, this.qy, this.qz})
         {
             field.getEvents().register(UITrackpadDragEndEvent.class, (e) -> this.endGesture());
         }
 
         this.noCulling();
+    }
+
+    /** Build the four quaternion pads mirrored on the rotate row in quaternion mode. */
+    private void buildQuaternionFields()
+    {
+        IKey raw = IKey.constant("%s (%s)");
+
+        this.qw = new UITrackpad((v) -> this.setQuatFromFields()).onlyNumbers().values(0.01D);
+        this.qw.tooltip(raw.format(UIKeys.TRANSFORMS_ROTATION_QUATERNION, IKey.constant("W")));
+        this.qw.textbox.setColor(Colors.LIGHTEST_GRAY);
+        this.qx = new UITrackpad((v) -> this.setQuatFromFields()).onlyNumbers().values(0.01D);
+        this.qx.tooltip(raw.format(UIKeys.TRANSFORMS_ROTATION_QUATERNION, UIKeys.GENERAL_X));
+        this.qx.textbox.setColor(Colors.RED);
+        this.qy = new UITrackpad((v) -> this.setQuatFromFields()).onlyNumbers().values(0.01D);
+        this.qy.tooltip(raw.format(UIKeys.TRANSFORMS_ROTATION_QUATERNION, UIKeys.GENERAL_Y));
+        this.qy.textbox.setColor(Colors.GREEN);
+        this.qz = new UITrackpad((v) -> this.setQuatFromFields()).onlyNumbers().values(0.01D);
+        this.qz.tooltip(raw.format(UIKeys.TRANSFORMS_ROTATION_QUATERNION, UIKeys.GENERAL_Z));
+        this.qz.textbox.setColor(Colors.BLUE);
     }
 
     public UIPropTransform callbacks(Supplier<IValueNotifier> notifier)
@@ -258,17 +300,16 @@ public class UIPropTransform extends UITransform
     private void cyclePivotMode()
     {
         BBSSettings.pivotMode.set(PivotMode.current().next().ordinal());
-        this.updatePivotUI();
         UIUtils.playClick();
     }
 
-    private void updatePivotUI()
+    /** The name of the current common-pivot mode, for the context-menu entry. */
+    private IKey pivotLabel()
     {
         PivotMode mode = PivotMode.current();
-        IKey label = mode == PivotMode.MEDIAN ? UIKeys.TRANSFORMS_PIVOT_MEDIAN
-            : (mode == PivotMode.ACTIVE ? UIKeys.TRANSFORMS_PIVOT_ACTIVE : UIKeys.TRANSFORMS_PIVOT_INDIVIDUAL);
 
-        this.iconR.tooltip(label);
+        return mode == PivotMode.MEDIAN ? UIKeys.TRANSFORMS_PIVOT_MEDIAN
+            : (mode == PivotMode.ACTIVE ? UIKeys.TRANSFORMS_PIVOT_ACTIVE : UIKeys.TRANSFORMS_PIVOT_INDIVIDUAL);
     }
 
     public boolean isMirrorEdit()
@@ -281,18 +322,73 @@ public class UIPropTransform extends UITransform
         return BBSSettings.poseAlternateInvert.get();
     }
 
+    /** The space remembered from the last session, guarded against an out-of-range
+     *  or not-yet-implemented stored value (then falls back to the old default). */
+    private static TransformSpace loadSpace()
+    {
+        TransformSpace[] values = TransformSpace.values();
+        TransformSpace space = values[MathUtils.clamp(BBSSettings.transformSpace.get(), 0, values.length - 1)];
+
+        if (!space.implemented)
+        {
+            return BBSSettings.defaultLocalTransform.get() ? TransformSpace.LOCAL : TransformSpace.GLOBAL;
+        }
+
+        return space;
+    }
+
+    /** Hotkey cycle: step to the next implemented space (PARENT is skipped for now). */
     private void cycleSpace()
     {
-        this.space = this.space.next();
+        this.selectSpace(this.space.next());
+    }
+
+    /** Switch to a specific frame (dropdown pick / hotkey) and remember it globally. */
+    private void selectSpace(TransformSpace space)
+    {
+        if (space == null || !space.implemented)
+        {
+            return;
+        }
+
+        this.space = space;
+        BBSSettings.transformSpace.set(space.ordinal());
 
         /* Leaving LOCAL turns the relative nudge fields back into absolute
          * world values, so refill them from the current transform. */
-        if (this.space != TransformSpace.LOCAL && this.transform != null)
+        if (space != TransformSpace.LOCAL && this.transform != null)
         {
             this.fillT(this.transform.translate.x, this.transform.translate.y, this.transform.translate.z);
         }
 
         this.updateLocalUI();
+    }
+
+    /** Open the clip-style space list: each implemented frame with its icon and colour,
+     *  the reserved PARENT slot greyed out and inert. */
+    private void openSpaceMenu()
+    {
+        UIContext context = this.getContext();
+
+        if (context == null)
+        {
+            return;
+        }
+
+        context.replaceContextMenu((menu) ->
+        {
+            for (TransformSpace space : TransformSpace.values())
+            {
+                if (space.implemented)
+                {
+                    menu.action(this.spaceIcon(space), this.spaceLabel(space), this.spaceColor(space), () -> this.selectSpace(space));
+                }
+                else
+                {
+                    menu.action(this.spaceIcon(space), UIKeys.TRANSFORMS_SPACE_WIP.format(this.spaceLabel(space)), Colors.GRAY & Colors.RGB, () -> {});
+                }
+            }
+        });
     }
 
     private void updateLocalUI()
@@ -305,28 +401,46 @@ public class UIPropTransform extends UITransform
         this.tx.relative(local);
         this.ty.relative(local);
         this.tz.relative(local);
-        this.iconT.tooltip(this.spaceSwitchLabel());
-    }
 
-    /** The icon standing for the current space (the gizmo frame it edits in). */
-    private Icon spaceIcon()
-    {
-        switch (this.space)
+        if (this.spaceButton != null)
         {
-            case GLOBAL: return Icons.GLOBE;
-            case VIEW: return Icons.CAMERA;
-            default: return Icons.FULLSCREEN;
+            this.spaceButton.label = this.spaceLabel(this.space);
         }
     }
 
-    /** The label describing what a press does: switch to the NEXT space in the cycle. */
-    private IKey spaceSwitchLabel()
+    /** The dedicated icon for a space (used on the dropdown trigger and in its list). */
+    private Icon spaceIcon(TransformSpace space)
     {
-        switch (this.space.next())
+        switch (space)
         {
-            case GLOBAL: return UIKeys.TRANSFORMS_CONTEXT_SWITCH_GLOBAL;
-            case VIEW: return UIKeys.TRANSFORMS_CONTEXT_SWITCH_VIEW;
-            default: return UIKeys.TRANSFORMS_CONTEXT_SWITCH_LOCAL;
+            case GLOBAL: return Icons.SPACE_GLOBAL;
+            case VIEW: return Icons.SPACE_VIEW;
+            case PARENT: return Icons.SPACE_PARENT;
+            default: return Icons.SPACE_LOCAL;
+        }
+    }
+
+    /** The accent colour a space is tagged with in the picker. RGB only (no alpha):
+     *  the colourful menu action builds its own bar + gradient from it. */
+    private int spaceColor(TransformSpace space)
+    {
+        switch (space)
+        {
+            case GLOBAL: return 0x4C8DFF;
+            case VIEW: return 0x43C67A;
+            case PARENT: return 0xB27BE0;
+            default: return 0xF0A63C;
+        }
+    }
+
+    private IKey spaceLabel(TransformSpace space)
+    {
+        switch (space)
+        {
+            case GLOBAL: return UIKeys.TRANSFORMS_SPACE_GLOBAL;
+            case VIEW: return UIKeys.TRANSFORMS_SPACE_VIEW;
+            case PARENT: return UIKeys.TRANSFORMS_SPACE_PARENT;
+            default: return UIKeys.TRANSFORMS_SPACE_LOCAL;
         }
     }
 
@@ -520,6 +634,10 @@ public class UIPropTransform extends UITransform
     {
         this.transform = transform;
 
+        /* Match the rotate row to how the bone stores its rotation (three euler
+         * pads or four quaternion pads) before filling the fields below. */
+        this.syncRotationMode();
+
         if (transform == null)
         {
             this.disable();
@@ -548,7 +666,10 @@ public class UIPropTransform extends UITransform
 
         if (transform.rotationMode == Transform.RotationMode.QUATERNION)
         {
-            /* Show the quaternion's ZYX-euler equivalent in the rotate fields so the value is legible. */
+            this.fillQ(transform.quat.x, transform.quat.y, transform.quat.z, transform.quat.w);
+
+            /* Keep the (hidden) euler pads mirroring the quaternion's ZYX equivalent so
+             * the euler-based readers — clipboard copy, the drag value card — stay correct. */
             Vector3f euler = new Quaternionf(transform.quat).getEulerAnglesZYX(new Vector3f());
 
             this.fillR(MathUtils.toDeg(euler.x), MathUtils.toDeg(euler.y), MathUtils.toDeg(euler.z));
@@ -557,6 +678,76 @@ public class UIPropTransform extends UITransform
         {
             this.fillR(MathUtils.toDeg(transform.rotate.x), MathUtils.toDeg(transform.rotate.y), MathUtils.toDeg(transform.rotate.z));
         }
+    }
+
+    /**
+     * Show the rotate row in the mode the current transform stores its rotation in:
+     * three euler-degree pads, or four raw quaternion pads (with the toggle icon lit).
+     * Only rebuilds the row when the mode actually flips, so the per-frame
+     * {@link #setTransform} stays cheap.
+     */
+    private void syncRotationMode()
+    {
+        boolean quat = this.transform != null && this.transform.rotationMode == Transform.RotationMode.QUATERNION;
+
+        if (quat == this.quatFields)
+        {
+            return;
+        }
+
+        this.quatFields = quat;
+        this.rotateRow.removeAll();
+
+        if (quat)
+        {
+            this.rotateRow.add(this.iconR, this.qw, this.qx, this.qy, this.qz);
+        }
+        else
+        {
+            this.rotateRow.add(this.iconR, this.rx, this.ry, this.rz);
+        }
+
+        /* Re-lay the row's new children within the panel (same pattern as the
+         * uniform-scale swap); only runs on an actual mode flip, not per frame. */
+        UIElement parentContainer = this.getParentContainer();
+
+        if (parentContainer != null)
+        {
+            parentContainer.resize();
+        }
+    }
+
+    /** Fill the quaternion pads (raw x/y/z/w, as stored) without notifying the callback. */
+    private void fillQ(float x, float y, float z, float w)
+    {
+        this.qx.setValue(x);
+        this.qy.setValue(y);
+        this.qz.setValue(z);
+        this.qw.setValue(w);
+    }
+
+    /**
+     * Commit the four quaternion pads as one rotation: rebuild the quaternion from
+     * the fields, renormalise it (raw component edits drift off the unit sphere,
+     * exactly like Blender's W/X/Y/Z fields), and route it through the normal
+     * quaternion write so the delta editors still fan it across a selection.
+     */
+    private void setQuatFromFields()
+    {
+        if (this.transform == null)
+        {
+            return;
+        }
+
+        Quaternionf quat = new Quaternionf((float) this.qx.value, (float) this.qy.value, (float) this.qz.value, (float) this.qw.value);
+
+        if (quat.lengthSquared() < 1.0E-8F)
+        {
+            /* All-zero is not a rotation; ignore until the user types something real. */
+            return;
+        }
+
+        this.setRQuat(quat.normalize());
     }
 
     /**
@@ -1301,18 +1492,7 @@ public class UIPropTransform extends UITransform
             return null;
         }
 
-        return this.spaceLabel().get();
-    }
-
-    /** The name of the current space, for the cursor chip. */
-    private IKey spaceLabel()
-    {
-        switch (this.space)
-        {
-            case GLOBAL: return UIKeys.TRANSFORMS_SPACE_GLOBAL;
-            case VIEW: return UIKeys.TRANSFORMS_SPACE_VIEW;
-            default: return UIKeys.TRANSFORMS_SPACE_LOCAL;
-        }
+        return this.spaceLabel(this.space).get();
     }
 
     /** The live vector of the edited channel, for the cursor's value card. */
@@ -1460,6 +1640,13 @@ public class UIPropTransform extends UITransform
         if (this.editing && !this.numeric.isActive() && this.checker.isTime())
         {
             this.updateDrag(context);
+        }
+
+        /* Quaternion mode lights up the rotation-row icon with the standard toggle
+         * highlight, as a gradient down the icon's left edge. */
+        if (this.transform != null && this.transform.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            UIDashboardPanels.renderHighlight(context.batcher, this.iconR.area, Direction.LEFT);
         }
 
         super.render(context);
@@ -1718,6 +1905,33 @@ public class UIPropTransform extends UITransform
         public void writeRotationQuat(Quaternionf quat)
         {
             UIPropTransform.this.setRQuat(quat);
+        }
+    }
+
+    /**
+     * Dropdown trigger for the transform space: a normal button whose label is the
+     * active frame's name (kept current by {@link #updateLocalUI}), with that frame's
+     * coloured icon drawn on the left. Clicking opens the clip-style space list.
+     */
+    private class UISpaceButton extends UIButton
+    {
+        public UISpaceButton()
+        {
+            super(UIKeys.TRANSFORMS_SPACE_LOCAL, (b) -> UIPropTransform.this.openSpaceMenu());
+        }
+
+        @Override
+        protected void renderSkin(UIContext context)
+        {
+            super.renderSkin(context);
+
+            /* The frame's icon, left-aligned and left in the default white — the colour
+             * cue lives in the dropdown list, not on the trigger. */
+            context.batcher.icon(
+                UIPropTransform.this.spaceIcon(UIPropTransform.this.space),
+                Colors.WHITE,
+                this.area.x + 4, this.area.my(), 0F, 0.5F
+            );
         }
     }
 

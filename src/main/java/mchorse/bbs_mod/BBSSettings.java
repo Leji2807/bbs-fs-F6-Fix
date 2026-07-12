@@ -59,6 +59,7 @@ public class BBSSettings {
 	public static ValueBoolean clickSound;
 	public static ValueBoolean gizmos;
 	public static ValueBoolean defaultLocalTransform;
+	public static ValueInt transformSpace;
 	public static ValueBoolean transformHotkeys3dRay;
 	public static ValueInt pivotMode;
 	public static ValueBoolean poseMirrorEdit;
@@ -480,6 +481,11 @@ public class BBSSettings {
 		gizmoHoverTolerance = builder.getInt("gizmo_hover_tolerance", 8, 0, 40);
 		gizmoOpacity = builder.getFloat("gizmo_opacity", 1F, 0.05F, 1F);
 		defaultLocalTransform = builder.getBoolean("default_local", false);
+		/* The transform editors' currently picked space, remembered across restarts
+		 * (the picker writes it, all editors read it). Seeded from the old
+		 * default_local toggle so existing configs keep their previous frame. */
+		transformSpace = builder.getInt("transform_space", defaultLocalTransform.get() ? 0 : 1);
+		transformSpace.invisible();
 		transformHotkeys3dRay = builder.getBoolean("hotkeys_3d_ray", true);
 		pivotMode = builder.getInt("pivot_mode", 0);
 		pivotMode.invisible();
