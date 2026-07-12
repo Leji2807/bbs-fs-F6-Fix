@@ -6,7 +6,6 @@ import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
-import org.joml.Quaternionf;
 import org.joml.Vector2f;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
@@ -144,13 +143,9 @@ public class RingRotateDrag extends DragStrategy
         this.quatMode = this.ctx.transform().rotationMode == Transform.RotationMode.QUATERNION;
 
         /* The euler LOCAL ring adds its sweep onto the start angles; every other
-         * path reads this as the pose the parent frame is recovered at. In
-         * quaternion mode the euler channels are stale, so use the cache
-         * quaternion's ZYX equivalent — the exact angles computeRotateAxes
-         * perturbed, so the source and the axes stay consistent. */
-        Vector3f source = this.quatMode
-            ? new Quaternionf(this.ctx.cache().quat).getEulerAnglesZYX(new Vector3f())
-            : this.ctx.cache().rotate;
+         * path reads this as the pose the parent frame is recovered at (mode-aware,
+         * so a quaternion bone uses its ZYX equivalent, not the stale channels). */
+        Vector3f source = RotationDragMath.cacheSourceEuler(this.ctx);
 
         this.startRotateDeg.set(
             MathUtils.toDeg(source.x),
@@ -168,7 +163,7 @@ public class RingRotateDrag extends DragStrategy
          * euler LOCAL ring (also on rotateAxes) stays correct. */
         if (!this.channelPath())
         {
-            Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag.rotateAxes, source);
+            Matrix3f parentInverse = RotationDragMath.parentInverse(this.ctx, drag);
 
             if (parentInverse == null)
             {

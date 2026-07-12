@@ -387,17 +387,6 @@ public class UIAnimationStateEditor extends UIElement
                 }
             ));
 
-            /* Bone's unperturbed world rotation (transform already reverted by the
-             * compute* helpers) — the analytic parent frame for quaternion drags. */
-            this.editor.applyStateForSampling(tick);
-
-            Matrix4f boneMatrix = this.getOriginMatrix(transition);
-
-            if (boneMatrix != null)
-            {
-                drag.setBoneRotation(new Matrix3f(MatrixStackUtils.stripScale(boneMatrix)));
-            }
-
             /* Restore the previewed form to the unperturbed pose: the compute* helpers above have
              * already reverted the transform, so re-applying now poses it with the original values. */
             this.editor.applyStateForSampling(tick);

@@ -55,34 +55,34 @@ public final class RotationDragMath
     }
 
     /**
-     * The bone's parent-frame inverse, recovered <em>analytically</em> from the
-     * bone's sampled world rotation: {@code boneRotation = parent · localRotation},
-     * so {@code parentInverse = localRotation · boneRotation⁻¹}. It maps a
-     * world-space axis into the frame the edited local rotation sits in, then a
-     * world/view turn composes onto the pose as {@code delta · cache}.
-     *
-     * <p>Unlike the euler reconstruction it replaces (which went
-     * {@code cache.quat → getEulerAnglesZYX → eulerAxes → invert}), this touches
-     * no euler decomposition, so a quaternion bone whose arbitrary ZYX split
-     * happens to sit near a gimbal pole no longer produces a degenerate — and
-     * visibly wrong — parent frame. Works identically in euler mode, where
-     * {@code localRotation} is {@code ZYX(cache.rotate)}. Returns {@code null}
-     * when {@code boneRotation} is degenerate.
+     * The grab pose's ZYX euler, mode-aware: in QUATERNION mode the euler
+     * channels are stale, so this is the cache quaternion's ZYX equivalent —
+     * the exact angles {@link GizmoDrag#computeRotateAxes} perturbs, so the
+     * source and the measured axes stay consistent.
+     */
+    public static Vector3f cacheSourceEuler(DragContext ctx)
+    {
+        Transform cache = ctx.cache();
+
+        return cache.rotationMode == Transform.RotationMode.QUATERNION
+            ? new Quaternionf(cache.quat).getEulerAnglesZYX(new Vector3f())
+            : new Vector3f(cache.rotate);
+    }
+
+    /**
+     * The bone's parent-frame inverse for a world/view-axis turn, built from the
+     * MEASURED rotate axes ({@link GizmoDrag#computeRotateAxes}). Those fold in
+     * the parent chain AND any model flip (the cubic {@code Ry(180)} the renderer
+     * post-multiplies AFTER the bone's own rotation), so a world axis maps into
+     * the correct local-delta frame. The raw bone orientation does NOT: since the
+     * flip is post-multiplied, dividing it out leaves an extra conjugation that
+     * turns X/Z backwards on cubic bones (see [[cubic-ry180-flip-gotcha]] — this
+     * regressed trackball/view/arcball there). Returns {@code null} near a gimbal
+     * pole, where the euler axes degenerate; the caller then skips the gesture.
      */
     public static Matrix3f parentInverse(DragContext ctx, GizmoDrag drag)
     {
-        Matrix3f boneInverse = new Matrix3f(drag.boneRotation);
-
-        if (Math.abs(boneInverse.determinant()) < 1.0E-4F)
-        {
-            return null;
-        }
-
-        boneInverse.invert();
-
-        Matrix3f localRotation = new Matrix3f().rotation(ctx.cache().createRotation());
-
-        return localRotation.mul(boneInverse);
+        return computeParentInverse(drag.rotateAxes, cacheSourceEuler(ctx));
     }
 
     /**

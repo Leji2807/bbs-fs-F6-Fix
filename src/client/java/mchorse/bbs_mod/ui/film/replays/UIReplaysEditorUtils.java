@@ -809,10 +809,6 @@ public class UIReplaysEditorUtils
             transform.getTransform(),
             () -> matrixSampler.get().getTranslation(new Vector3f())
         ));
-        /* Sampled with the transform already restored, so this is the bone's
-         * unperturbed world rotation — the analytic parent frame for quat drags. */
-        drag.setBoneRotation(new Matrix3f(MatrixStackUtils.stripScale(matrixSampler.get())));
-
         /* Restore the form to its unperturbed state */
         Form form = entity.getForm();
         if (form != null)
@@ -871,10 +867,6 @@ public class UIReplaysEditorUtils
             transform.getTransform(),
             () -> matrixSampler.get().getTranslation(new Vector3f())
         ));
-        /* Sampled with the transform already restored, so this is the bone's
-         * unperturbed world rotation — the analytic parent frame for quat drags. */
-        drag.setBoneRotation(new Matrix3f(MatrixStackUtils.stripScale(matrixSampler.get())));
-
         /* Restore the form to its unperturbed state */
         Form form = entity.getForm();
         if (form != null)
