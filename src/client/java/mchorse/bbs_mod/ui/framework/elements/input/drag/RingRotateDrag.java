@@ -49,6 +49,14 @@ public class RingRotateDrag extends DragStrategy
     /** Whether the edited bone stores its rotation as a quaternion. */
     private boolean quatMode;
 
+    /** The space this gesture rotates in, captured at drag start. */
+    private TransformSpace space = TransformSpace.LOCAL;
+
+    /** For a non-local space: the ring's world axis expressed in the bone's parent
+     *  frame (constant for the drag), so the world turn composes onto the pose the
+     *  same gimbal-free way {@link ViewRotateDrag} does. Unused in LOCAL. */
+    private final Vector3f axisLocalParent = new Vector3f();
+
     public RingRotateDrag(DragContext ctx, Axis axis)
     {
         super(ctx, TransformOp.ROTATE, axis, null);
@@ -89,14 +97,13 @@ public class RingRotateDrag extends DragStrategy
             return;
         }
 
-        /* Use the renderer's actual rotation axis (filled by the editor via
-         * GizmoDrag.computeRotateAxes), not the visible gizmo arrow direction.
-         * For cubic models these can differ in sign on X/Z because the renderer
-         * post-multiplies by Ry(180°) after the bone's own rotation, flipping
-         * bone-local X and Z while preserving Y. Without this the angle we
-         * write into transform.rotate winds up running opposite to the user's
-         * physical drag. */
-        Vector3f axisDir = drag.rotateAxes.getColumn(this.axis.ordinal(), new Vector3f());
+        this.space = this.ctx.space();
+
+        /* The world axis this ring turns around, in the active space. LOCAL is
+         * the renderer's actual rotation axis (GizmoDrag.computeRotateAxes) — not
+         * the visible arrow, since cubic models post-multiply Ry(180°) and flip
+         * bone-local X/Z; GLOBAL is the world axis; VIEW is the camera axis. */
+        Vector3f axisDir = drag.spaceBasis(this.space).getColumn(this.axis.ordinal(), new Vector3f());
 
         if (axisDir.lengthSquared() < 1.0E-8F)
         {
@@ -150,6 +157,29 @@ public class RingRotateDrag extends DragStrategy
             MathUtils.toDeg(source.z)
         );
 
+        /* A non-local ring turns around a world axis, so map it once into the
+         * bone's parent frame (constant for the drag) and apply the world turn
+         * as a parent-frame delta — exactly ViewRotateDrag's gimbal-free path,
+         * just axis-locked. LOCAL keeps the single-euler-channel sweep below. */
+        if (this.space != TransformSpace.LOCAL)
+        {
+            Matrix3f parentInverse = RotationDragMath.computeParentInverse(drag, RotationDragMath.cacheSourceEuler(this.ctx));
+
+            if (parentInverse == null)
+            {
+                return;
+            }
+
+            parentInverse.transform(this.axisDir, this.axisLocalParent);
+
+            if (this.axisLocalParent.lengthSquared() < 1.0E-8F)
+            {
+                return;
+            }
+
+            this.axisLocalParent.normalize();
+        }
+
         this.hasStart = true;
     }
 
@@ -180,8 +210,21 @@ public class RingRotateDrag extends DragStrategy
             return;
         }
 
-        /* Snap only the driven axis, and only in the written value — the raw
-         * accumulation stays smooth, and the other two axes carry their start
+        /* Non-local: apply the swept world turn about the ring's axis as a
+         * parent-frame delta onto the grab pose (gimbal-free, quat- and
+         * euler-aware through the shared applyLocalDelta). */
+        if (this.space != TransformSpace.LOCAL)
+        {
+            float sweepDeg = (float) this.snapValue(this.accumulatedDeg);
+            Matrix3f deltaLocal = new Matrix3f().rotation(MathUtils.toRad(sweepDeg), this.axisLocalParent);
+
+            RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, this.ctx.cache().rotate, this.ctx.transform().rotate);
+
+            return;
+        }
+
+        /* Local: snap only the driven axis, and only in the written value — the
+         * raw accumulation stays smooth, and the other two axes carry their start
          * values and must not be rounded out from under the user. */
         float rx = this.startRotateDeg.x;
         float ry = this.startRotateDeg.y;
@@ -251,6 +294,15 @@ public class RingRotateDrag extends DragStrategy
         if (session != null && this.hasStart)
         {
             session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), this.axisDir));
+
+            return;
+        }
+
+        /* A non-local numeric turn is an axis rotation in the ring's world axis
+         * (mapped to the parent frame), not a bump of one euler channel. */
+        if (this.space != TransformSpace.LOCAL)
+        {
+            this.numericAxisRotation(value, this.axisLocalParent);
 
             return;
         }

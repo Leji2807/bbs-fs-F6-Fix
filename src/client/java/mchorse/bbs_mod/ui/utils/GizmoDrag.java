@@ -2,6 +2,7 @@ package mchorse.bbs_mod.ui.utils;
 
 import mchorse.bbs_mod.camera.Camera;
 import mchorse.bbs_mod.camera.CameraUtils;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
@@ -233,6 +234,38 @@ public class GizmoDrag
         Vector3f b = basis.getColumn(axisB.ordinal(), new Vector3f());
 
         return a.cross(b, out).normalize();
+    }
+
+    /**
+     * The world-space orthonormal basis a {@link TransformSpace} aligns to, whose
+     * columns are the world directions the gizmo's X/Y/Z map to in that space.
+     * {@link TransformSpace#LOCAL} is the bone's own render axes ({@link #rotateAxes},
+     * so it exactly reproduces the historical behaviour); {@link TransformSpace#GLOBAL}
+     * is the world identity; {@link TransformSpace#VIEW} is the camera's
+     * right/up/back (the inverse of the rotation-only {@link #view}). Constrained
+     * drags rotate/slide along a column of this, and the gizmo (Phase C) draws its
+     * handles in it.
+     */
+    public Matrix3f spaceBasis(TransformSpace space)
+    {
+        switch (space)
+        {
+            case GLOBAL:
+                return new Matrix3f();
+            case VIEW:
+                /* view is world→camera (rotation only), so its inverse takes the
+                 * camera's own axes back into world space. */
+                Matrix3f viewAxes = this.view.get3x3(new Matrix3f());
+
+                if (Math.abs(viewAxes.determinant()) < PARALLEL_EPSILON)
+                {
+                    return new Matrix3f();
+                }
+
+                return viewAxes.invert();
+            default:
+                return new Matrix3f(this.rotateAxes);
+        }
     }
 
     public GizmoDrag setJacobian(Matrix3f jacobian)
