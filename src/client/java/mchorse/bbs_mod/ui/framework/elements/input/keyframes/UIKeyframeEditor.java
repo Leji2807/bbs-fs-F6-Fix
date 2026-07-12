@@ -1,5 +1,6 @@
 package mchorse.bbs_mod.ui.framework.elements.input.keyframes;
 
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.camera.clips.overwrite.KeyframeClip;
 import mchorse.bbs_mod.film.replays.PerLimbService;
 import mchorse.bbs_mod.data.DataStorageUtils;
@@ -255,6 +256,28 @@ public class UIKeyframeEditor extends UIElement
         }
 
         return null;
+    }
+
+    /** The space of the bone gizmo's active transform (mirrors {@link #getBone()}'s
+     *  dispatch), so the film gizmo can be drawn in LOCAL/GLOBAL/VIEW. */
+    public TransformSpace getBoneSpace()
+    {
+        UIKeyframeFactory editor = this.editor;
+
+        if (editor instanceof UIPoseKeyframeFactory pose)
+        {
+            return pose.poseEditor.transform.getSpace();
+        }
+        else if (editor instanceof UITransformKeyframeFactory transform)
+        {
+            return transform.transform.getSpace();
+        }
+        else if (editor instanceof UIPoseTransformKeyframeFactory poseTransform)
+        {
+            return poseTransform.transform.getSpace();
+        }
+
+        return TransformSpace.LOCAL;
     }
 
     /**

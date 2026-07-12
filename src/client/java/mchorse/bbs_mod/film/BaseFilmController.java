@@ -3,6 +3,7 @@ package mchorse.bbs_mod.film;
 import com.mojang.blaze3d.systems.RenderSystem;
 import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.collection.IntObjectMap;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.camera.data.Point;
@@ -190,7 +191,7 @@ public abstract class BaseFilmController
 
         if (UIBaseMenu.shouldRenderAxes())
         {
-            if (context.bone != null) renderAxes(context.bone, context.local, context.map, form, entity, transition, stack);
+            if (context.bone != null) renderAxes(context.bone, context.local, context.space, context.gizmoView, context.map, form, entity, transition, stack);
             if (context.bone2 != null && context.map == null) renderPreviewAxes(context.bone2, context.local2, form, entity, transition, stack);
         }
 
@@ -260,7 +261,7 @@ public abstract class BaseFilmController
         RenderSystem.enableDepthTest();
     }
 
-    private static void renderAxes(String bone, boolean local, StencilMap stencilMap, Form form, IEntity entity, float transition, MatrixStack stack)
+    private static void renderAxes(String bone, boolean local, TransformSpace space, Matrix4f gizmoView, StencilMap stencilMap, Form form, IEntity entity, float transition, MatrixStack stack)
     {
         String mapKey = bone != null && bone.contains(PerLimbService.POSE_BONES) ? bone.replace(PerLimbService.POSE_BONES, "") : bone;
         Form root = FormUtils.getRoot(form);
@@ -271,6 +272,11 @@ public abstract class BaseFilmController
         {
             stack.push();
             MatrixStackUtils.multiply(stack, matrix);
+
+            /* Reorient into the active space (world axes for GLOBAL, screen axes for
+             * VIEW; LOCAL untouched) before the frame is captured — so the visual
+             * and the pick stencil, both built from it, stay in lockstep. */
+            Gizmo.INSTANCE.reorientForSpace(stack, space, gizmoView);
 
             if (stencilMap == null)
             {

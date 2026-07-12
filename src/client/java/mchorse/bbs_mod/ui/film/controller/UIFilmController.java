@@ -20,6 +20,7 @@ import com.mojang.blaze3d.systems.VertexSorter;
 
 import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.collection.IntObjectMap;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.actions.ActionState;
@@ -1538,6 +1539,20 @@ public class UIFilmController extends UIElement implements GizmoViewport
         return keyframeEditor != null ? keyframeEditor.getBone() : null;
     }
 
+    /** The space the bone gizmo should be drawn in (active transform's space). */
+    public TransformSpace getBoneSpace()
+    {
+        UIKeyframeEditor keyframeEditor = this.panel.replayEditor.keyframeEditor;
+
+        return keyframeEditor != null ? keyframeEditor.getBoneSpace() : TransformSpace.LOCAL;
+    }
+
+    /** The film camera's world&rarr;camera rotation, for reorienting the gizmo into a space. */
+    public Matrix4f getGizmoView()
+    {
+        return this.panel.getCamera().view;
+    }
+
     /** Whether the selected keyframe is the form's anchor track, so its transform gets a gizmo. */
     public boolean isAnchorGizmo()
     {
@@ -1623,6 +1638,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
                     filmContext
                         .bone(bone == null ? null : bone.a, bone != null && bone.b)
+                        .gizmoSpace(this.getBoneSpace(), this.getGizmoView())
                         .anchorGizmo(this.isAnchorGizmo(), this.getAnchorLocal());
                 }
                 else
@@ -1647,6 +1663,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
                 .stencil(this.stencilMap)
                 .relative(replay.relative.get())
                 .bone(bone == null ? null : bone.a, bone != null && bone.b)
+                .gizmoSpace(this.getBoneSpace(), this.getGizmoView())
                 .anchorGizmo(this.isAnchorGizmo(), this.getAnchorLocal()));
         }
 

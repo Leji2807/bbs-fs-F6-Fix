@@ -372,6 +372,10 @@ public class UIModelBlockPanel extends UIDashboardPanel implements IFlightSuppor
          * and stencil (both read Gizmo#lastRenderMatrix) draw at the right place. */
         stack.push();
         this.applyGizmoOrigin(stack, cameraPos);
+        /* Reorient into the active space (GLOBAL world axes / VIEW screen axes);
+         * LOCAL keeps the block rotation applied above. One capture feeds both the
+         * visual and the pick stencil, so they stay in lockstep. */
+        Gizmo.INSTANCE.reorientForSpace(stack, this.transform.getSpace(), this.gizmoCamera.view);
         Gizmo.INSTANCE.captureVisual(stack);
         stack.pop();
     }
