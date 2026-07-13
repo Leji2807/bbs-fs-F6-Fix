@@ -1586,6 +1586,8 @@ public class UIPropTransform extends UITransform
             {
                 this.strategy.update(context.mouseX, context.mouseY);
             }
+
+            this.strategy.logDrag();
         }
 
         this.setTransform(this.transform);

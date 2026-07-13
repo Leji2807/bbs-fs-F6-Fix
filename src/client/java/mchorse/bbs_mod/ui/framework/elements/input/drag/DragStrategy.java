@@ -2,6 +2,7 @@ package mchorse.bbs_mod.ui.framework.elements.input.drag;
 
 import mchorse.bbs_mod.graphics.window.Window;
 import mchorse.bbs_mod.ui.framework.UIContext;
+import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.joml.Matrices;
@@ -33,6 +34,25 @@ public abstract class DragStrategy
     /** Base degrees of view-axis roll per mouse-wheel notch while sphere-dragging. */
     protected static final float TRACKBALL_WHEEL_DEG = 5F;
 
+    /* ── Drag debug logging ─────────────────────────────────────────────────
+     * A single throttled, detailed console dump of the live gesture, meant for
+     * diagnosing transform/gizmo bugs. Flip {@link #LOG_DRAG} to disable without
+     * removing the plumbing; the thresholds keep the console readable — a line is
+     * emitted only once the gesture has moved at least this much since the last
+     * one (rotation in degrees, translation in channel units, scale per axis). */
+
+    /** Master switch for the per-drag console dump. */
+    private static final boolean LOG_DRAG = true;
+
+    /** Minimum rotation (degrees) between two consecutive drag debug logs. */
+    private static final float LOG_STEP_DEG = 5F;
+
+    /** Minimum translation (channel units) between two consecutive drag debug logs. */
+    private static final float LOG_STEP_TRANSLATE = 0.25F;
+
+    /** Minimum per-axis scale change between two consecutive drag debug logs. */
+    private static final float LOG_STEP_SCALE = 0.05F;
+
     protected final DragContext ctx;
     protected final TransformOp op;
     protected final Axis axis;
@@ -40,6 +60,15 @@ public abstract class DragStrategy
 
     /** Whether {@link #begin} anchored successfully and {@link #update} may run. */
     protected boolean hasStart;
+
+    /* Snapshot of the last state that was logged, so {@link #logDrag} can throttle
+     * by how far the gesture has moved since. Fresh per gesture (the host builds a
+     * new strategy each edit), so it needs no explicit reset. */
+    private boolean logInitialized;
+    private int logCounter;
+    private final Quaternionf logLastRotation = new Quaternionf();
+    private final Vector3f logLastTranslate = new Vector3f();
+    private final Vector3f logLastScale = new Vector3f();
 
     protected DragStrategy(DragContext ctx, TransformOp op, Axis axis, Axis axis2)
     {
@@ -305,5 +334,145 @@ public abstract class DragStrategy
             new Matrix3f().rotation(MathUtils.toRad((float) degrees), localAxis),
             source, source
         );
+    }
+
+    /* ── Drag debug logging ──────────────────────────────────────────────── */
+
+    /**
+     * Dump a detailed snapshot of the live gesture to the console, throttled so
+     * it only fires once the transform has moved a meaningful step since the last
+     * dump (see {@link #LOG_STEP_DEG} / {@link #LOG_STEP_TRANSLATE} /
+     * {@link #LOG_STEP_SCALE}). The host calls this once per drag frame, right
+     * after {@link #update}; it is a no-op unless {@link #LOG_DRAG} is on.
+     */
+    public final void logDrag()
+    {
+        if (!LOG_DRAG)
+        {
+            return;
+        }
+
+        Transform now = this.ctx.transform();
+        Quaternionf rotation = now.createRotation();
+
+        float rotStep = this.logInitialized ? quatAngleDeg(this.logLastRotation, rotation) : Float.MAX_VALUE;
+        float transStep = this.logInitialized ? now.translate.distance(this.logLastTranslate) : Float.MAX_VALUE;
+        float scaleStep = this.logInitialized ? now.scale.distance(this.logLastScale) : Float.MAX_VALUE;
+
+        String reason;
+
+        if (!this.logInitialized) reason = "grab";
+        else if (rotStep >= LOG_STEP_DEG) reason = String.format("Δrot %.1f°", rotStep);
+        else if (transStep >= LOG_STEP_TRANSLATE) reason = String.format("Δpos %.3f", transStep);
+        else if (scaleStep >= LOG_STEP_SCALE) reason = String.format("Δscale %.3f", scaleStep);
+        else return; /* Below every threshold — stay quiet this frame. */
+
+        this.logLastRotation.set(rotation);
+        this.logLastTranslate.set(now.translate);
+        this.logLastScale.set(now.scale);
+        this.logInitialized = true;
+        this.logCounter++;
+
+        System.out.println(this.buildDragLog(reason, rotation));
+    }
+
+    private String buildDragLog(String reason, Quaternionf nowQuat)
+    {
+        Transform cache = this.ctx.cache();
+        Transform now = this.ctx.transform();
+        TransformSpace space = this.ctx.space();
+
+        Vector3f cacheEuler = cache.getEulerRotation(new Vector3f());
+        Vector3f nowEuler = now.getEulerRotation(new Vector3f());
+        float turnedDeg = quatAngleDeg(cache.createRotation(), nowQuat);
+
+        StringBuilder b = new StringBuilder();
+
+        b.append("\n──────── gizmo drag #").append(this.logCounter).append("  (").append(reason).append(") ────────\n");
+        b.append("  op=").append(this.op)
+            .append("  style=").append(this.getClass().getSimpleName())
+            .append("  axis=").append(this.axis).append(this.axis2 != null ? ("+" + this.axis2) : "")
+            .append("  space=").append(space)
+            .append("  mode=").append(now.rotationMode).append('\n');
+        b.append("  flags: model=").append(this.ctx.isModel())
+            .append(" local=").append(this.ctx.isLocal())
+            .append(" sphere=").append(this.isSphere())
+            .append(" view=").append(this.isView())
+            .append(" screenT=").append(this.isScreenTranslate())
+            .append(" sphereR=").append(fmt(this.ctx.sphereWorldRadius())).append('\n');
+
+        b.append("  translate: ").append(fmtVec(cache.translate)).append(" -> ").append(fmtVec(now.translate))
+            .append("   Δ ").append(fmtVec(new Vector3f(now.translate).sub(cache.translate))).append('\n');
+        b.append("  scale:     ").append(fmtVec(cache.scale)).append(" -> ").append(fmtVec(now.scale))
+            .append("   Δ ").append(fmtVec(new Vector3f(now.scale).sub(cache.scale))).append('\n');
+        b.append("  euler°:    ").append(fmtVecDeg(cacheEuler)).append(" -> ").append(fmtVecDeg(nowEuler))
+            .append("   Δ ").append(fmtVecDeg(new Vector3f(nowEuler).sub(cacheEuler))).append('\n');
+        b.append("  quat:      ").append(fmtQuat(nowQuat))
+            .append("   turned ").append(fmt(turnedDeg)).append("° from grab\n");
+
+        GizmoDrag drag = this.ctx.drag();
+
+        if (drag != null)
+        {
+            b.append("  rotateAxes     ").append(fmtBasis(drag.rotateAxes)).append('\n');
+            b.append("  gizmoWorldAxes ").append(fmtBasis(drag.gizmoWorldAxes)).append('\n');
+            b.append("  rotationBasis  ").append(fmtBasis(drag.rotationBasis(space))).append('\n');
+            b.append("  frameBasis     ").append(fmtBasis(drag.frameBasis(space))).append('\n');
+        }
+        else
+        {
+            b.append("  gizmo frame: <no ray drag>\n");
+        }
+
+        float pieDeg = this.accumulatedRotateDeg();
+        String readout = this.readout();
+
+        if (pieDeg != 0F)
+        {
+            b.append("  pie=").append(fmt(pieDeg)).append("°  viewSweep=").append(fmt(this.viewScreenSweepRad())).append(" rad\n");
+        }
+
+        if (readout != null)
+        {
+            b.append("  readout: ").append(readout).append('\n');
+        }
+
+        return b.toString();
+    }
+
+    /** Shortest-arc angle between two rotations, in degrees. */
+    private static float quatAngleDeg(Quaternionf a, Quaternionf b)
+    {
+        Quaternionf delta = new Quaternionf(a).conjugate().mul(b).normalize();
+
+        return (float) Math.toDegrees(2.0 * Math.acos(Math.min(1F, Math.abs(delta.w))));
+    }
+
+    private static String fmt(float value)
+    {
+        return String.format("%.3f", value);
+    }
+
+    private static String fmtVec(Vector3f v)
+    {
+        return String.format("(%+.3f, %+.3f, %+.3f)", v.x, v.y, v.z);
+    }
+
+    private static String fmtVecDeg(Vector3f radians)
+    {
+        return String.format("(%+.2f, %+.2f, %+.2f)", MathUtils.toDeg(radians.x), MathUtils.toDeg(radians.y), MathUtils.toDeg(radians.z));
+    }
+
+    private static String fmtQuat(Quaternionf q)
+    {
+        return String.format("(w%+.4f x%+.4f y%+.4f z%+.4f)", q.w, q.x, q.y, q.z);
+    }
+
+    private static String fmtBasis(Matrix3f m)
+    {
+        return String.format("X%s Y%s Z%s",
+            fmtVec(m.getColumn(0, new Vector3f())),
+            fmtVec(m.getColumn(1, new Vector3f())),
+            fmtVec(m.getColumn(2, new Vector3f())));
     }
 }
