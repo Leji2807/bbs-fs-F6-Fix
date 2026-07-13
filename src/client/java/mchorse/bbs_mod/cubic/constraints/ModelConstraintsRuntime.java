@@ -8,6 +8,8 @@ import mchorse.bbs_mod.cubic.model.bobj.BOBJModel;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.forms.forms.ModelForm;
 import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
+import org.joml.Vector3f;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -80,6 +82,15 @@ public final class ModelConstraintsRuntime
         return Collections.emptyMap();
     }
 
+    /**
+     * Clamps a bone's EVALUATED rotation (the constraint-stack result so far — FK, IK, physics),
+     * not its FK channels: the evaluated rotation is decomposed to the euler branch nearest the FK
+     * channels (a per-frame-stable reference, no frame-to-frame stranding), clamped per axis, and
+     * written back to {@code orient}. The channels stay read-only FK truth, and an IK/physics
+     * result survives the limit instead of being discarded for the clamped FK pose (limits used to
+     * null {@code orient}, visually destroying the solve on a constrained chain bone). Works on
+     * quaternion-mode bones too — the clamp reads the evaluated rotation, never a stale euler.
+     */
     private static void applyToModel(Model model, Map<String, ModelConstraintsConfig.BoneConstraint> bones)
     {
         for (ModelGroup group : model.getAllGroups())
@@ -96,43 +107,15 @@ public final class ModelConstraintsRuntime
                 continue;
             }
 
-            float minX = c.minX();
-            float minY = c.minY();
-            float minZ = c.minZ();
-            float maxX = c.maxX();
-            float maxY = c.maxY();
-            float maxZ = c.maxZ();
+            Vector3f euler = Matrices.toCompatibleEulerZYXDegrees(group.evaluatedRotation(), group.current.rotate, new Vector3f());
 
-            if (minX > maxX)
-            {
-                float t = minX;
-                minX = maxX;
-                maxX = t;
-            }
+            clamp(euler, c, 1F);
 
-            if (minY > maxY)
-            {
-                float t = minY;
-                minY = maxY;
-                maxY = t;
-            }
-
-            if (minZ > maxZ)
-            {
-                float t = minZ;
-                minZ = maxZ;
-                maxZ = t;
-            }
-
-            group.current.rotate.x = MathUtils.clamp(group.current.rotate.x, minX, maxX);
-            group.current.rotate.y = MathUtils.clamp(group.current.rotate.y, minY, maxY);
-            group.current.rotate.z = MathUtils.clamp(group.current.rotate.z, minZ, maxZ);
-
-            /* Constraint finalizes in clamped euler — drop any composed orientation so the renderer uses it. */
-            group.orient = null;
+            group.orient = Matrices.toLocalRotationZYXDegrees(euler);
         }
     }
 
+    /** See {@link #applyToModel}; BOBJ channels are radians, the config limits are degrees. */
     private static void applyToBobj(BOBJModel model, Map<String, ModelConstraintsConfig.BoneConstraint> bones)
     {
         for (BOBJBone bone : model.getArmature().orderedBones)
@@ -149,39 +132,31 @@ public final class ModelConstraintsRuntime
                 continue;
             }
 
-            float minX = (float) Math.toRadians(c.minX());
-            float minY = (float) Math.toRadians(c.minY());
-            float minZ = (float) Math.toRadians(c.minZ());
-            float maxX = (float) Math.toRadians(c.maxX());
-            float maxY = (float) Math.toRadians(c.maxY());
-            float maxZ = (float) Math.toRadians(c.maxZ());
+            Vector3f euler = Matrices.toCompatibleEulerZYXRadians(bone.evaluatedRotation(), bone.transform.rotate, new Vector3f());
 
-            if (minX > maxX)
-            {
-                float t = minX;
-                minX = maxX;
-                maxX = t;
-            }
+            clamp(euler, c, MathUtils.PI / 180F);
 
-            if (minY > maxY)
-            {
-                float t = minY;
-                minY = maxY;
-                maxY = t;
-            }
-
-            if (minZ > maxZ)
-            {
-                float t = minZ;
-                minZ = maxZ;
-                maxZ = t;
-            }
-
-            bone.transform.rotate.x = MathUtils.clamp(bone.transform.rotate.x, minX, maxX);
-            bone.transform.rotate.y = MathUtils.clamp(bone.transform.rotate.y, minY, maxY);
-            bone.transform.rotate.z = MathUtils.clamp(bone.transform.rotate.z, minZ, maxZ);
-            bone.orient = null;
+            bone.orient = Matrices.toLocalRotationZYXRadians(euler);
         }
     }
 
+    /** Clamps euler angles to the constraint's limits, {@code scale} converting the degree limits to the angles' unit. */
+    private static void clamp(Vector3f euler, ModelConstraintsConfig.BoneConstraint c, float scale)
+    {
+        euler.x = clampAxis(euler.x, c.minX() * scale, c.maxX() * scale);
+        euler.y = clampAxis(euler.y, c.minY() * scale, c.maxY() * scale);
+        euler.z = clampAxis(euler.z, c.minZ() * scale, c.maxZ() * scale);
+    }
+
+    private static float clampAxis(float value, float min, float max)
+    {
+        if (min > max)
+        {
+            float t = min;
+            min = max;
+            max = t;
+        }
+
+        return MathUtils.clamp(value, min, max);
+    }
 }
