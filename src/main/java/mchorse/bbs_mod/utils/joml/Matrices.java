@@ -129,6 +129,80 @@ public class Matrices
     }
 
     /**
+     * ZYX euler angles (radians) of {@code rotation}, resolved to the
+     * representation continuous with {@code referenceRadians} — written into
+     * {@code dest}.
+     *
+     * <p>Every orientation has TWO ZYX euler solutions: the principal one
+     * {@code (x, y, z)} and its flip {@code (x+π, π-y, z+π)} (plus whole-turn
+     * shifts of each). A plain component-wise unwrap slides within ONE branch
+     * but can never cross to the other, so a decomposition whose middle angle
+     * passes the ±90° pole can snap to the flipped branch — spilling π into the
+     * outer two angles though the orientation barely moved (e.g. a world/parent-
+     * space Y-turn then shows X and Z jumping too). This picks whichever branch,
+     * unwrapped to the reference, lands nearest, which is the branch the value
+     * was already on. It is Blender's {@code mat3_to_compatible_eulO}, and is THE
+     * matrix/quaternion&rarr;euler readback for any channel that must stay
+     * continuous with its previous value (IK/pose blending, multi-bone pivot,
+     * the gizmo's spatial rotations).
+     */
+    public static Vector3f toCompatibleEulerZYXRadians(Quaternionf rotation, Vector3f referenceRadians, Vector3f dest)
+    {
+        Vector3f raw = new Quaternionf(rotation).normalize().getEulerAnglesZYX(new Vector3f());
+
+        return compatibleEulerZYX(raw, referenceRadians, (float) Math.PI, dest);
+    }
+
+    /** See {@link #toCompatibleEulerZYXRadians(Quaternionf, Vector3f, Vector3f)}; from a rotation matrix. */
+    public static Vector3f toCompatibleEulerZYXRadians(Matrix3f rotation, Vector3f referenceRadians, Vector3f dest)
+    {
+        return compatibleEulerZYX(rotation.getEulerAnglesZYX(new Vector3f()), referenceRadians, (float) Math.PI, dest);
+    }
+
+    /** See {@link #toCompatibleEulerZYXRadians(Quaternionf, Vector3f, Vector3f)}; angles in degrees. */
+    public static Vector3f toCompatibleEulerZYXDegrees(Quaternionf rotation, Vector3f referenceDegrees, Vector3f dest)
+    {
+        Vector3f raw = new Quaternionf(rotation).normalize().getEulerAnglesZYX(new Vector3f()).mul((float) (180.0 / Math.PI));
+
+        return compatibleEulerZYX(raw, referenceDegrees, 180F, dest);
+    }
+
+    /**
+     * Choose the ZYX euler branch nearest {@code reference}: the principal
+     * solution {@code raw} or its flip {@code (x+half, half-y, z+half)}, each
+     * pulled by whole turns to the reference, whichever is closer by total
+     * angular offset. {@code halfTurn} is π (radians) or 180 (degrees).
+     */
+    private static Vector3f compatibleEulerZYX(Vector3f raw, Vector3f reference, float halfTurn, Vector3f dest)
+    {
+        float fullTurn = halfTurn * 2F;
+
+        float ax = unwrapNear(raw.x, reference.x, fullTurn);
+        float ay = unwrapNear(raw.y, reference.y, fullTurn);
+        float az = unwrapNear(raw.z, reference.z, fullTurn);
+
+        float bx = unwrapNear(raw.x + halfTurn, reference.x, fullTurn);
+        float by = unwrapNear(halfTurn - raw.y, reference.y, fullTurn);
+        float bz = unwrapNear(raw.z + halfTurn, reference.z, fullTurn);
+
+        boolean flip = offsetL1(bx, by, bz, reference) < offsetL1(ax, ay, az, reference);
+
+        return flip ? dest.set(bx, by, bz) : dest.set(ax, ay, az);
+    }
+
+    /** {@code value} shifted by whole {@code period}s to sit nearest {@code reference}. */
+    private static float unwrapNear(float value, float reference, float period)
+    {
+        return value + Math.round((reference - value) / period) * period;
+    }
+
+    /** Total absolute per-axis offset of an euler triple from {@code reference}. */
+    private static float offsetL1(float x, float y, float z, Vector3f reference)
+    {
+        return Math.abs(x - reference.x) + Math.abs(y - reference.y) + Math.abs(z - reference.z);
+    }
+
+    /**
      * A transform's euler rotation ({@code ZYX(rotate)}) as a quaternion — the
      * renderer's order. Every consumer of a bone's euler stack (bone renderers,
      * orient seeds, IK blending, the pose matrix) goes through these two methods,

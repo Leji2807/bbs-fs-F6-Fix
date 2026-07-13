@@ -2,6 +2,7 @@ package mchorse.bbs_mod.ui.framework.elements.input.drag;
 
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
 import org.joml.Quaternionf;
@@ -10,8 +11,8 @@ import org.joml.Vector3f;
 
 /**
  * The euler glue shared by every rotation drag: compose the turn as a
- * matrix, read ZYX euler angles back out, and write them unwrapped so a
- * value never jumps to a far 360°-equivalent mid-gesture. Used to be
+ * matrix, read ZYX euler angles back out, and write them on the branch
+ * continuous with the live pose so a value never jumps mid-gesture. Used to be
  * copy-pasted across the view/trackball/arcball drags and the typed-angle
  * input.
  */
@@ -19,12 +20,6 @@ public final class RotationDragMath
 {
     private RotationDragMath()
     {}
-
-    /** The 360°-equivalent of {@code valueDeg} nearest to {@code referenceDeg}. */
-    public static float unwrapDeg(float valueDeg, float referenceDeg)
-    {
-        return valueDeg + Math.round((referenceDeg - valueDeg) / 360F) * 360F;
-    }
 
     /**
      * Cursor angle (radians) around a projected centre, in the viewport pixel
@@ -86,28 +81,26 @@ public final class RotationDragMath
     }
 
     /**
-     * Read ZYX euler angles off {@code rotation} and write them into the
-     * transform's rotate channel, each component unwrapped to the 360°-equivalent
-     * nearest {@code referenceRadians}. The orientation stays continuous through
-     * gimbal lock; only its euler representation jumps, which the unwrap hides.
+     * Decompose {@code rotation} to ZYX euler and write it into the transform's
+     * rotate channel as the representation continuous with {@code referenceRadians},
+     * so the stored angles never jump branches through the gimbal pole (a spatial
+     * Y-turn spilling 180° into X/Z). The two-branch resolution lives in
+     * {@link Matrices#toCompatibleEulerZYXRadians}; here it's just decomposed and
+     * pushed out in degrees.
      */
-    public static void writeEulerUnwrapped(DragContext ctx, Matrix3f rotation, Vector3f referenceRadians)
+    public static void writeCompatibleEuler(DragContext ctx, Matrix3f rotation, Vector3f referenceRadians)
     {
-        Vector3f euler = rotation.getEulerAnglesZYX(new Vector3f());
+        Vector3f euler = Matrices.toCompatibleEulerZYXRadians(rotation, referenceRadians, new Vector3f());
 
-        float rx = unwrapDeg(MathUtils.toDeg(euler.x), MathUtils.toDeg(referenceRadians.x));
-        float ry = unwrapDeg(MathUtils.toDeg(euler.y), MathUtils.toDeg(referenceRadians.y));
-        float rz = unwrapDeg(MathUtils.toDeg(euler.z), MathUtils.toDeg(referenceRadians.z));
-
-        ctx.writeRotateDeg(rx, ry, rz);
+        ctx.writeRotateDeg(MathUtils.toDeg(euler.x), MathUtils.toDeg(euler.y), MathUtils.toDeg(euler.z));
     }
 
     /**
      * Compose a parent-frame delta rotation onto the grab base and write it per
      * the edited transform's mode. In QUATERNION mode the composed rotation is
      * stored as a quaternion straight from the delta — no euler decomposition,
-     * so the drag never hits gimbal lock. In EULER mode it decomposes ZYX and
-     * unwraps against the live value exactly as before.
+     * so the drag never hits gimbal lock. In EULER mode it decomposes ZYX to the
+     * branch continuous with the live value (see {@link #writeCompatibleEuler}).
      *
      * @param deltaLocal the delta rotation in the bone's parent frame (a pure
      *        rotation matrix); left untouched.
@@ -124,7 +117,7 @@ public final class RotationDragMath
         }
         else
         {
-            writeEulerUnwrapped(ctx, new Matrix3f(deltaLocal).mul(eulerZYX(baseEuler)), liveEuler);
+            writeCompatibleEuler(ctx, new Matrix3f(deltaLocal).mul(eulerZYX(baseEuler)), liveEuler);
         }
     }
 

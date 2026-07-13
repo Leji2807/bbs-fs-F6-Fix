@@ -98,11 +98,7 @@ public final class ModelRotationBlender
             ModelGroup bone = bones[i];
             Quaternionf solved = Matrices.toLocalRotationZYXDegrees(bone.current.rotate);
             Quaternionf blended = new Quaternionf(baseLocal[i]).slerp(solved, factor);
-            Vector3f euler = Matrices.toEulerZYXDegrees(blended);
-
-            euler.x = wrapDegreesNear(euler.x, baseX[i]);
-            euler.y = wrapDegreesNear(euler.y, baseY[i]);
-            euler.z = wrapDegreesNear(euler.z, baseZ[i]);
+            Vector3f euler = Matrices.toCompatibleEulerZYXDegrees(blended, new Vector3f(baseX[i], baseY[i], baseZ[i]), new Vector3f());
 
             bone.current.rotate.set(euler);
         }
@@ -158,11 +154,7 @@ public final class ModelRotationBlender
             BOBJBone bone = bones[i];
             Quaternionf solved = Matrices.toLocalRotationZYXRadians(bone.transform.rotate);
             Quaternionf blended = new Quaternionf(baseLocal[i]).slerp(solved, factor);
-            Vector3f euler = new Quaternionf(blended).normalize().getEulerAnglesZYX(new Vector3f());
-
-            euler.x = wrapRadiansNear(euler.x, baseX[i]);
-            euler.y = wrapRadiansNear(euler.y, baseY[i]);
-            euler.z = wrapRadiansNear(euler.z, baseZ[i]);
+            Vector3f euler = Matrices.toCompatibleEulerZYXRadians(blended, new Vector3f(baseX[i], baseY[i], baseZ[i]), new Vector3f());
 
             bone.transform.rotate.set(euler);
             bone.orient = null;
@@ -215,11 +207,7 @@ public final class ModelRotationBlender
 
             Quaternionf localRot = Matrices.fromToMirroredX(restDirLocal, desiredDirLocal);
             localRot.mul(Matrices.twistAbout(Matrices.toLocalRotationZYXRadians(bone.transform.rotate), restDirLocal));
-            Vector3f eulerRad = new Quaternionf(localRot).normalize().getEulerAnglesZYX(new Vector3f());
-
-            eulerRad.x = wrapRadiansNear(eulerRad.x, bone.transform.rotate.x);
-            eulerRad.y = wrapRadiansNear(eulerRad.y, bone.transform.rotate.y);
-            eulerRad.z = wrapRadiansNear(eulerRad.z, bone.transform.rotate.z);
+            Vector3f eulerRad = Matrices.toCompatibleEulerZYXRadians(localRot, bone.transform.rotate, new Vector3f());
 
             bone.transform.rotate.set(eulerRad);
             bone.orient = null;
@@ -282,45 +270,5 @@ public final class ModelRotationBlender
         }
 
         return Math.min(value, 1F);
-    }
-
-    private static float wrapDegreesNear(float angle, float reference)
-    {
-        float delta = angle - reference;
-
-        while (delta > 180F)
-        {
-            angle -= 360F;
-            delta -= 360F;
-        }
-
-        while (delta < -180F)
-        {
-            angle += 360F;
-            delta += 360F;
-        }
-
-        return angle;
-    }
-
-    private static float wrapRadiansNear(float angle, float reference)
-    {
-        float delta = angle - reference;
-        float period = (float) (Math.PI * 2.0);
-        float half = (float) Math.PI;
-
-        while (delta > half)
-        {
-            angle -= period;
-            delta -= period;
-        }
-
-        while (delta < -half)
-        {
-            angle += period;
-            delta += period;
-        }
-
-        return angle;
     }
 }

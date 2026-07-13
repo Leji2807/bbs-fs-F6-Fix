@@ -1,6 +1,6 @@
 package mchorse.bbs_mod.ui.framework.elements.input.drag;
 
-import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
 import org.joml.Vector3f;
@@ -120,13 +120,9 @@ public class SelectionPivotSession
 
                 Matrix3f composed = parentDelta.mul(RotationDragMath.eulerZYX(bone.cache.rotate));
 
-                composed.getEulerAnglesZYX(euler);
+                Matrices.toCompatibleEulerZYXRadians(composed, bone.transform.rotate, euler);
 
-                bone.transform.rotate.set(
-                    MathUtils.toRad(RotationDragMath.unwrapDeg(MathUtils.toDeg(euler.x), MathUtils.toDeg(bone.transform.rotate.x))),
-                    MathUtils.toRad(RotationDragMath.unwrapDeg(MathUtils.toDeg(euler.y), MathUtils.toDeg(bone.transform.rotate.y))),
-                    MathUtils.toRad(RotationDragMath.unwrapDeg(MathUtils.toDeg(euler.z), MathUtils.toDeg(bone.transform.rotate.z)))
-                );
+                bone.transform.rotate.set(euler);
             }
 
             relative.set(bone.worldOrigin).sub(this.pivot);

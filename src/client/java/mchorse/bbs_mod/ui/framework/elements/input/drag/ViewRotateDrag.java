@@ -19,9 +19,9 @@ import org.joml.Vector3f;
  * (the cache) plus the total swept angle about the view axis anchored at
  * grab time — a pure function of the gesture, never of the previous frame's
  * euler readback. The euler angles are read out once per frame in the one
- * shared place ({@link RotationDragMath#writeEulerUnwrapped}); the
- * orientation stays continuous through gimbal lock, only its euler
- * representation jumps, which the unwrap hides.
+ * shared place ({@link RotationDragMath#writeCompatibleEuler}); the
+ * orientation stays continuous through gimbal lock, and the readback picks the
+ * euler branch nearest the live pose so the stored angles don't jump either.
  */
 public class ViewRotateDrag extends DragStrategy
 {
