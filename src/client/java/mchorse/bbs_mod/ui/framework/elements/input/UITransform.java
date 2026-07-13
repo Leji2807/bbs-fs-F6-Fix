@@ -21,6 +21,7 @@ import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.AxisAngle4f;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
@@ -471,6 +472,18 @@ public abstract class UITransform extends UIElement
         Vector3f startTranslate = new Vector3f(transform.translate);
         Vector3f startRotate = new Vector3f(transform.rotate);
         Vector3f startScale = new Vector3f(transform.scale);
+        Quaternionf startQuat = new Quaternionf(transform.quat);
+        boolean wasQuaternion = transform.rotationMode == Transform.RotationMode.QUATERNION;
+
+        /* The solve iterates on the euler channels, but on a quaternion-mode bone the render follows
+         * the quat — the euler writes would leave the sampled matrix frozen and the loop would add the
+         * same error every pass (garbage handed to setR). Fold the quat into the euler channels for
+         * the solve (same orientation, nearest branch), so the sampler tracks the writes; the scratch
+         * state is restored below and the result goes through setR, which is mode-aware. */
+        if (wasQuaternion)
+        {
+            transform.setModeEuler();
+        }
 
         Vector3f targetScale = new Vector3f();
         Matrix3f targetRotation = orthonormalize(cached.get3x3(new Matrix3f()), targetScale);
@@ -509,10 +522,12 @@ public abstract class UITransform extends UIElement
         Vector3f finalScale = new Vector3f(transform.scale);
 
         /* The solve used the live transform as scratch; hand the net result to the editor's own
-         * apply path (undo, notify, multi-bone) from the original values. */
+         * apply path (undo, notify, multi-bone) from the original values — mode included. */
         transform.translate.set(startTranslate);
         transform.rotate.set(startRotate);
         transform.scale.set(startScale);
+        transform.quat.set(startQuat);
+        transform.rotationMode = wasQuaternion ? Transform.RotationMode.QUATERNION : Transform.RotationMode.EULER;
 
         this.fillSetT(finalTranslate.x, finalTranslate.y, finalTranslate.z);
         this.fillSetS(finalScale.x, finalScale.y, finalScale.z);
