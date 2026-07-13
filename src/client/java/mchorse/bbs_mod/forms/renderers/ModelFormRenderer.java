@@ -205,6 +205,20 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
         this.lastModel = null;
     }
 
+    /**
+     * The channels phase of the bone pipeline (rest &rarr; actions &rarr; pose): resets every bone
+     * to its bind pose, applies the animator's actions, then the form's pose stack. After this the
+     * channels are the FK truth; the constraint stages (IK &rarr; physics &rarr; limits) run on top
+     * of it separately (render: the apply*Once trio; matrix capture: its explicit IK solve) and
+     * write only evaluated orientations, never the channels.
+     */
+    private void evaluateChannels(IEntity entity, ModelInstance model, float transition)
+    {
+        model.model.resetPose();
+        this.animator.applyActions(entity, model, transition);
+        model.model.applyPose(this.getPose());
+    }
+
     public void ensureAnimator(float transition)
     {
         ModelInstance model = this.getModel();
@@ -273,10 +287,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             Color formColor = this.form.color.get();
             float scale = this.form.uiScale.get() * model.getUiScale();
 
-            model.model.resetPose();
-
-            this.animator.applyActions(null, model, context.getTransition());
-            model.model.applyPose(this.getPose());
+            this.evaluateChannels(null, model, context.getTransition());
 
             MatrixStackUtils.multiply(stack, uiMatrix);
             stack.scale(scale, scale, scale);
@@ -686,10 +697,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
                 formColor = Color.white();
                 additive = false;
             }
-            model.model.resetPose();
-
-            this.animator.applyActions(context.entity, model, context.getTransition());
-            model.model.applyPose(this.getPose());
+            this.evaluateChannels(context.entity, model, context.getTransition());
 
             context.stack.multiply(RotationAxis.POSITIVE_Y.rotation(MathUtils.PI));
             if (context.world != null)
@@ -811,10 +819,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
         /* Collect bones and add them to matrix list */
         if (this.animator != null && model != null)
         {
-            model.model.resetPose();
-
-            this.animator.applyActions(entity, model, transition);
-            model.model.applyPose(this.getPose());
+            this.evaluateChannels(entity, model, transition);
 
             /* Solve IK here too, so a bone anchored to an IK-driven bone (a head pinned to
              * body_upper) rides the solved pose — these matrices feed the anchor system, the
@@ -953,12 +958,13 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             this.applyTransforms(stack, false, transition);
         }
 
-        model.model.resetPose();
-
-        if (!rest && this.animator != null)
+        if (rest || this.animator == null)
         {
-            this.animator.applyActions(entity, model, transition);
-            model.model.applyPose(this.getPose());
+            model.model.resetPose();
+        }
+        else
+        {
+            this.evaluateChannels(entity, model, transition);
         }
 
         stack.multiply(RotationAxis.POSITIVE_Y.rotation(MathUtils.PI));
