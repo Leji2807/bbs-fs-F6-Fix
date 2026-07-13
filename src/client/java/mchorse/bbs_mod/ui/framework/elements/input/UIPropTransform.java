@@ -658,7 +658,7 @@ public class UIPropTransform extends UITransform
 
             /* Keep the (hidden) euler pads mirroring the quaternion's ZYX equivalent so
              * the euler-based readers — clipboard copy, the drag value card — stay correct. */
-            Vector3f euler = new Quaternionf(transform.quat).getEulerAnglesZYX(new Vector3f());
+            Vector3f euler = Matrices.toEulerZYXRadians(transform.quat, new Vector3f());
 
             this.fillR(MathUtils.toDeg(euler.x), MathUtils.toDeg(euler.y), MathUtils.toDeg(euler.z));
         }

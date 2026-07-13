@@ -19,9 +19,9 @@ import org.joml.Vector3f;
  * (the cache) plus the total swept angle about the view axis anchored at
  * grab time — a pure function of the gesture, never of the previous frame's
  * euler readback. The euler angles are read out once per frame in the one
- * shared place ({@link RotationDragMath#writeCompatibleEuler}); the
- * orientation stays continuous through gimbal lock, and the readback picks the
- * euler branch nearest the live pose so the stored angles don't jump either.
+ * shared place ({@link RotationDragMath#writeCompatibleEuler}), anchored to
+ * the GRAB euler so the written channels are a pure function of the gesture
+ * too — a pole passage self-recovers instead of stranding X/Z at ±180.
  */
 public class ViewRotateDrag extends DragStrategy
 {
@@ -171,17 +171,18 @@ public class ViewRotateDrag extends DragStrategy
 
         if (session != null)
         {
-            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad(this.accumulatedDeg), this.viewWorldAxis));
+            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad(this.accumulatedDeg), this.viewWorldAxis), false);
 
             return;
         }
 
         Vector3f base = this.ctx.cache().rotate;
-        Vector3f live = this.ctx.transform().rotate;
 
         Matrix3f deltaLocal = new Matrix3f().rotation(MathUtils.toRad(this.accumulatedDeg), this.viewLocalAxis);
 
-        RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, base, live);
+        /* Grab-anchored readback — free rotation self-recovers through the
+         * euler pole instead of stranding X/Z at ±180 (see writeCompatibleEuler). */
+        RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, base, base);
     }
 
     @Override
@@ -191,7 +192,7 @@ public class ViewRotateDrag extends DragStrategy
 
         if (session != null && this.hasStart)
         {
-            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), this.viewWorldAxis));
+            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), this.viewWorldAxis), false);
 
             return;
         }

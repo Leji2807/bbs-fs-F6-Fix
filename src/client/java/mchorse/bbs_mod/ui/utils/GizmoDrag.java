@@ -4,6 +4,7 @@ import mchorse.bbs_mod.camera.Camera;
 import mchorse.bbs_mod.camera.CameraUtils;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.utils.Axis;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
@@ -422,7 +423,7 @@ public class GizmoDrag
          * perturb the QUATERNION with the euler-bumped equivalent of its own ZYX
          * angles, which reproduces the euler perturbation exactly, so the axes
          * (and their signs) match the euler path. */
-        Vector3f source = quat ? new Quaternionf(transform.quat).getEulerAnglesZYX(new Vector3f()) : savedRotate;
+        Vector3f source = quat ? Matrices.toEulerZYXRadians(transform.quat, new Vector3f()) : savedRotate;
         float delta = 0.05F;
 
         try

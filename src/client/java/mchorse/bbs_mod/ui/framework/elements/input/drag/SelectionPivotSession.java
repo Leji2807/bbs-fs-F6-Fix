@@ -93,11 +93,17 @@ public class SelectionPivotSession
     /**
      * Apply the gesture's total world rotation about the pivot: each driver
      * turns about its own origin by {@code deltaWorld} (conjugated into its
-     * parent frame, composed onto the cached angles, unwrapped against the
-     * live ones so multi-turn winding survives) and its origin orbits the
+     * parent frame, composed onto the cached angles) and its origin orbits the
      * pivot (converted to translate channels through the bone's Jacobian).
+     *
+     * @param windingReference how the euler readback of each bone is anchored —
+     *        {@code true} reads against the LIVE channels (strict continuity, so
+     *        the ring's multi-turn winding survives), {@code false} against the
+     *        GRAB snapshot (pure function of the gesture; the free rotations use
+     *        it so a near-pole passage self-recovers instead of stranding X/Z
+     *        at ±180 — see {@link RotationDragMath#writeCompatibleEuler}).
      */
-    public void applyRotation(Matrix3f deltaWorld)
+    public void applyRotation(Matrix3f deltaWorld, boolean windingReference)
     {
         this.preWrite.run();
 
@@ -119,8 +125,9 @@ public class SelectionPivotSession
                     .mul(new Matrix3f(bone.parentInverse).invert());
 
                 Matrix3f composed = parentDelta.mul(RotationDragMath.eulerZYX(bone.cache.rotate));
+                Vector3f reference = windingReference ? bone.transform.rotate : bone.cache.rotate;
 
-                Matrices.toCompatibleEulerZYXRadians(composed, bone.transform.rotate, euler);
+                Matrices.toCompatibleEulerZYXRadians(composed, reference, euler);
 
                 bone.transform.rotate.set(euler);
             }

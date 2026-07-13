@@ -121,11 +121,26 @@ public class Matrices
 
     public static Vector3f toEulerZYXDegrees(Quaternionf q)
     {
-        Vector3f radZYX = new Vector3f();
+        return toEulerZYXRadians(q, new Vector3f()).mul((float) (180.0 / Math.PI));
+    }
 
-        new Quaternionf(q).normalize().getEulerAnglesZYX(radZYX);
+    /**
+     * The principal ZYX euler angles (radians) of {@code q}, through the mod's
+     * own robust readback ({@link #eulerZYXRaw}) instead of JOML's.
+     *
+     * <p>Do NOT call {@code Quaternionf.getEulerAnglesZYX} anywhere: the JOML
+     * bundled with Minecraft 1.20.x (1.10.5) computes it WRONG — for any
+     * orientation whose middle angle lies beyond ±90° it returns angles that are
+     * not the rotation at all (pure {@code Ry(150°)} comes back as
+     * {@code (0, 30, 180)}, off by 180°), and even mid-range it drifts a few
+     * tenths of a degree (fixed upstream in 1.10.7+, but the game ships the old
+     * one). The matrix route below is exact on every version.
+     */
+    public static Vector3f toEulerZYXRadians(Quaternionf q, Vector3f dest)
+    {
+        Matrix3f matrix = new Matrix3f().rotation(new Quaternionf(q).normalize());
 
-        return radZYX.mul((float) (180.0 / Math.PI));
+        return eulerZYXRaw(matrix, ZERO_REFERENCE, dest);
     }
 
     /**
@@ -148,33 +163,89 @@ public class Matrices
      */
     public static Vector3f toCompatibleEulerZYXRadians(Quaternionf rotation, Vector3f referenceRadians, Vector3f dest)
     {
-        Vector3f raw = new Quaternionf(rotation).normalize().getEulerAnglesZYX(new Vector3f());
+        Matrix3f matrix = new Matrix3f().rotation(new Quaternionf(rotation).normalize());
 
-        return compatibleEulerZYX(raw, referenceRadians, (float) Math.PI, dest);
+        return toCompatibleEulerZYXRadians(matrix, referenceRadians, dest);
     }
 
     /** See {@link #toCompatibleEulerZYXRadians(Quaternionf, Vector3f, Vector3f)}; from a rotation matrix. */
     public static Vector3f toCompatibleEulerZYXRadians(Matrix3f rotation, Vector3f referenceRadians, Vector3f dest)
     {
-        return compatibleEulerZYX(rotation.getEulerAnglesZYX(new Vector3f()), referenceRadians, (float) Math.PI, dest);
+        Vector3f raw = eulerZYXRaw(rotation, referenceRadians, new Vector3f());
+
+        return compatibleEulerZYX(raw, referenceRadians, dest);
     }
 
     /** See {@link #toCompatibleEulerZYXRadians(Quaternionf, Vector3f, Vector3f)}; angles in degrees. */
     public static Vector3f toCompatibleEulerZYXDegrees(Quaternionf rotation, Vector3f referenceDegrees, Vector3f dest)
     {
-        Vector3f raw = new Quaternionf(rotation).normalize().getEulerAnglesZYX(new Vector3f()).mul((float) (180.0 / Math.PI));
+        float toRad = (float) (Math.PI / 180.0);
+        Vector3f referenceRadians = new Vector3f(referenceDegrees).mul(toRad);
 
-        return compatibleEulerZYX(raw, referenceDegrees, 180F, dest);
+        return toCompatibleEulerZYXRadians(rotation, referenceRadians, dest).mul(1F / toRad);
+    }
+
+    /** Reference for the plain (non-compatible) readbacks. */
+    private static final Vector3f ZERO_REFERENCE = new Vector3f();
+
+    /** {@code cos(y)} below this is treated as the exact gimbal pole. */
+    private static final float POLE_EPSILON = 1.0E-4F;
+
+    /**
+     * The mod's own ZYX euler readback of a rotation matrix — the principal
+     * branch (y &isin; [-90°, 90°]), in radians. Exists because JOML's can't be
+     * trusted: {@code Matrix3f.getEulerAnglesZYX} returns {@code NaN} at the
+     * exact pole ({@code sqrt(1 - m02²)} of float noise goes negative — and the
+     * rotate ring SNAPS onto 90.0° exactly), and the quaternion flavour is
+     * plain wrong on the JOML Minecraft bundles (see {@link #toEulerZYXRadians}).
+     *
+     * <p>At the exact pole the matrix determines only the combination
+     * {@code x−z} (north, y=+90°) or {@code x+z} (south, y=−90°); the leftover
+     * freedom is anchored to {@code reference} — both outer angles start from
+     * their reference values and split the residual evenly, which is the
+     * most-continuous exact decomposition there.
+     */
+    private static Vector3f eulerZYXRaw(Matrix3f m, Vector3f reference, Vector3f dest)
+    {
+        /* R = Rz·Ry·Rx has R[2][0] = -sin(y); JOML's mCR fields are column-major,
+         * so that element is m02. Clamp before the sqrt — composed float matrices
+         * carry |m02| up to 1+1e-7, which is exactly JOML's NaN. */
+        float sy = Math.max(-1F, Math.min(1F, -m.m02));
+        float cy = (float) Math.sqrt(1F - sy * sy);
+
+        if (cy > POLE_EPSILON)
+        {
+            return dest.set(
+                (float) Math.atan2(m.m12, m.m22),
+                (float) Math.atan2(sy, cy),
+                (float) Math.atan2(m.m01, m.m00)
+            );
+        }
+
+        /* Exact pole. North (y=+90): R[0][1] = sin(x−z), R[0][2] = cos(x−z);
+         * south (y=−90): R[0][1] = −sin(x+z), R[0][2] = −cos(x+z). */
+        boolean north = sy > 0F;
+        float determined = north
+            ? (float) Math.atan2(m.m10, m.m20)
+            : (float) Math.atan2(-m.m10, -m.m20);
+        float combo = north ? reference.x - reference.z : reference.x + reference.z;
+        float residual = wrapHalfTurn(determined - combo);
+
+        return dest.set(
+            reference.x + residual / 2F,
+            north ? (float) Math.PI / 2F : (float) -Math.PI / 2F,
+            north ? reference.z - residual / 2F : reference.z + residual / 2F
+        );
     }
 
     /**
      * Choose the ZYX euler branch nearest {@code reference}: the principal
-     * solution {@code raw} or its flip {@code (x+half, half-y, z+half)}, each
-     * pulled by whole turns to the reference, whichever is closer by total
-     * angular offset. {@code halfTurn} is π (radians) or 180 (degrees).
+     * solution {@code raw} or its flip {@code (x+π, π-y, z+π)}, each pulled by
+     * whole turns to the reference, whichever is closer by total angular offset.
      */
-    private static Vector3f compatibleEulerZYX(Vector3f raw, Vector3f reference, float halfTurn, Vector3f dest)
+    private static Vector3f compatibleEulerZYX(Vector3f raw, Vector3f reference, Vector3f dest)
     {
+        float halfTurn = (float) Math.PI;
         float fullTurn = halfTurn * 2F;
 
         float ax = unwrapNear(raw.x, reference.x, fullTurn);
@@ -194,6 +265,14 @@ public class Matrices
     private static float unwrapNear(float value, float reference, float period)
     {
         return value + Math.round((reference - value) / period) * period;
+    }
+
+    /** Wrap an angle (radians) into (−π, π]. */
+    private static float wrapHalfTurn(float angle)
+    {
+        float fullTurn = (float) (Math.PI * 2.0);
+
+        return angle - Math.round(angle / fullTurn) * fullTurn;
     }
 
     /** Total absolute per-axis offset of an euler triple from {@code reference}. */

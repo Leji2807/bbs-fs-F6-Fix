@@ -120,17 +120,23 @@ public class GunProperties extends ModelProperties
         properties.setForm(form);
 
         fp.translate.set(0.25F, 0.125F, -0.25F);
-        /* Was rotate.y·rotate2.z; fold the (static) two-stack into one euler. */
-        Matrices.toQuaternionZYXRadians(0F, -MathUtils.PI / 2, 0F)
-            .mul(Matrices.toQuaternionZYXRadians(0F, 0F, MathUtils.PI / 4))
-            .getEulerAnglesZYX(fp.rotate);
+        /* Was rotate.y·rotate2.z; fold the (static) two-stack into one euler.
+         * The middle angle sits exactly on the -90° pole, where JOML's own
+         * readback is unusable — see Matrices.toEulerZYXRadians. */
+        Matrices.toEulerZYXRadians(
+            Matrices.toQuaternionZYXRadians(0F, -MathUtils.PI / 2, 0F)
+                .mul(Matrices.toQuaternionZYXRadians(0F, 0F, MathUtils.PI / 4)),
+            fp.rotate
+        );
 
         tp.translate.y = 0.375F;
         tp.translate.z = 0.125F;
         tp.scale.set(0.666F);
-        Matrices.toQuaternionZYXRadians(0F, -MathUtils.PI / 2, 0F)
-            .mul(Matrices.toQuaternionZYXRadians(0F, 0F, MathUtils.PI / 4))
-            .getEulerAnglesZYX(tp.rotate);
+        Matrices.toEulerZYXRadians(
+            Matrices.toQuaternionZYXRadians(0F, -MathUtils.PI / 2, 0F)
+                .mul(Matrices.toQuaternionZYXRadians(0F, 0F, MathUtils.PI / 4)),
+            tp.rotate
+        );
     }
 
     public Form getZoomForm()

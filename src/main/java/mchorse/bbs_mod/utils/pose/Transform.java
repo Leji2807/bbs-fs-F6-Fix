@@ -256,13 +256,15 @@ public class Transform implements IMapSerializable
 
     /**
      * Switch to euler storage, decomposing the current quaternion into
-     * {@link #rotate} (ZYX). A no-op if already in euler mode.
+     * {@link #rotate} (ZYX) — on the branch nearest the (stale) euler channels,
+     * so toggling euler&rarr;quaternion&rarr;euler lands back on the same values
+     * instead of a far 180°-flipped equivalent. A no-op if already in euler mode.
      */
     public void setModeEuler()
     {
         if (this.rotationMode != RotationMode.EULER)
         {
-            new Quaternionf(this.quat).normalize().getEulerAnglesZYX(this.rotate);
+            Matrices.toCompatibleEulerZYXRadians(this.quat, this.rotate, this.rotate);
             this.rotationMode = RotationMode.EULER;
         }
     }
@@ -280,7 +282,7 @@ public class Transform implements IMapSerializable
     {
         if (this.rotationMode == RotationMode.QUATERNION)
         {
-            return this.quat.getEulerAnglesZYX(dest);
+            return Matrices.toEulerZYXRadians(this.quat, dest);
         }
 
         return dest.set(this.rotate);
@@ -424,9 +426,12 @@ public class Transform implements IMapSerializable
 
                 if (rotate2.x != 0F || rotate2.y != 0F || rotate2.z != 0F)
                 {
-                    Matrices.toQuaternionZYXRadians(this.rotate.x, this.rotate.y, this.rotate.z)
-                        .mul(Matrices.toQuaternionZYXRadians(rotate2.x, rotate2.y, rotate2.z))
-                        .getEulerAnglesZYX(this.rotate);
+                    Quaternionf folded = Matrices.toQuaternionZYXRadians(this.rotate.x, this.rotate.y, this.rotate.z)
+                        .mul(Matrices.toQuaternionZYXRadians(rotate2.x, rotate2.y, rotate2.z));
+
+                    /* Nearest-to-r branch, so the migrated angles stay close to
+                     * what the scene author saw in the r stack. */
+                    Matrices.toCompatibleEulerZYXRadians(folded, this.rotate, this.rotate);
                 }
             }
         }

@@ -130,7 +130,7 @@ public abstract class SphereDrag extends DragStrategy
         {
             Vector3f axis = this.numericAxis == Axis.Y ? this.rightWorldAxis : this.upWorldAxis;
 
-            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), axis));
+            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), axis), false);
 
             return;
         }

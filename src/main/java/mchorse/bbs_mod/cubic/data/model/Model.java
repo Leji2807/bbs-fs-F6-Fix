@@ -172,7 +172,7 @@ public class Model implements IMapSerializable, IModel
 
                 group.orient.mul(transform.createRotation());
 
-                Vector3f euler = new Quaternionf(transform.quat).getEulerAnglesZYX(new Vector3f());
+                Vector3f euler = Matrices.toEulerZYXRadians(transform.quat, new Vector3f());
 
                 group.current.rotate.add(
                     (float) Math.toDegrees(euler.x),

@@ -206,7 +206,7 @@ public class RingRotateDrag extends DragStrategy
         {
             float sweepDeg = (float) this.snapValue(this.accumulatedDeg);
 
-            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad(sweepDeg), this.axisDir));
+            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad(sweepDeg), this.axisDir), true);
 
             return;
         }
@@ -302,7 +302,7 @@ public class RingRotateDrag extends DragStrategy
 
         if (session != null && this.hasStart)
         {
-            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), this.axisDir));
+            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), this.axisDir), true);
 
             return;
         }

@@ -2,6 +2,7 @@ package mchorse.bbs_mod.ui.framework.elements.input;
 
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.joml.Vectors;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Quaternionf;
@@ -154,7 +155,10 @@ public abstract class UIDeltaPropTransform extends UIPropTransform
             }
             else
             {
-                result.getEulerAnglesZYX(t.rotate);
+                /* Nearest-to-live branch: the delta is incremental (built against
+                 * the current pose each frame), so the live channels are the
+                 * continuity anchor here. */
+                Matrices.toCompatibleEulerZYXRadians(result, t.rotate, t.rotate);
             }
         });
         this.postCallback();

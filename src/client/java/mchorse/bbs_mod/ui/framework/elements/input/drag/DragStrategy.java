@@ -310,7 +310,7 @@ public abstract class DragStrategy
          * the result back as a quaternion — the single-axis add is exact, so
          * this stays gimbal-safe. */
         Vector3f source = quatMode
-            ? new Quaternionf(this.ctx.cache().quat).getEulerAnglesZYX(new Vector3f())
+            ? Matrices.toEulerZYXRadians(this.ctx.cache().quat, new Vector3f())
             : this.ctx.cache().rotate;
 
         float rx = MathUtils.toDeg(source.x);

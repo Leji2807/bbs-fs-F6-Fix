@@ -174,7 +174,7 @@ public class BOBJModel implements IModel
                 }
 
                 bone.orient.mul(transform.createRotation());
-                bone.transform.rotate.add(new Quaternionf(transform.quat).getEulerAnglesZYX(new Vector3f()));
+                bone.transform.rotate.add(Matrices.toEulerZYXRadians(transform.quat, new Vector3f()));
             }
             else
             {

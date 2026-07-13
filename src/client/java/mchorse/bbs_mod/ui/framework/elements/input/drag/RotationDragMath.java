@@ -60,7 +60,7 @@ public final class RotationDragMath
         Transform cache = ctx.cache();
 
         return cache.rotationMode == Transform.RotationMode.QUATERNION
-            ? new Quaternionf(cache.quat).getEulerAnglesZYX(new Vector3f())
+            ? Matrices.toEulerZYXRadians(cache.quat, new Vector3f())
             : new Vector3f(cache.rotate);
     }
 
@@ -82,11 +82,30 @@ public final class RotationDragMath
 
     /**
      * Decompose {@code rotation} to ZYX euler and write it into the transform's
-     * rotate channel as the representation continuous with {@code referenceRadians},
-     * so the stored angles never jump branches through the gimbal pole (a spatial
-     * Y-turn spilling 180° into X/Z). The two-branch resolution lives in
-     * {@link Matrices#toCompatibleEulerZYXRadians}; here it's just decomposed and
-     * pushed out in degrees.
+     * rotate channel as the representation nearest {@code referenceRadians}
+     * (branch and winding), via {@link Matrices#toCompatibleEulerZYXRadians}.
+     *
+     * <p>The choice of reference is the whole game here — the euler map has a
+     * BRANCH POINT at the middle-angle pole (y = ±90°), so a drag path passing
+     * near the pole continuously flows onto the flipped branch
+     * {@code (x±180, 180−y, z±180)}; no unwrap can prevent that, only the anchor
+     * decides where the values settle:
+     *
+     * <ul>
+     * <li><b>The GRAB euler</b> (the same base the delta composes onto) makes the
+     * written channels a pure function of the gesture: a near-pole passage shows
+     * a brief large-X/Z transient (those orientations genuinely have no
+     * small-X/Z representation) but self-recovers to the branch nearest the
+     * grab once past — a clean Y-sweep ends as {@code (small, y, small)}, and a
+     * pre-existing wound pose (y=720°) keeps its winding since the anchor
+     * carries it. Free rotations (trackball/arcball/view) use this.</li>
+     * <li><b>The LIVE channels</b> (previous frame's write) follow strict
+     * continuity, which accumulates winding across full turns — but a near-pole
+     * passage then STRANDS the values on the far branch (X/Z parked at ±180,
+     * y folding back) for the rest of the gesture. Only the ring uses this,
+     * where multi-turn winding is the feature and the axis is fixed (an
+     * axis-aligned corridor crosses poles cleanly; see the ring).</li>
+     * </ul>
      */
     public static void writeCompatibleEuler(DragContext ctx, Matrix3f rotation, Vector3f referenceRadians)
     {
@@ -100,14 +119,17 @@ public final class RotationDragMath
      * the edited transform's mode. In QUATERNION mode the composed rotation is
      * stored as a quaternion straight from the delta — no euler decomposition,
      * so the drag never hits gimbal lock. In EULER mode it decomposes ZYX to the
-     * branch continuous with the live value (see {@link #writeCompatibleEuler}).
+     * representation nearest {@code referenceEuler}.
      *
-     * @param deltaLocal the delta rotation in the bone's parent frame (a pure
+     * @param deltaLocal     the delta rotation in the bone's parent frame (a pure
      *        rotation matrix); left untouched.
-     * @param baseEuler  the grab euler stack the euler path composes onto.
-     * @param liveEuler  the live euler stack the euler path unwraps against.
+     * @param baseEuler      the grab euler stack the euler path composes onto.
+     * @param referenceEuler the euler anchor of the readback — the GRAB euler for
+     *        the free rotations (path-independent, self-recovering through the
+     *        pole), the LIVE channels for the winding ring; the trade-off is on
+     *        {@link #writeCompatibleEuler}.
      */
-    public static void applyLocalDelta(DragContext ctx, Matrix3f deltaLocal, Vector3f baseEuler, Vector3f liveEuler)
+    public static void applyLocalDelta(DragContext ctx, Matrix3f deltaLocal, Vector3f baseEuler, Vector3f referenceEuler)
     {
         if (ctx.transform().rotationMode == Transform.RotationMode.QUATERNION)
         {
@@ -117,7 +139,7 @@ public final class RotationDragMath
         }
         else
         {
-            writeCompatibleEuler(ctx, new Matrix3f(deltaLocal).mul(eulerZYX(baseEuler)), liveEuler);
+            writeCompatibleEuler(ctx, new Matrix3f(deltaLocal).mul(eulerZYX(baseEuler)), referenceEuler);
         }
     }
 

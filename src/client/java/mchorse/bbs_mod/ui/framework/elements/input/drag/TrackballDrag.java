@@ -127,19 +127,22 @@ public class TrackballDrag extends SphereDrag
             session.applyRotation(new Matrix3f()
                 .rotation(roll, this.viewWorldAxis)
                 .rotate(yaw, this.upWorldAxis.x, this.upWorldAxis.y, this.upWorldAxis.z)
-                .rotate(pitch, this.rightWorldAxis.x, this.rightWorldAxis.y, this.rightWorldAxis.z));
+                .rotate(pitch, this.rightWorldAxis.x, this.rightWorldAxis.y, this.rightWorldAxis.z), false);
 
             return;
         }
 
         Vector3f source = this.ctx.cache().rotate;
-        Vector3f live = this.ctx.transform().rotate;
 
         Matrix3f deltaLocal = new Matrix3f()
             .rotation(roll, this.viewLocal)
             .rotate(yaw, this.upLocal.x, this.upLocal.y, this.upLocal.z)
             .rotate(pitch, this.rightLocal.x, this.rightLocal.y, this.rightLocal.z);
 
-        RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, source, live);
+        /* Reference = the grab euler, NOT the live channels: the write stays a
+         * pure function of the gesture, so a near-pole passage self-recovers to
+         * the branch nearest the grab instead of stranding X/Z at ±180 (see
+         * RotationDragMath.writeCompatibleEuler). */
+        RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, source, source);
     }
 }

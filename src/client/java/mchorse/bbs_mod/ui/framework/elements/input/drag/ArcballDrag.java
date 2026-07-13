@@ -205,13 +205,12 @@ public class ArcballDrag extends SphereDrag
 
             session.applyRotation(new Matrix3f()
                 .rotation(MathUtils.toRad(this.rollDeg), this.viewWorldAxis)
-                .rotate(arcWorld));
+                .rotate(arcWorld), false);
 
             return;
         }
 
         Vector3f source = this.ctx.cache().rotate;
-        Vector3f live = this.ctx.transform().rotate;
 
         Quaternionf arc = new Quaternionf()
             .rotationTo(this.startLocal, this.currentLocal)
@@ -221,6 +220,8 @@ public class ArcballDrag extends SphereDrag
             .rotation(MathUtils.toRad(this.rollDeg), this.viewLocal)
             .rotate(arc);
 
-        RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, source, live);
+        /* Grab-anchored readback — free rotation self-recovers through the
+         * euler pole instead of stranding X/Z at ±180 (see writeCompatibleEuler). */
+        RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, source, source);
     }
 }
