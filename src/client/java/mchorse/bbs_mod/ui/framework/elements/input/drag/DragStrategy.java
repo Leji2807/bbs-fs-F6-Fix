@@ -1,5 +1,6 @@
 package mchorse.bbs_mod.ui.framework.elements.input.drag;
 
+import mchorse.bbs_mod.BBSMod;
 import mchorse.bbs_mod.graphics.window.Window;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
@@ -10,6 +11,10 @@ import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 
 /**
  * One live transform gesture: a single operation, in a single control style
@@ -35,14 +40,20 @@ public abstract class DragStrategy
     protected static final float TRACKBALL_WHEEL_DEG = 5F;
 
     /* ── Drag debug logging ─────────────────────────────────────────────────
-     * A single throttled, detailed console dump of the live gesture, meant for
-     * diagnosing transform/gizmo bugs. Flip {@link #LOG_DRAG} to disable without
-     * removing the plumbing; the thresholds keep the console readable — a line is
-     * emitted only once the gesture has moved at least this much since the last
-     * one (rotation in degrees, translation in channel units, scale per axis). */
+     * A single throttled, detailed dump of the live gesture, meant for diagnosing
+     * transform/gizmo bugs. It goes to a FILE (not the console, which drowns in
+     * per-frame spam): {@link #DRAG_LOG_FILE} in the game folder, TRUNCATED at the
+     * start of every gesture — so the file always holds exactly the last drag and
+     * can be read whole. Flip {@link #LOG_DRAG} to disable without removing the
+     * plumbing; the thresholds keep the file compact — a line is emitted only once
+     * the gesture has moved at least this much since the last one (rotation in
+     * degrees, translation in channel units, scale per axis). */
 
-    /** Master switch for the per-drag console dump. */
+    /** Master switch for the per-drag dump. */
     private static final boolean LOG_DRAG = true;
+
+    /** File in the game folder the gesture dump is written to (overwritten per gesture). */
+    private static final String DRAG_LOG_FILE = "drag-log.txt";
 
     /** Minimum rotation (degrees) between two consecutive drag debug logs. */
     private static final float LOG_STEP_DEG = 5F;
@@ -339,11 +350,14 @@ public abstract class DragStrategy
     /* ── Drag debug logging ──────────────────────────────────────────────── */
 
     /**
-     * Dump a detailed snapshot of the live gesture to the console, throttled so
-     * it only fires once the transform has moved a meaningful step since the last
-     * dump (see {@link #LOG_STEP_DEG} / {@link #LOG_STEP_TRANSLATE} /
+     * Dump a detailed snapshot of the live gesture to {@link #DRAG_LOG_FILE},
+     * throttled so it only fires once the transform has moved a meaningful step
+     * since the last dump (see {@link #LOG_STEP_DEG} / {@link #LOG_STEP_TRANSLATE} /
      * {@link #LOG_STEP_SCALE}). The host calls this once per drag frame, right
      * after {@link #update}; it is a no-op unless {@link #LOG_DRAG} is on.
+     *
+     * <p>The file is truncated on the first dump of each gesture, so it always
+     * holds exactly the drag in progress and stays small enough to read whole.
      */
     public final void logDrag()
     {
@@ -355,13 +369,14 @@ public abstract class DragStrategy
         Transform now = this.ctx.transform();
         Quaternionf rotation = now.createRotation();
 
-        float rotStep = this.logInitialized ? quatAngleDeg(this.logLastRotation, rotation) : Float.MAX_VALUE;
-        float transStep = this.logInitialized ? now.translate.distance(this.logLastTranslate) : Float.MAX_VALUE;
-        float scaleStep = this.logInitialized ? now.scale.distance(this.logLastScale) : Float.MAX_VALUE;
+        boolean firstOfGesture = !this.logInitialized;
+        float rotStep = firstOfGesture ? Float.MAX_VALUE : quatAngleDeg(this.logLastRotation, rotation);
+        float transStep = firstOfGesture ? Float.MAX_VALUE : now.translate.distance(this.logLastTranslate);
+        float scaleStep = firstOfGesture ? Float.MAX_VALUE : now.scale.distance(this.logLastScale);
 
         String reason;
 
-        if (!this.logInitialized) reason = "grab";
+        if (firstOfGesture) reason = "grab";
         else if (rotStep >= LOG_STEP_DEG) reason = String.format("Δrot %.1f°", rotStep);
         else if (transStep >= LOG_STEP_TRANSLATE) reason = String.format("Δpos %.3f", transStep);
         else if (scaleStep >= LOG_STEP_SCALE) reason = String.format("Δscale %.3f", scaleStep);
@@ -373,7 +388,29 @@ public abstract class DragStrategy
         this.logInitialized = true;
         this.logCounter++;
 
-        System.out.println(this.buildDragLog(reason, rotation));
+        File file = BBSMod.getGamePath(DRAG_LOG_FILE);
+
+        writeDragLog(file, this.buildDragLog(reason, rotation), firstOfGesture);
+
+        /* One console breadcrumb per gesture so the console stays quiet but it's
+         * obvious logging is live and where to look. */
+        if (firstOfGesture)
+        {
+            System.out.println("[gizmo drag] logging gesture to " + file.getAbsolutePath());
+        }
+    }
+
+    /** Append (or overwrite, when {@code truncate}) one dump block to the log file. */
+    private static void writeDragLog(File file, String text, boolean truncate)
+    {
+        try (FileWriter writer = new FileWriter(file, !truncate))
+        {
+            writer.write(text);
+        }
+        catch (IOException e)
+        {
+            System.out.println("[gizmo drag] failed to write " + file.getAbsolutePath() + ": " + e.getMessage());
+        }
     }
 
     private String buildDragLog(String reason, Quaternionf nowQuat)
