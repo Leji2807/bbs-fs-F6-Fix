@@ -166,7 +166,15 @@ public class CubicRenderer
         stack.pop();
     }
 
-    public static void applyRotations(Model model, Quaternionf rootParentRotation, List<String> ids, Vector3f[] positions)
+    /**
+     * Directs a solved chain (physics, short IK) onto cubic bones: rebuilds each bone's local
+     * rotation from its solved segment (keeping the FK twist about the limb axis), blends it
+     * against the evaluated FK base by {@code weight}, and writes the result to
+     * {@link ModelGroup#orient} — the euler channels stay read-only FK truth (the constraint-stack
+     * contract). The parent frame advances by the applied (blended) rotation, the same frame the
+     * renderer establishes for children.
+     */
+    public static void applyRotations(Model model, Quaternionf rootParentRotation, List<String> ids, Vector3f[] positions, float weight)
     {
         if (model == null || rootParentRotation == null || ids == null || positions == null || ids.isEmpty() || positions.length < 2)
         {
@@ -239,22 +247,15 @@ public class CubicRenderer
 
             desiredDirLocal.normalize();
 
+            Quaternionf base = bone.evaluatedRotation();
             Quaternionf localRot = Matrices.fromToMirroredX(restDirLocal, desiredDirLocal);
-            localRot.mul(twistAround(bone.current.rotate, restDirLocal));
-            Vector3f eulerDeg = Matrices.toCompatibleEulerZYXDegrees(localRot, bone.current.rotate, new Vector3f());
 
-            bone.current.rotate.set(eulerDeg);
+            localRot.mul(Matrices.twistAbout(base, restDirLocal));
 
-            /* This solve finalizes the bone in euler — drop any composed orientation so the renderer
-             * falls back to this euler (IK/physics own these bones, byte-identical to before). */
-            bone.orient = null;
+            Quaternionf applied = weight >= 1F - EPS ? localRot : new Quaternionf(base).slerp(localRot, weight);
 
-            parentWorld.mul(Matrices.toQuaternionZYXDegrees(eulerDeg.x, eulerDeg.y, eulerDeg.z));
+            bone.orient = applied;
+            parentWorld.mul(applied);
         }
-    }
-
-    private static Quaternionf twistAround(Vector3f rotate, Vector3f axisLocal)
-    {
-        return Matrices.twistAbout(Matrices.toQuaternionZYXDegrees(rotate.x, rotate.y, rotate.z), axisLocal);
     }
 }

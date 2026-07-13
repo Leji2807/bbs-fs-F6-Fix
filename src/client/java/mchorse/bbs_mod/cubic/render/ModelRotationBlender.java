@@ -3,7 +3,6 @@ package mchorse.bbs_mod.cubic.render;
 import mchorse.bbs_mod.bobj.BOBJBone;
 import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.data.model.Model;
-import mchorse.bbs_mod.cubic.data.model.ModelGroup;
 import mchorse.bbs_mod.cubic.model.bobj.BOBJModel;
 import mchorse.bbs_mod.utils.joml.Matrices;
 import org.joml.Quaternionf;
@@ -13,7 +12,10 @@ import java.util.Map;
 import java.util.List;
 
 /**
- * Applies weighted blending between current local bone rotations and solver output.
+ * Directs solver output (physics, short IK chains) onto bones as evaluated orientations: each
+ * bone's local rotation is rebuilt from its solved segment, blended against the evaluated FK base
+ * by the stage weight, and written to {@code orient} — the channels stay read-only FK truth (the
+ * constraint-stack contract; see {@link mchorse.bbs_mod.cubic.data.model.ModelGroup#orient}).
  */
 public final class ModelRotationBlender
 {
@@ -34,134 +36,24 @@ public final class ModelRotationBlender
 
         if (model instanceof Model cubic)
         {
-            applyWeightedRotationsCubic(cubic, rootParentRotation, ids, positions, factor);
+            CubicRenderer.applyRotations(cubic, rootParentRotation, ids, positions, factor);
             return;
         }
 
         if (model instanceof BOBJModel bobj)
         {
-            applyWeightedRotationsBobj(bobj, rootParentRotation, ids, positions, factor);
+            applyRotationsBobj(bobj, rootParentRotation, ids, positions, factor);
         }
     }
 
-    public static void applyWeightedRotations(Model model, Quaternionf rootParentRotation, List<String> ids, Vector3f[] positions, float weight)
-    {
-        applyWeightedRotations((IModel) model, rootParentRotation, ids, positions, weight);
-    }
-
-    private static void applyWeightedRotationsCubic(Model model, Quaternionf rootParentRotation, List<String> ids, Vector3f[] positions, float factor)
-    {
-        if (model == null || rootParentRotation == null || ids == null || positions == null || ids.isEmpty() || positions.length < 2)
-        {
-            return;
-        }
-
-        if (factor >= 1F - EPS)
-        {
-            CubicRenderer.applyRotations(model, rootParentRotation, ids, positions);
-            return;
-        }
-
-        int rotCount = getRotationCount(ids, positions);
-
-        if (rotCount <= 0)
-        {
-            return;
-        }
-
-        ModelGroup[] bones = new ModelGroup[rotCount];
-        Quaternionf[] baseLocal = new Quaternionf[rotCount];
-        float[] baseX = new float[rotCount];
-        float[] baseY = new float[rotCount];
-        float[] baseZ = new float[rotCount];
-
-        for (int i = 0; i < rotCount; i++)
-        {
-            ModelGroup bone = model.getGroup(ids.get(i));
-
-            if (bone == null)
-            {
-                return;
-            }
-
-            bones[i] = bone;
-            baseX[i] = bone.current.rotate.x;
-            baseY[i] = bone.current.rotate.y;
-            baseZ[i] = bone.current.rotate.z;
-            baseLocal[i] = Matrices.toLocalRotationZYXDegrees(bone.current.rotate);
-        }
-
-        CubicRenderer.applyRotations(model, rootParentRotation, ids, positions);
-
-        for (int i = 0; i < rotCount; i++)
-        {
-            ModelGroup bone = bones[i];
-            Quaternionf solved = Matrices.toLocalRotationZYXDegrees(bone.current.rotate);
-            Quaternionf blended = new Quaternionf(baseLocal[i]).slerp(solved, factor);
-            Vector3f euler = Matrices.toCompatibleEulerZYXDegrees(blended, new Vector3f(baseX[i], baseY[i], baseZ[i]), new Vector3f());
-
-            bone.current.rotate.set(euler);
-        }
-    }
-
-    private static void applyWeightedRotationsBobj(BOBJModel model, Quaternionf rootParentRotation, List<String> ids, Vector3f[] positions, float factor)
-    {
-        if (model == null || rootParentRotation == null || ids == null || positions == null || ids.isEmpty() || positions.length < 2)
-        {
-            return;
-        }
-
-        if (factor >= 1F - EPS)
-        {
-            applyRotationsBobj(model, rootParentRotation, ids, positions);
-            return;
-        }
-
-        int rotCount = getRotationCount(ids, positions);
-
-        if (rotCount <= 0)
-        {
-            return;
-        }
-
-        Map<String, BOBJBone> bonesMap = model.getArmature().bones;
-        BOBJBone[] bones = new BOBJBone[rotCount];
-        Quaternionf[] baseLocal = new Quaternionf[rotCount];
-        float[] baseX = new float[rotCount];
-        float[] baseY = new float[rotCount];
-        float[] baseZ = new float[rotCount];
-
-        for (int i = 0; i < rotCount; i++)
-        {
-            BOBJBone bone = bonesMap.get(ids.get(i));
-
-            if (bone == null)
-            {
-                return;
-            }
-
-            bones[i] = bone;
-            baseX[i] = bone.transform.rotate.x;
-            baseY[i] = bone.transform.rotate.y;
-            baseZ[i] = bone.transform.rotate.z;
-            baseLocal[i] = Matrices.toLocalRotationZYXRadians(bone.transform.rotate);
-        }
-
-        applyRotationsBobj(model, rootParentRotation, ids, positions);
-
-        for (int i = 0; i < rotCount; i++)
-        {
-            BOBJBone bone = bones[i];
-            Quaternionf solved = Matrices.toLocalRotationZYXRadians(bone.transform.rotate);
-            Quaternionf blended = new Quaternionf(baseLocal[i]).slerp(solved, factor);
-            Vector3f euler = Matrices.toCompatibleEulerZYXRadians(blended, new Vector3f(baseX[i], baseY[i], baseZ[i]), new Vector3f());
-
-            bone.transform.rotate.set(euler);
-            bone.orient = null;
-        }
-    }
-
-    private static void applyRotationsBobj(BOBJModel model, Quaternionf rootParentRotation, List<String> ids, Vector3f[] positions)
+    /**
+     * The BOBJ analogue of {@link CubicRenderer#applyRotations}: rebuilds each bone's local
+     * rotation from its solved segment (keeping the FK twist about the limb axis), blends it
+     * against the evaluated FK base by {@code factor}, and writes the result to
+     * {@link BOBJBone#orient}. The parent frame advances by the applied (blended) rotation, the
+     * same frame the armature establishes for children.
+     */
+    private static void applyRotationsBobj(BOBJModel model, Quaternionf rootParentRotation, List<String> ids, Vector3f[] positions, float factor)
     {
         if (model == null || rootParentRotation == null || ids == null || positions == null || ids.isEmpty() || positions.length < 2)
         {
@@ -205,14 +97,15 @@ public final class ModelRotationBlender
 
             desiredDirLocal.normalize();
 
+            Quaternionf base = bone.evaluatedRotation();
             Quaternionf localRot = Matrices.fromToMirroredX(restDirLocal, desiredDirLocal);
-            localRot.mul(Matrices.twistAbout(Matrices.toLocalRotationZYXRadians(bone.transform.rotate), restDirLocal));
-            Vector3f eulerRad = Matrices.toCompatibleEulerZYXRadians(localRot, bone.transform.rotate, new Vector3f());
 
-            bone.transform.rotate.set(eulerRad);
-            bone.orient = null;
+            localRot.mul(Matrices.twistAbout(base, restDirLocal));
 
-            parentWorld.mul(new Quaternionf().rotationZYX(eulerRad.z, eulerRad.y, eulerRad.x));
+            Quaternionf applied = factor >= 1F - EPS ? localRot : new Quaternionf(base).slerp(localRot, factor);
+
+            bone.orient = applied;
+            parentWorld.mul(applied);
         }
     }
 
