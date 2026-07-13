@@ -31,9 +31,18 @@ public class ModelGroup implements IMapSerializable
     public Transform current = new Transform();
 
     /* Transient full local orientation for this bone, applied raw in the render matrix IN PLACE OF the
-     * euler rotate triple — so layered rotation (IK, plus animation/pose composition) owns the whole
-     * orientation without round-tripping through euler and hitting the pole. Null when the bone has no
-     * overlay this frame, in which case the renderer falls back to the euler rotate/rotate2 triples. */
+     * channel rotation — the evaluated rotation of the pipeline `rest → channels → constraint stack →
+     * render`. Its lifecycle is two-phased:
+     *
+     * CHANNELS phase (reset → actions → pose): layer composers keep it in lockstep with their additive
+     * euler readbacks via composeOrient (quat-true composition of stacked layers); null here means "the
+     * channels compose trivially" and a composer may reset it to null when it re-authors the channels
+     * outright (fix-blend, the sneaking pose).
+     *
+     * CONSTRAINT phase (IK → physics → limits): the channels are READ-ONLY FK truth (the gizmo/keyframe
+     * domain). Every stage reads the evaluated-so-far rotation through evaluatedRotation(), blends its
+     * result against that base by its weight, and writes the outcome HERE — never to current.rotate, and
+     * never null. */
     public Quaternionf orient;
 
     /* Transient translation for this bone, applied raw in the render matrix BEFORE its own translate — in
@@ -56,6 +65,28 @@ public class ModelGroup implements IMapSerializable
         this.current.copy(this.initial);
         this.orient = null;
         this.offset = null;
+    }
+
+    /**
+     * The bone's evaluated local rotation as of this point in the pipeline — {@link #orient} when a layer
+     * or constraint stage has composed one, otherwise the rotation the renderer would reconstruct from the
+     * channels (mode-aware; cubic channels are degrees). THE read for every constraint-stack stage: blend
+     * bases, twist references, clamp inputs all start from this, so stages stack instead of overwriting
+     * each other. Returns a fresh instance safe to mutate.
+     */
+    public Quaternionf evaluatedRotation()
+    {
+        if (this.orient != null)
+        {
+            return new Quaternionf(this.orient);
+        }
+
+        if (this.current.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            return new Quaternionf(this.current.quat);
+        }
+
+        return Matrices.toLocalRotationZYXDegrees(this.current.rotate);
     }
 
     /**

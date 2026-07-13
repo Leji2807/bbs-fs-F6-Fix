@@ -41,9 +41,13 @@ public class BOBJBone
     public Matrix4f relBoneMat = new Matrix4f();
 
     /**
-     * Transient full local orientation an IK solve gives this bone, applied raw in
-     * place of the euler rotate triple so the pole owns the whole orientation
-     * (bypassing the swing/twist euler reconstruction). Null when not IK-driven.
+     * Transient full local orientation for this bone, applied raw in place of the channel rotation —
+     * the evaluated rotation of the pipeline {@code rest → channels → constraint stack → render}. Same
+     * two-phase lifecycle as {@link mchorse.bbs_mod.cubic.data.model.ModelGroup#orient}: layer composers
+     * keep it in lockstep with the channels (null = channels compose trivially, may be reset on channel
+     * re-author); constraint stages (IK → physics → limits) treat the channels as read-only FK truth,
+     * read the evaluated-so-far rotation via {@link #evaluatedRotation()}, and write their blended
+     * result here — never to the channels, and never null.
      */
     public Quaternionf orient;
 
@@ -131,6 +135,17 @@ public class BOBJBone
         }
 
         this.mat.scale(this.transform.scale);
+    }
+
+    /**
+     * The bone's evaluated local rotation as of this point in the pipeline — {@link #orient} when set,
+     * otherwise the channel rotation (mode-aware; BOBJ channels are radians). THE read for every
+     * constraint-stack stage; see {@link mchorse.bbs_mod.cubic.data.model.ModelGroup#evaluatedRotation()}.
+     * Returns a fresh instance safe to mutate.
+     */
+    public Quaternionf evaluatedRotation()
+    {
+        return this.orient != null ? new Quaternionf(this.orient) : this.transform.createRotation();
     }
 
     /**

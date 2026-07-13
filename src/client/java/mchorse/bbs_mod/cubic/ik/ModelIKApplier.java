@@ -486,12 +486,14 @@ final class ModelIKApplier
         return out.lengthSquared() < EPS * EPS ? null : out.normalize();
     }
 
-    /** The bone's FK local rotation (its euler rotate as a quaternion), the blend base when IK weight is below one. */
+    /**
+     * The bone's FK local rotation, the blend base when IK weight is below one — the evaluated
+     * channels-phase rotation, so a quaternion-mode bone or a stack of pose/action layers blends
+     * from what the renderer would actually draw, not from the approximate euler readback.
+     */
     private static Quaternionf fkLocal(ModelGroup bone)
     {
-        Vector3f r = bone.current.rotate;
-
-        return Matrices.toQuaternionZYXDegrees(r.x, r.y, r.z);
+        return bone.evaluatedRotation();
     }
 
     /**
@@ -659,12 +661,10 @@ final class ModelIKApplier
         return chainIds.size() - 1;
     }
 
-    /** A BOBJ bone's FK local rotation (its radian euler rotate as a quaternion), the blend base when IK weight is below one. */
+    /** The BOBJ analogue of {@link #fkLocal}: the evaluated channels-phase rotation as the IK blend base. */
     private static Quaternionf bobjFkLocal(BOBJBone bone)
     {
-        Vector3f r = bone.transform.rotate;
-
-        return new Quaternionf().rotationZYX(r.z, r.y, r.x);
+        return bone.evaluatedRotation();
     }
 
     /** A deterministic unit perpendicular to {@code dir}, cross with world Z (falling back to world Y when parallel). */
