@@ -143,6 +143,29 @@ public abstract class UIDeltaPropTransform extends UIPropTransform
         this.syncTargetTransform();
     }
 
+    /**
+     * The rotation-mode flip lands on every transform of the selection: mode is
+     * a property of the whole track/bone, so all selected keyframes (and the
+     * pose editor's mirror partners) convert together instead of leaving the
+     * rest behind in euler. Conversion is per-target — each transform folds its
+     * OWN rotation into the new storage, nothing is overwritten.
+     */
+    @Override
+    protected void applyRotationMode(boolean quaternion)
+    {
+        this.applyToTarget((t) ->
+        {
+            if (quaternion)
+            {
+                t.setModeQuaternion();
+            }
+            else
+            {
+                t.setModeEuler();
+            }
+        });
+    }
+
     @Override
     public void setRQuat(Quaternionf quat)
     {

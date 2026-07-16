@@ -774,21 +774,34 @@ public class UIPropTransform extends UITransform
             return;
         }
 
+        boolean quaternion = this.transform.rotationMode != Transform.RotationMode.QUATERNION;
+
         this.preCallback();
-
-        if (this.transform.rotationMode == Transform.RotationMode.QUATERNION)
-        {
-            this.transform.setModeEuler();
-        }
-        else
-        {
-            this.transform.setModeQuaternion();
-        }
-
+        this.applyRotationMode(quaternion);
         this.postCallback();
         this.setTransform(this.transform);
         this.endGesture();
         UIUtils.playClick();
+    }
+
+    /**
+     * Apply the storage-mode flip of {@link #toggleRotationMode}. The base
+     * editor converts the single edited transform; the delta editors override
+     * this to fan the flip across the whole selection (selected keyframes of a
+     * limb track, selected bones with their mirror partners) — a bone's mode is
+     * a property of the TRACK, and leaving unselected keyframes behind in euler
+     * would quietly keep the track on mixed interpolation.
+     */
+    protected void applyRotationMode(boolean quaternion)
+    {
+        if (quaternion)
+        {
+            this.transform.setModeQuaternion();
+        }
+        else
+        {
+            this.transform.setModeEuler();
+        }
     }
 
     /* Edit entry points. The mouse path (a gizmo handle pick) supplies the
