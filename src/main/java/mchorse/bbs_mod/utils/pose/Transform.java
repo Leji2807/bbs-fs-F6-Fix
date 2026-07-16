@@ -83,7 +83,7 @@ public class Transform implements IMapSerializable
         }
         else
         {
-            this.lerp(this.rotate, preA.rotate, a.rotate, b.rotate, postB.rotate, interp, x);
+            this.lerp(this.rotate, eulerControl(preA, a.rotate), a.rotate, b.rotate, eulerControl(postB, b.rotate), interp, x);
             this.rotationMode = RotationMode.EULER;
         }
     }
@@ -107,9 +107,24 @@ public class Transform implements IMapSerializable
         }
         else
         {
-            this.autoLerp(this.rotate, preA.rotate, a.rotate, b.rotate, postB.rotate, pt, at, bt, qt, clamped, x);
+            this.autoLerp(this.rotate, eulerControl(preA, a.rotate), a.rotate, b.rotate, eulerControl(postB, b.rotate), pt, at, bt, qt, clamped, x);
             this.rotationMode = RotationMode.EULER;
         }
+    }
+
+    /**
+     * A window-control rotation as euler angles for the euler interpolation
+     * branch. The outer controls (preA/postB) only shape the curve's tangents,
+     * but on a quaternion-mode neighbour the {@link #rotate} channel is stale —
+     * reading it raw would bend the euler segment by a garbage control point.
+     * Decompose the live quaternion instead, on the branch nearest the adjacent
+     * key so the control can't land on a far 180°-flipped equivalent.
+     */
+    private static Vector3f eulerControl(Transform t, Vector3f ref)
+    {
+        return t.rotationMode == RotationMode.QUATERNION
+            ? Matrices.toCompatibleEulerZYXRadians(t.quat, ref, new Vector3f())
+            : t.rotate;
     }
 
     private void autoLerp(Vector3f target, Vector3f preA, Vector3f a, Vector3f b, Vector3f postB, float pt, float at, float bt, float qt, boolean clamped, float x)
@@ -203,6 +218,17 @@ public class Transform implements IMapSerializable
         this.rotate.set(0, 0, 0);
         this.quat.identity();
         this.rotationMode = RotationMode.EULER;
+    }
+
+    /**
+     * Clear the rotation to identity in BOTH representations, keeping the mode —
+     * the reset every editor shares. Clearing only {@link #rotate} looks complete
+     * but leaves a quaternion bone turned (its render follows {@link #quat}).
+     */
+    public void resetRotation()
+    {
+        this.rotate.set(0, 0, 0);
+        this.quat.identity();
     }
 
     /**
