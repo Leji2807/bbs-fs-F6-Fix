@@ -455,9 +455,18 @@ public class Transform implements IMapSerializable
                     Quaternionf folded = Matrices.toQuaternionZYXRadians(this.rotate.x, this.rotate.y, this.rotate.z)
                         .mul(Matrices.toQuaternionZYXRadians(rotate2.x, rotate2.y, rotate2.z));
 
-                    /* Nearest-to-r branch, so the migrated angles stay close to
-                     * what the scene author saw in the r stack. */
-                    Matrices.toCompatibleEulerZYXRadians(folded, this.rotate, this.rotate);
+                    /* Reference = the naive channel sum r + r2 — the folded
+                     * quaternion only knows the principal rotation, so the
+                     * reference alone decides branch and WINDING. Anchoring to
+                     * r (as this migration originally did) collapsed a wound
+                     * r2 to its principal value: a keyframed r2 sweep of −227°
+                     * migrated to +133° and the animation between those keys
+                     * travelled the wrong way around. The sum is what the
+                     * author effectively wrote across the two stacks, so the
+                     * decomposition lands on their branch, spins included. */
+                    Vector3f reference = new Vector3f(this.rotate).add(rotate2);
+
+                    Matrices.toCompatibleEulerZYXRadians(folded, reference, this.rotate);
                 }
             }
         }
