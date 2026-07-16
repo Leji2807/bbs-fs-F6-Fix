@@ -124,6 +124,11 @@ public abstract class SphereDrag extends DragStrategy
     @Override
     public void applyNumeric(double value)
     {
+        if (this.refuseConstrainedRotation())
+        {
+            return;
+        }
+
         SelectionPivotSession session = this.ctx.pivotSession();
 
         if (session != null && this.hasStart)

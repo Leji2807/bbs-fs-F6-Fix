@@ -97,6 +97,10 @@ public class UIPropTransform extends UITransform
     private boolean hotkeyMode;
     private Supplier<GizmoDrag> hotkeyDragSupplier;
 
+    /** Whether the edited bone's rotation is owned by an enabled IK chain
+     *  (wired by hosts that have an IK concept; see {@link #rotationConstrained}). */
+    private Supplier<Boolean> rotationConstrainedSupplier;
+
     /** The live gesture; non-null exactly while {@link #editing}. */
     private DragStrategy strategy;
     private final DragContext bridge = new Bridge();
@@ -250,6 +254,25 @@ public class UIPropTransform extends UITransform
         this.hotkeyDragSupplier = supplier;
 
         return this;
+    }
+
+    /** Wire the IK-ownership probe for the edited bone's rotation (hosts with an IK concept). */
+    public UIPropTransform rotationConstrained(Supplier<Boolean> supplier)
+    {
+        this.rotationConstrainedSupplier = supplier;
+
+        return this;
+    }
+
+    /**
+     * Whether the edited bone's rotation is owned by an enabled IK chain: the
+     * render follows the solve there, so the rotation gestures refuse to start
+     * and the gizmo dims its rings (the value pads still edit the FK channels —
+     * the blend base and the pose IK falls back to).
+     */
+    public boolean isRotationConstrained()
+    {
+        return this.rotationConstrainedSupplier != null && Boolean.TRUE.equals(this.rotationConstrainedSupplier.get());
     }
 
     public boolean isLocal()
@@ -1808,6 +1831,12 @@ public class UIPropTransform extends UITransform
         public boolean isModel()
         {
             return UIPropTransform.this.model;
+        }
+
+        @Override
+        public boolean rotationConstrained()
+        {
+            return UIPropTransform.this.isRotationConstrained();
         }
 
         /* Blender-style snapping: every gesture is free by default and snaps to

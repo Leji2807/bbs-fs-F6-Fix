@@ -96,7 +96,7 @@ public class RingRotateDrag extends DragStrategy
     {
         GizmoDrag drag = this.ctx.drag();
 
-        if (drag == null || this.ctx.transform() == null)
+        if (drag == null || this.ctx.transform() == null || this.refuseConstrainedRotation())
         {
             this.hasStart = false;
 
@@ -349,6 +349,11 @@ public class RingRotateDrag extends DragStrategy
     @Override
     public void applyNumeric(double value)
     {
+        if (this.refuseConstrainedRotation())
+        {
+            return;
+        }
+
         SelectionPivotSession session = this.ctx.pivotSession();
 
         if (session != null && this.hasStart)

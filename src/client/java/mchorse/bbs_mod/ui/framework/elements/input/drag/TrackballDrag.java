@@ -58,7 +58,7 @@ public class TrackballDrag extends SphereDrag
     {
         GizmoDrag drag = this.ctx.drag();
 
-        if (drag == null || this.ctx.transform() == null)
+        if (drag == null || this.ctx.transform() == null || this.refuseConstrainedRotation())
         {
             this.hasStart = false;
 

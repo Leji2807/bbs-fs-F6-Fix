@@ -267,6 +267,19 @@ public abstract class DragStrategy
             MathUtils.toDeg(now.z - start.z));
     }
 
+    /**
+     * Whether this gesture must refuse because the bone's rotation is owned by
+     * an enabled IK chain ({@link DragContext#rotationConstrained}): the render
+     * follows the solve, not the FK channels, so a rotation gesture would sweep
+     * while the bone ignores it. Every rotation strategy checks this in both
+     * {@code begin} (the gesture never starts) and {@code applyNumeric} (typed
+     * degrees on a refused gesture must not write either).
+     */
+    protected boolean refuseConstrainedRotation()
+    {
+        return this.op == TransformOp.ROTATE && this.ctx.rotationConstrained();
+    }
+
     /* Typed numeric amounts, applied on top of the cached start transform.
      * Shared here because the ray strategies and the additive fallback use
      * the exact same semantics: an offset for translate (units) and rotate

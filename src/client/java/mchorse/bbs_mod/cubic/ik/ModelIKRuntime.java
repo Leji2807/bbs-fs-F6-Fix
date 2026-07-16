@@ -73,6 +73,63 @@ public final class ModelIKRuntime
         ModelIKApplier.apply(model, chains, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides, boneLimits);
     }
 
+    /**
+     * Whether the bone's ROTATION is owned by an enabled IK chain: the render
+     * follows the solved orientation there, so an FK rotation gesture has no
+     * honest response to offer — the gizmo refuses those and dims its rings.
+     * The FK channels stay editable through the pads (they remain the blend
+     * base and the pose IK falls back to when it's off). The chain tip counts
+     * only when the chain also solves tip rotation; a chain whose weight is
+     * zeroed (config, or the film's per-tick override on the form) doesn't
+     * constrain anything.
+     */
+    public static boolean isRotationConstrained(IModel model, ModelForm form, String bone)
+    {
+        if (model == null || form == null || bone == null || bone.isEmpty())
+        {
+            return false;
+        }
+
+        if (!(form.ik.get() instanceof MapType map))
+        {
+            return false;
+        }
+
+        ModelIKCache.Compiled compiled = ModelIKCache.getFromData(model, map);
+
+        if (compiled == null || compiled.chains() == null)
+        {
+            return false;
+        }
+
+        for (ModelIKCache.CompiledChain chain : compiled.chains())
+        {
+            if (chain == null || chain.weight() <= 0F || chain.chainRootToEffector() == null)
+            {
+                continue;
+            }
+
+            Float override = form.ikTargetWeights == null ? null : form.ikTargetWeights.get(chain.target());
+
+            if (override != null && override <= 0F)
+            {
+                continue;
+            }
+
+            if (!chain.chainRootToEffector().contains(bone))
+            {
+                continue;
+            }
+
+            if (!bone.equals(chain.tip()) || chain.tipRotation())
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static List<String> getControllers(ModelInstance instance)
     {
         if (instance == null || instance.model == null)

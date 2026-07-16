@@ -1,9 +1,12 @@
 package mchorse.bbs_mod.ui.forms.editors.forms;
 
+import mchorse.bbs_mod.cubic.ModelInstance;
+import mchorse.bbs_mod.cubic.ik.ModelIKRuntime;
 import mchorse.bbs_mod.data.DataStorageUtils;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.forms.FormUtils;
 import mchorse.bbs_mod.forms.forms.ModelForm;
+import mchorse.bbs_mod.forms.renderers.ModelFormRenderer;
 import mchorse.bbs_mod.ui.Keys;
 import mchorse.bbs_mod.ui.UIKeys;
 import mchorse.bbs_mod.ui.forms.editors.panels.UIActionsFormPanel;
@@ -28,6 +31,13 @@ public class UIModelForm extends UIForm<ModelForm>
         this.modelPanel = new UIModelFormPanel(this);
         this.modelPanel.poseEditor.transform.hotkeyDrag(() -> this.editor == null ? null : this.editor.buildHotkeyDrag(this.modelPanel.poseEditor.transform));
         this.modelPanel.poseEditor.transform.worldTransform(new FormBoneWorldProvider(this));
+        this.modelPanel.poseEditor.transform.rotationConstrained(() ->
+        {
+            ModelForm form = this.form;
+            ModelInstance instance = form == null ? null : ModelFormRenderer.getModel(form);
+
+            return instance != null && ModelIKRuntime.isRotationConstrained(instance.model, form, this.modelPanel.poseEditor.groups.list.getCurrentFirst());
+        });
         this.defaultPanel = this.modelPanel;
 
         this.registerPanel(this.defaultPanel, UIKeys.FORMS_EDITORS_MODEL_POSE, Icons.POSE);

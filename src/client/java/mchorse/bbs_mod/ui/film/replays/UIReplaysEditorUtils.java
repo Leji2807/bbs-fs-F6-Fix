@@ -731,6 +731,44 @@ public class UIReplaysEditorUtils
         boolean pose = panel.replayEditor.keyframeEditor.editor instanceof UIPoseKeyframeFactory;
 
         transform.worldTransform(pose ? new FilmBoneWorldProvider(panel) : null);
+        transform.rotationConstrained(pose ? () -> isFilmBoneRotationConstrained(panel) : null);
+    }
+
+    /**
+     * Whether the film pose editor's current bone rotation is owned by an
+     * enabled IK chain of its (possibly nested) model form — the gizmo then
+     * refuses rotation gestures and dims its rings (see
+     * {@link ModelIKRuntime#isRotationConstrained}).
+     */
+    private static boolean isFilmBoneRotationConstrained(UIFilmPanel panel)
+    {
+        UIKeyframeEditor keyframeEditor = panel.replayEditor.keyframeEditor;
+
+        if (keyframeEditor == null || !(keyframeEditor.editor instanceof UIPoseKeyframeFactory))
+        {
+            return false;
+        }
+
+        IEntity entity = panel.getController().getCurrentEntity();
+        Pair<String, Boolean> bone = keyframeEditor.getBone();
+
+        if (entity == null || bone == null || bone.a == null)
+        {
+            return false;
+        }
+
+        UIKeyframeSheet sheet = keyframeEditor.getSheet(keyframeEditor.editor.getKeyframe());
+        BaseValueBasic property = sheet == null ? null : FormUtils.getProperty(entity.getForm(), sheet.id);
+        Form owner = property == null ? null : FormUtils.getForm(property);
+
+        if (!(owner instanceof ModelForm modelForm))
+        {
+            return false;
+        }
+
+        ModelInstance instance = ModelFormRenderer.getModel(modelForm);
+
+        return instance != null && ModelIKRuntime.isRotationConstrained(instance.model, modelForm, StringUtils.fileName(bone.a));
     }
 
     /**

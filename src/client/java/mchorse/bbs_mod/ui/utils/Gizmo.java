@@ -1401,15 +1401,20 @@ public class Gizmo
          * {@link #renderSphereHighlight}. Depth state is owned by the caller
          * ({@link #drawOccludedGizmo}) so the handles sort against each other. */
 
+        /* IK owns this bone's rotation: the rings render washed-out as the
+         * visible "not yours to turn" cue, matching the rotation strategies'
+         * refusal to start there (the pads still edit the FK channels). */
+        boolean constrained = this.currentTransform != null && this.currentTransform.isRotationConstrained();
+
         if (!BBSSettings.rotateHideRings.get())
         {
             float scale = BBSSettings.axesScale.get();
             float radius = 0.22F * scale;
             float ringThickness = 0.02F * scale * BBSSettings.axesThickness.get();
 
-            if (active == null || active == Handle.ROTATE_Z) this.drawOccludedRing(stack, Axis.Z, radius, ringThickness, Colors.getR(Colors.BLUE), Colors.getG(Colors.BLUE), Colors.getB(Colors.BLUE));
-            if (active == null || active == Handle.ROTATE_X) this.drawOccludedRing(stack, Axis.X, radius, ringThickness, Colors.getR(Colors.RED), Colors.getG(Colors.RED), Colors.getB(Colors.RED));
-            if (active == null || active == Handle.ROTATE_Y) this.drawOccludedRing(stack, Axis.Y, radius, ringThickness, Colors.getR(Colors.GREEN), Colors.getG(Colors.GREEN), Colors.getB(Colors.GREEN));
+            if (active == null || active == Handle.ROTATE_Z) this.drawOccludedRing(stack, Axis.Z, radius, ringThickness, dimmed(Colors.getR(Colors.BLUE), constrained), dimmed(Colors.getG(Colors.BLUE), constrained), dimmed(Colors.getB(Colors.BLUE), constrained));
+            if (active == null || active == Handle.ROTATE_X) this.drawOccludedRing(stack, Axis.X, radius, ringThickness, dimmed(Colors.getR(Colors.RED), constrained), dimmed(Colors.getG(Colors.RED), constrained), dimmed(Colors.getB(Colors.RED), constrained));
+            if (active == null || active == Handle.ROTATE_Y) this.drawOccludedRing(stack, Axis.Y, radius, ringThickness, dimmed(Colors.getR(Colors.GREEN), constrained), dimmed(Colors.getG(Colors.GREEN), constrained), dimmed(Colors.getB(Colors.GREEN), constrained));
         }
 
         /* The screen-space (billboard) view-rotation ring is intentionally excluded from the
@@ -1417,11 +1422,18 @@ public class Gizmo
         if (active == null || active == Handle.VIEW)
         {
             int color = Colors.LIGHTEST_GRAY;
+            float alpha = Colors.getA(color) * BBSSettings.gizmoOpacity.get() * (constrained ? 0.35F : 1F);
 
             /* This VBO ring sets the shader colour itself, so the opacity modulator
              * doesn't reach it — fold it into the alpha here instead. */
-            this.drawCachedRingBillboard(stack, this.rotateRingVbo, Colors.getR(color), Colors.getG(color), Colors.getB(color), Colors.getA(color) * BBSSettings.gizmoOpacity.get());
+            this.drawCachedRingBillboard(stack, this.rotateRingVbo, Colors.getR(color), Colors.getG(color), Colors.getB(color), alpha);
         }
+    }
+
+    /** Washes a ring colour channel toward flat gray for IK-owned rotations. */
+    private static float dimmed(float channel, boolean constrained)
+    {
+        return constrained ? channel * 0.25F + 0.3F : channel;
     }
 
     private void drawAxes(MatrixStack stack, float axisSize, float axisOffset)

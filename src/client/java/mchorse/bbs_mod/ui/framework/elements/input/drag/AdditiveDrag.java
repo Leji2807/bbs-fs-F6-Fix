@@ -94,6 +94,11 @@ public class AdditiveDrag extends DragStrategy
 
         this.lastX = mouseX;
 
+        if (this.refuseConstrainedRotation())
+        {
+            return;
+        }
+
         boolean all = this.op == TransformOp.SCALE && (this.scaleAll || Window.isCtrlPressed());
         float factor = this.ctx.additiveFactor(this.op) * (Window.isShiftPressed() ? FINE_DRAG_FACTOR : 1F);
 
@@ -188,6 +193,11 @@ public class AdditiveDrag extends DragStrategy
     @Override
     public void applyNumeric(double value)
     {
+        if (this.refuseConstrainedRotation())
+        {
+            return;
+        }
+
         switch (this.op)
         {
             case TRANSLATE:
