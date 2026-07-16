@@ -184,6 +184,18 @@ public abstract class DragStrategy
         return null;
     }
 
+    /**
+     * The world axis the gesture ACTUALLY rotates about, for the pie's sweep
+     * direction — the ring drag's own anchored axis, so the pie can never
+     * disagree with the rotation (the drawn frame axis and the real turn axis
+     * differ on the channel path: cubic models flip the channels' X/Z response).
+     * {@code null} when the gesture has no fixed axis.
+     */
+    public Vector3f ringAxisDir()
+    {
+        return null;
+    }
+
     /** Screen-space start edge of the view sweep pie (radians, Y-down convention). */
     public float viewGrabScreenAngle()
     {

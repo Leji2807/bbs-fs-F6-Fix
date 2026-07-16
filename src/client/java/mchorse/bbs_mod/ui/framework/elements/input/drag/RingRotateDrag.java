@@ -80,6 +80,12 @@ public class RingRotateDrag extends DragStrategy
     }
 
     @Override
+    public Vector3f ringAxisDir()
+    {
+        return this.hasStart ? new Vector3f(this.axisDir) : null;
+    }
+
+    @Override
     public float accumulatedRotateDeg()
     {
         return this.accumulatedDeg;
@@ -109,18 +115,22 @@ public class RingRotateDrag extends DragStrategy
         }
 
         this.space = this.ctx.space();
+        this.quatMode = this.ctx.transform().rotationMode == Transform.RotationMode.QUATERNION;
+        this.channelPath = this.space == TransformSpace.PARENT;
 
-        /* The world axis this ring turns around: the axis the ring is DRAWN
-         * about in the active space (frameBasis). In LOCAL that is the bone's
-         * own axis with ALL of its rotation applied — NOT the euler channel's
-         * response axis (rotateAxes), which is the intermediate gimbal axis of
-         * the ZYX stack: a Y ring driven by the channel turns about Rz·ŷ while
-         * the drawn ring sits at Rz·Ry·Rx·ŷ, so the bone visibly drifted off
-         * the ring the user grabbed whenever inner channels tilt it. Rotating
-         * about the drawn axis is sign-safe on cubic models too: the delta is
-         * DEFINED by the world axis and mapped through parentInverse (built
-         * from the measured rotateAxes, which fold in the Ry(180) post-flip). */
-        Vector3f axisDir = drag.frameBasis(this.space).getColumn(this.axis.ordinal(), new Vector3f());
+        /* The world axis this ring turns around. The world-axis path uses the
+         * axis the ring is DRAWN about (frameBasis) — in LOCAL that is the
+         * bone's own axis with ALL of its rotation applied, NOT the euler
+         * channel's response axis, so the bone follows the grabbed ring even
+         * when inner channels tilt it (sign-safe on cubics: the delta is
+         * DEFINED by the world axis and parentInverse folds the Ry(180)
+         * post-flip). The CHANNEL path (PARENT) is the opposite: it drives the
+         * channel itself, so its cursor coupling (rotateSign, pie) must use the
+         * channel's MEASURED response axis (rotateAxes) — the drawn parent axis
+         * points opposite on cubic X/Z because of that same post-flip, and
+         * deriving the sign from it turned those rings backwards. */
+        Vector3f axisDir = (this.channelPath ? new Matrix3f(drag.rotateAxes) : drag.frameBasis(this.space))
+            .getColumn(this.axis.ordinal(), new Vector3f());
 
         if (axisDir.lengthSquared() < 1.0E-8F)
         {
@@ -159,8 +169,6 @@ public class RingRotateDrag extends DragStrategy
         this.initialRingVec.set(this.computeStartRingVec(mouseX, mouseY, axisDir));
         this.accumulatedDeg = 0F;
 
-        this.quatMode = this.ctx.transform().rotationMode == Transform.RotationMode.QUATERNION;
-
         /* The channel path adds its sweep onto the start angles; the world-axis
          * path reads this as the pose the parent frame is recovered at (mode-aware,
          * so a quaternion bone uses its ZYX equivalent, not the stale channels). */
@@ -172,19 +180,17 @@ public class RingRotateDrag extends DragStrategy
             MathUtils.toDeg(source.z)
         );
 
-        /* PARENT takes the channel path by design; every other space turns
-         * around the ring's world axis: map it once into the bone's parent
-         * frame (constant for the drag) and apply the turn as a parent-frame
-         * delta — ViewRotateDrag's gimbal-free path, just axis-locked. Built
-         * from the measured rotateAxes (which fold in the parent AND the cubic
-         * Ry(180) post-flip), NOT the raw bone orientation: that flip is
-         * post-multiplied after the bone's own rotation, so the raw orientation
-         * would leave X/Z turning backwards. Exactly at the euler pole the
-         * recovery degenerates; the euler LOCAL ring then falls back to the
-         * channel path too (gimbal semantics, but alive), every other space
-         * skips the gesture as before. */
-        this.channelPath = this.space == TransformSpace.PARENT;
-
+        /* The world-axis path maps its axis once into the bone's parent frame
+         * (constant for the drag) and applies the turn as a parent-frame delta
+         * — ViewRotateDrag's gimbal-free path, just axis-locked. Built from the
+         * measured rotateAxes (which fold in the parent AND the cubic Ry(180)
+         * post-flip), NOT the raw bone orientation: that flip is post-multiplied
+         * after the bone's own rotation, so the raw orientation would leave X/Z
+         * turning backwards. Exactly at the euler pole the recovery degenerates;
+         * the euler LOCAL ring then falls back to the channel path (gimbal
+         * semantics, but alive) and re-anchors its cursor coupling to the
+         * channel's measured response axis, every other space skips the gesture
+         * as before. */
         if (!this.channelPath)
         {
             Matrix3f parentInverse = RotationDragMath.parentInverse(this.ctx, drag);
@@ -202,6 +208,22 @@ public class RingRotateDrag extends DragStrategy
                 }
 
                 this.channelPath = true;
+
+                Vector3f channelAxis = drag.rotateAxes.getColumn(this.axis.ordinal(), new Vector3f());
+
+                if (channelAxis.lengthSquared() >= 1.0E-8F)
+                {
+                    channelAxis.normalize();
+                    this.axisDir.set(channelAxis);
+                    this.rotateSign = Math.signum(channelAxis.dot(intoScreen));
+
+                    if (this.rotateSign == 0F)
+                    {
+                        this.rotateSign = 1F;
+                    }
+
+                    this.initialRingVec.set(this.computeStartRingVec(mouseX, mouseY, channelAxis));
+                }
             }
             else
             {

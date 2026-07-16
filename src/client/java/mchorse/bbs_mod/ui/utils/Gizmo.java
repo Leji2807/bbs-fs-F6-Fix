@@ -1184,10 +1184,17 @@ public class Gizmo
         Vector3f axisZ = this.currentTransform.getDrag().gizmoWorldAxes.getColumn(2, new Vector3f());
         /* The ring's actual world rotation axis in the active space — the same
          * basis the ring is drawn in (Gizmo.reorientForSpace) and the drag turns
-         * about — one and the same now (frameBasis): the ring rotates about its
-         * drawn axis in every space, so the pie sweep direction follows the axis
-         * the geometry shows. */
-        Vector3f dragAxisDir = this.currentTransform.getDrag().frameBasis(this.currentTransform.getSpace()).getColumn(axis.ordinal(), new Vector3f());
+         * about. The axis comes from the GESTURE itself (its anchored turn axis),
+         * so the pie can never disagree with the rotation — the drawn frame axis
+         * and the real turn axis differ on the channel path (PARENT / the pole
+         * fallback), where cubic models flip the channels' X/Z response. */
+        DragStrategy ringGesture = this.ringDragGesture();
+        Vector3f dragAxisDir = ringGesture != null ? ringGesture.ringAxisDir() : null;
+
+        if (dragAxisDir == null)
+        {
+            dragAxisDir = this.currentTransform.getDrag().frameBasis(this.currentTransform.getSpace()).getColumn(axis.ordinal(), new Vector3f());
+        }
 
         float gx = initialVec.dot(axisX);
         float gy = initialVec.dot(axisY);
