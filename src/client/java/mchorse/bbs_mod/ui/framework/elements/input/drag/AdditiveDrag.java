@@ -3,6 +3,7 @@ package mchorse.bbs_mod.ui.framework.elements.input.drag;
 import mchorse.bbs_mod.graphics.window.Window;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Vector3f;
 
@@ -19,6 +20,15 @@ public class AdditiveDrag extends DragStrategy
     private final boolean scaleAll;
 
     private int lastX;
+
+    /* A quaternion bone's euler channels are stale, so the rotate lever can't
+     * walk them like the euler path does (reading them would snap the bone to
+     * whatever the channels last held). Instead the gesture anchors its base to
+     * the cache quaternion's ZYX equivalent once and accumulates its own sweep —
+     * the same total-from-cache semantics as numericRotate — and stores the
+     * result back as a quaternion. */
+    private final Vector3f quatBaseDeg = new Vector3f();
+    private float quatSweepDeg;
 
     public AdditiveDrag(DragContext ctx, TransformOp op, Axis axis, Axis axis2, boolean scaleAll)
     {
@@ -49,8 +59,25 @@ public class AdditiveDrag extends DragStrategy
     @Override
     public void begin(int mouseX, int mouseY)
     {
+        /* First anchor only — begin() re-fires on cursor wraps and numeric
+         * resume, and the accumulated sweep must survive those. */
+        if (!this.hasStart && this.op == TransformOp.ROTATE && this.isQuatRotate())
+        {
+            Vector3f base = Matrices.toEulerZYXRadians(this.ctx.cache().quat, new Vector3f());
+
+            this.quatBaseDeg.set(MathUtils.toDeg(base.x), MathUtils.toDeg(base.y), MathUtils.toDeg(base.z));
+            this.quatSweepDeg = 0F;
+        }
+
         this.lastX = mouseX;
         this.hasStart = true;
+    }
+
+    private boolean isQuatRotate()
+    {
+        Transform transform = this.ctx.transform();
+
+        return transform != null && transform.rotationMode == Transform.RotationMode.QUATERNION;
     }
 
     @Override
@@ -82,6 +109,21 @@ public class AdditiveDrag extends DragStrategy
             Vector3f live = transform.translate;
 
             this.ctx.writeTranslate(live.x + offset.x, live.y + offset.y, live.z + offset.z);
+
+            return;
+        }
+
+        if (this.op == TransformOp.ROTATE && this.isQuatRotate())
+        {
+            this.quatSweepDeg += factor * dx;
+
+            Vector3f rotated = new Vector3f(this.quatBaseDeg);
+
+            if (this.axis == Axis.X || this.axis2 == Axis.X) rotated.x += this.quatSweepDeg;
+            if (this.axis == Axis.Y || this.axis2 == Axis.Y) rotated.y += this.quatSweepDeg;
+            if (this.axis == Axis.Z || this.axis2 == Axis.Z) rotated.z += this.quatSweepDeg;
+
+            this.ctx.writeRotationQuat(Matrices.toQuaternionZYXDegrees(rotated.x, rotated.y, rotated.z));
 
             return;
         }
@@ -166,6 +208,12 @@ public class AdditiveDrag extends DragStrategy
         if (this.axis == null)
         {
             return null;
+        }
+
+        /* Quaternion rotate accumulates its own sweep (the channels are stale). */
+        if (this.isQuatRotate())
+        {
+            return String.format("%.1f°", this.quatSweepDeg);
         }
 
         Vector3f now = transform.rotate;

@@ -1358,6 +1358,7 @@ public class UIPropTransform extends UITransform
      * path for a quaternion-mode bone). Overridden by the delta editors to fan a
      * quaternion delta across the selection.
      */
+    @Override
     public void setRQuat(Quaternionf quat)
     {
         if (this.transform == null)
@@ -1468,7 +1469,10 @@ public class UIPropTransform extends UITransform
         }
         else if (op == TransformOp.ROTATE)
         {
-            return this.transform.rotate;
+            /* A quaternion bone's channels are stale; show its live rotation. */
+            return this.transform.rotationMode == Transform.RotationMode.QUATERNION
+                ? this.transform.getEulerRotation(new Vector3f())
+                : this.transform.rotate;
         }
 
         return this.transform.translate;

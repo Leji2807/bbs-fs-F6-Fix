@@ -50,7 +50,7 @@ public abstract class DragStrategy
      * degrees, translation in channel units, scale per axis). */
 
     /** Master switch for the per-drag dump. */
-    private static final boolean LOG_DRAG = true;
+    private static final boolean LOG_DRAG = false;
 
     /** File in the game folder the gesture dump is written to (overwritten per gesture). */
     private static final String DRAG_LOG_FILE = "drag-log.txt";
@@ -239,8 +239,15 @@ public abstract class DragStrategy
     /** Per-axis rotation deltas (degrees) of a free rotation, measured from the cache. */
     protected String freeRotateReadout()
     {
-        Vector3f start = this.ctx.cache().rotate;
-        Vector3f now = this.ctx.transform().rotate;
+        Transform transform = this.ctx.transform();
+
+        /* On a quaternion bone the channels are stale (the drag writes the quat),
+         * so measure off the live rotations — the current one decomposed nearest
+         * the grab base, so the displayed deltas stay small and continuous. */
+        Vector3f start = RotationDragMath.sourceEuler(this.ctx.cache());
+        Vector3f now = transform.rotationMode == Transform.RotationMode.QUATERNION
+            ? Matrices.toCompatibleEulerZYXRadians(transform.quat, start, new Vector3f())
+            : transform.rotate;
 
         return String.format("X %+.1f°  Y %+.1f°  Z %+.1f°",
             MathUtils.toDeg(now.x - start.x),
