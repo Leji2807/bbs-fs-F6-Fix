@@ -467,10 +467,35 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
                     return origin == null ? new Matrix4f() : MatrixStackUtils.stripScale(origin);
                 }
             ));
-
+            drag.setAdditiveRotationBase(this.poseRotationBase(transform));
         }
 
         return drag;
+    }
+
+    /**
+     * The additive euler base under the pose editor's channels for the picked
+     * bone ({@link FormUtils#additivePoseRotationBase}) — the model form's pose
+     * stack merges per-channel, so the overlay tracks' contributions sit under
+     * the base pose the panel edits. {@code null} (zero base) for every other
+     * transform editor here (body part, general form transform, states), whose
+     * values aren't pose-stacked.
+     */
+    private Vector3f poseRotationBase(UIPropTransform transform)
+    {
+        if (this.isBodyPartGizmoMode() || this.statesEditor.isVisible() || !(this.editor instanceof UIModelForm modelForm))
+        {
+            return null;
+        }
+
+        if (transform != modelForm.modelPanel.poseEditor.transform)
+        {
+            return null;
+        }
+
+        String bone = modelForm.modelPanel.poseEditor.groups.list.getCurrentFirst();
+
+        return bone == null ? null : FormUtils.additivePoseRotationBase(modelForm.form.pose, bone);
     }
 
     public GizmoDrag buildHotkeyDrag(UIPropTransform transform)

@@ -49,8 +49,10 @@ import mchorse.bbs_mod.ui.framework.elements.input.keyframes.graphs.IUIKeyframeG
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.utils.MatrixStackUtils;
 import mchorse.bbs_mod.utils.Pair;
+import mchorse.bbs_mod.utils.StringUtils;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.settings.values.core.ValueLink;
+import mchorse.bbs_mod.settings.values.core.ValuePose;
 import mchorse.bbs_mod.settings.values.core.ValueTransform;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
@@ -809,6 +811,7 @@ public class UIReplaysEditorUtils
             transform.getTransform(),
             () -> matrixSampler.get().getTranslation(new Vector3f())
         ));
+        drag.setAdditiveRotationBase(filmPoseRotationBase(keyframeEditor, entity.getForm(), bone.a));
         /* Restore the form to its unperturbed state */
         Form form = entity.getForm();
         if (form != null)
@@ -818,6 +821,36 @@ public class UIReplaysEditorUtils
         }
 
         return drag;
+    }
+
+    /**
+     * The additive euler base under the edited pose/overlay track's channels for
+     * the current bone ({@link FormUtils#additivePoseRotationBase}): the pose
+     * stack merges per-channel, so an overlay's drag deltas must compose at the
+     * bone's EFFECTIVE angles, not the overlay's own near-zero channels. Resolves
+     * the edited track through the sheet's property path on the LIVE form, so the
+     * other tracks' contributions are exactly what the render currently applies.
+     * {@code null} (zero base) when the track isn't a pose one or the merge for
+     * this bone isn't purely additive.
+     */
+    private static Vector3f filmPoseRotationBase(UIKeyframeEditor keyframeEditor, Form form, String bonePath)
+    {
+        if (!(keyframeEditor.editor instanceof UIPoseKeyframeFactory))
+        {
+            return null;
+        }
+
+        UIKeyframeSheet sheet = keyframeEditor.getSheet(keyframeEditor.editor.getKeyframe());
+
+        if (sheet == null)
+        {
+            return null;
+        }
+
+        BaseValueBasic property = FormUtils.getProperty(form, sheet.id);
+        String bone = StringUtils.fileName(bonePath);
+
+        return property instanceof ValuePose valuePose ? FormUtils.additivePoseRotationBase(valuePose, bone) : null;
     }
 
     /**

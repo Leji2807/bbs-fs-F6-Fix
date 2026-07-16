@@ -273,33 +273,33 @@ public abstract class DragStrategy
      * (degrees), a factor for scale. */
 
     /**
-     * The typed offset of a translate gesture, honoring the active space.
-     * LOCAL keeps its historical semantics — {@code value} translate-channel
-     * units along the bone's own axes. Any other space maps {@code value}
-     * WORLD units along the space's frame axis into channel units through
-     * {@link #spaceTranslateOffset}, i.e. the exact basis the ray drag slides
-     * along — so a typed number and the cursor always move the bone the same
-     * way. Without a drag snapshot there is no frame to map through, and the
-     * legacy raw-channel offset remains as the fallback.
+     * The typed offset of a translate gesture: {@code value} WORLD units along
+     * the active space's axes as drawn, through {@link #spaceTranslateOffset}
+     * — the exact basis the ray drag slides along, in every space including
+     * LOCAL (the drawn local frame is the truth even for additive layers like
+     * pose overlays, whose own channel rotation is near identity). Without a
+     * drag snapshot there is no frame to map through; the legacy fallbacks
+     * remain — the analytic local vector for LOCAL, raw channel units
+     * otherwise.
      */
     protected Vector3f numericTranslateOffset(double value)
     {
+        Vector3f offset = this.spaceTranslateOffset(value, this.axis, this.axis2);
+
+        if (offset != null)
+        {
+            return offset;
+        }
+
         if (this.ctx.isLocal())
         {
-            Vector3f offset = this.ctx.localTranslateVector(value, this.axis);
+            offset = this.ctx.localTranslateVector(value, this.axis);
 
             if (this.axis2 != null)
             {
                 offset.add(this.ctx.localTranslateVector(value, this.axis2));
             }
 
-            return offset;
-        }
-
-        Vector3f offset = this.spaceTranslateOffset(value, this.axis, this.axis2);
-
-        if (offset != null)
-        {
             return offset;
         }
 

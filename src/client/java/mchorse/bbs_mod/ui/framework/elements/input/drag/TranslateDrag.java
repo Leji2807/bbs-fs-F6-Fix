@@ -3,7 +3,6 @@ package mchorse.bbs_mod.ui.framework.elements.input.drag;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.utils.Axis;
-import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
 import org.joml.Vector3d;
@@ -74,33 +73,20 @@ public class TranslateDrag extends DragStrategy
 
         Matrix3f jacobian = new Matrix3f(drag.translateJacobian);
 
-        if (this.ctx.isLocal())
-        {
-            /* Local: each handle moves along the form's own axes (after the
-             * legacy 180° X correction). The translate-space direction is
-             * R.col(axis); pushed through the Jacobian we get the world-space
-             * direction with the proper scale baked in. */
-            Matrix3f rotation = new Matrix3f()
-                .rotateX(this.ctx.isModel() ? MathUtils.PI : 0F)
-                .mul(transform.createRotationMatrix());
+        /* Handles slide along the active space's axes exactly as DRAWN
+         * (frameBasis: LOCAL/PARENT = the placed gizmo frame, GLOBAL = world,
+         * VIEW = camera axes), and the inverse Jacobian maps one world unit
+         * along a handle into translate-channel units. One formula for every
+         * space. LOCAL used to rebuild its axes analytically from the
+         * transform's OWN channel rotation (plus the legacy 180° X model
+         * correction) — which broke on additive layers like pose overlays: an
+         * overlay's own channels sit near identity while the bone (and the
+         * drawn gizmo) carry the full pose, so the drag slid along a frame the
+         * user wasn't shown. The drawn frame is always the truth on screen. */
+        Matrix3f basis = drag.frameBasis(this.ctx.space());
 
-            this.translateBasis.set(rotation);
-            this.worldBasis.set(jacobian).mul(rotation);
-        }
-        else
-        {
-            /* GLOBAL/VIEW/PARENT: handles align with the active space's world
-             * axes (GLOBAL = world identity, VIEW = camera axes, PARENT = the
-             * parent frame the gizmo placement carries), matching how the gizmo
-             * is drawn (Gizmo.reorientForSpace). We use those axes for the drag
-             * plane and push them through the inverse Jacobian to find the
-             * matching change in translate-space. */
-            Matrix3f basis = drag.frameBasis(this.ctx.space());
-            Matrix3f inverse = invertedJacobian(jacobian);
-
-            this.translateBasis.set(inverse).mul(basis);
-            this.worldBasis.set(basis);
-        }
+        this.translateBasis.set(invertedJacobian(jacobian)).mul(basis);
+        this.worldBasis.set(basis);
 
         if (this.axis2 == null)
         {

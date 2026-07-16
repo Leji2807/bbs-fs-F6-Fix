@@ -72,6 +72,19 @@ public class GizmoDrag
      */
     public final Matrix3f rotateAxes = new Matrix3f();
 
+    /**
+     * Euler rotation (ZYX radians) the renderer SUMS UNDER the edited transform's
+     * rotate channels — non-zero when the edited value is an additive layer, like
+     * a pose overlay stacked per-channel onto the base pose. The renderer then
+     * shows {@code ZYX(base + rotate)}, so the drag's euler frame recovery and
+     * write composition must run on the effective angles and subtract the base
+     * back out of the written channels ({@code RotationDragMath}); with a zero
+     * base (a plain transform) both collapse to the classic math. Quaternion
+     * transforms never need it — their layers compose multiplicatively, which
+     * the parent-frame recovery already absorbs.
+     */
+    public final Vector3f additiveRotationBase = new Vector3f();
+
     public GizmoDrag setup(Camera camera, Area viewport, Vector3f gizmoOrigin)
     {
         return this.setup(camera, viewport, gizmoOrigin.x, gizmoOrigin.y, gizmoOrigin.z);
@@ -333,6 +346,21 @@ public class GizmoDrag
     public GizmoDrag setRotateAxes(Matrix3f axes)
     {
         this.rotateAxes.set(axes);
+
+        return this;
+    }
+
+    /** See {@link #additiveRotationBase}; {@code null} clears it to zero. */
+    public GizmoDrag setAdditiveRotationBase(Vector3f base)
+    {
+        if (base == null)
+        {
+            this.additiveRotationBase.set(0F, 0F, 0F);
+        }
+        else
+        {
+            this.additiveRotationBase.set(base);
+        }
 
         return this;
     }

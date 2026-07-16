@@ -97,28 +97,24 @@ public class AdditiveDrag extends DragStrategy
         boolean all = this.op == TransformOp.SCALE && (this.scaleAll || Window.isCtrlPressed());
         float factor = this.ctx.additiveFactor(this.op) * (Window.isShiftPressed() ? FINE_DRAG_FACTOR : 1F);
 
-        if (this.ctx.isLocal() && this.op == TransformOp.TRANSLATE)
-        {
-            Vector3f offset = this.ctx.localTranslateVector(factor * dx, this.axis);
-
-            if (this.axis2 != null)
-            {
-                offset.add(this.ctx.localTranslateVector(factor * dx, this.axis2));
-            }
-
-            Vector3f live = transform.translate;
-
-            this.ctx.writeTranslate(live.x + offset.x, live.y + offset.y, live.z + offset.z);
-
-            return;
-        }
-
-        /* Non-local translate: the lever steps along the active space's axes
-         * (world/camera/parent), mapped to channel units the same way the ray
-         * drag does — raw channel axes are only the no-snapshot fallback. */
+        /* Translate lever: step along the active space's axes as drawn, mapped
+         * to channel units the same way the ray drag does (LOCAL included —
+         * the drawn frame is the truth even for additive layers like pose
+         * overlays). Fallbacks without a drag snapshot: the analytic local
+         * vector for LOCAL, the raw channel lever otherwise. */
         if (this.op == TransformOp.TRANSLATE)
         {
             Vector3f offset = this.spaceTranslateOffset(factor * dx, this.axis, this.axis2);
+
+            if (offset == null && this.ctx.isLocal())
+            {
+                offset = this.ctx.localTranslateVector(factor * dx, this.axis);
+
+                if (this.axis2 != null)
+                {
+                    offset.add(this.ctx.localTranslateVector(factor * dx, this.axis2));
+                }
+            }
 
             if (offset != null)
             {

@@ -88,7 +88,28 @@ public final class RotationDragMath
      */
     public static Matrix3f parentInverse(DragContext ctx, GizmoDrag drag)
     {
-        return computeParentInverse(drag.rotateAxes, cacheSourceEuler(ctx));
+        return computeParentInverse(drag.rotateAxes, effectiveSourceEuler(ctx, drag));
+    }
+
+    /**
+     * The angles {@link GizmoDrag#computeRotateAxes} actually measured the axes
+     * at: the cache source PLUS the renderer's additive base
+     * ({@link GizmoDrag#additiveRotationBase}) — a pose overlay's channels add
+     * onto the underlying pose, so the render sits at {@code ZYX(base + rotate)}
+     * and {@code eulerAxes} evaluated at the channels alone would recover a
+     * wrong parent frame. Quaternion mode is untouched: its layers compose
+     * multiplicatively and the parent recovery absorbs the base by itself.
+     */
+    public static Vector3f effectiveSourceEuler(DragContext ctx, GizmoDrag drag)
+    {
+        Vector3f source = cacheSourceEuler(ctx);
+
+        if (ctx.cache().rotationMode != Transform.RotationMode.QUATERNION && drag != null)
+        {
+            source.add(drag.additiveRotationBase);
+        }
+
+        return source;
     }
 
     /**
@@ -147,11 +168,26 @@ public final class RotationDragMath
             Quaternionf delta = new Quaternionf().setFromNormalized(deltaLocal);
 
             ctx.writeRotationQuat(delta.mul(new Quaternionf(ctx.cache().quat)));
+
+            return;
         }
-        else
-        {
-            writeCompatibleEuler(ctx, new Matrix3f(deltaLocal).mul(eulerZYX(baseEuler)), referenceEuler);
-        }
+
+        /* An additive layer (pose overlay) renders as ZYX(add + channels), so the
+         * delta must compose onto — and the continuity anchor sit at — the
+         * EFFECTIVE angles; the written channels then shed the base again
+         * (channels' = total − add). Zero base collapses to the classic math. */
+        GizmoDrag drag = ctx.drag();
+        Vector3f add = drag == null ? new Vector3f() : drag.additiveRotationBase;
+        Vector3f effectiveBase = new Vector3f(baseEuler).add(add);
+        Vector3f effectiveReference = new Vector3f(referenceEuler).add(add);
+
+        Vector3f euler = Matrices.toCompatibleEulerZYXRadians(
+            new Matrix3f(deltaLocal).mul(eulerZYX(effectiveBase)),
+            effectiveReference,
+            new Vector3f()
+        ).sub(add);
+
+        ctx.writeRotateDeg(MathUtils.toDeg(euler.x), MathUtils.toDeg(euler.y), MathUtils.toDeg(euler.z));
     }
 
     /**
