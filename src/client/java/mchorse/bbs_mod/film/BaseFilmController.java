@@ -558,6 +558,29 @@ public abstract class BaseFilmController
     }
 
     /**
+     * The bone's EVALUATED channel rotation (ZYX euler radians, rest + actions +
+     * pose — the additive total the renderer composes) from the same capture the
+     * gizmo matrices come from, resolved by the same bone path. Feeds the
+     * overlay-editing base of the gizmo drag; {@code null} when the bone isn't a
+     * model bone or its rotation left the euler channels.
+     */
+    public static Vector3f getGizmoBoneEvaluatedRotation(IEntity entity, float transition, String bonePath)
+    {
+        if (entity == null || entity.getForm() == null || bonePath == null)
+        {
+            return null;
+        }
+
+        String mapKey = bonePath.contains(PerLimbService.POSE_BONES)
+            ? bonePath.replace(PerLimbService.POSE_BONES, "")
+            : bonePath;
+
+        MatrixCache map = FormUtilsClient.getRenderer(FormUtils.getRoot(entity.getForm())).collectMatrices(entity, transition);
+
+        return map.get(mapKey).evaluatedRotation();
+    }
+
+    /**
      * The same composite as {@link #getGizmoBoneCompositeMatrix} but with the bone's scale kept.
      * The gizmo drops scale on purpose (a gizmo must not inherit it); world-space transform capture
      * needs the full matrix, so it goes through this variant instead.

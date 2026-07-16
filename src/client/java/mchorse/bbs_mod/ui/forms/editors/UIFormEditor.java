@@ -467,7 +467,7 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
                     return origin == null ? new Matrix4f() : MatrixStackUtils.stripScale(origin);
                 }
             ));
-            drag.setAdditiveRotationBase(this.poseRotationBase(transform));
+            drag.setAdditiveRotationBase(this.poseRotationBase(transform, transition));
         }
 
         return drag;
@@ -475,27 +475,19 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
 
     /**
      * The additive euler base under the pose editor's channels for the picked
-     * bone ({@link FormUtils#additivePoseRotationBase}) — the model form's pose
-     * stack merges per-channel, so the overlay tracks' contributions sit under
-     * the base pose the panel edits. {@code null} (zero base) for every other
-     * transform editor here (body part, general form transform, states), whose
-     * values aren't pose-stacked.
+     * bone ({@link UIModelForm#poseRotationBase}) — the model form's pose stack
+     * (and the animator's actions) sits under the pose track the panel edits.
+     * {@code null} (zero base) for every other transform editor here (body
+     * part, general form transform, states), whose values aren't pose-stacked.
      */
-    private Vector3f poseRotationBase(UIPropTransform transform)
+    private Vector3f poseRotationBase(UIPropTransform transform, float transition)
     {
         if (this.isBodyPartGizmoMode() || this.statesEditor.isVisible() || !(this.editor instanceof UIModelForm modelForm))
         {
             return null;
         }
 
-        if (transform != modelForm.modelPanel.poseEditor.transform)
-        {
-            return null;
-        }
-
-        String bone = modelForm.modelPanel.poseEditor.groups.list.getCurrentFirst();
-
-        return bone == null ? null : FormUtils.additivePoseRotationBase(modelForm.form.pose, bone);
+        return modelForm.poseRotationBase(transform, transition);
     }
 
     public GizmoDrag buildHotkeyDrag(UIPropTransform transform)

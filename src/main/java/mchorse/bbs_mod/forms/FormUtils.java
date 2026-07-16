@@ -59,6 +59,21 @@ public class FormUtils
      */
     public static Vector3f additivePoseRotationBase(ValuePose editedTrack, String bone)
     {
+        return additivePoseRotationBase(editedTrack, bone, null);
+    }
+
+    /**
+     * The overload fed by the renderer's EVALUATED channel rotation for the bone
+     * (radians, rest + actions + pose): the base is then simply
+     * {@code evaluated − the edited track's own contribution}, which folds the
+     * animator's actions and the model's rest rotation in — the pose-track sum
+     * of the two-argument form can't see those. Falls back to the track sum when
+     * {@code evaluatedRadians} is {@code null} (no model bone entry). The
+     * additivity guards stay either way: any multiplicative contributor means
+     * the whole additive-base model doesn't apply.
+     */
+    public static Vector3f additivePoseRotationBase(ValuePose editedTrack, String bone, Vector3f evaluatedRadians)
+    {
         Form form = getForm(editedTrack);
         List<ValuePose> tracks = new ArrayList<>();
 
@@ -83,7 +98,8 @@ public class FormUtils
             return null;
         }
 
-        Vector3f base = new Vector3f();
+        Vector3f trackSum = new Vector3f();
+        Vector3f editedContribution = new Vector3f();
 
         for (ValuePose track : tracks)
         {
@@ -99,13 +115,17 @@ public class FormUtils
                 return null;
             }
 
-            if (track != editedTrack)
+            if (track == editedTrack)
             {
-                base.add(transform.rotate);
+                editedContribution.set(transform.rotate);
+            }
+            else
+            {
+                trackSum.add(transform.rotate);
             }
         }
 
-        return base;
+        return evaluatedRadians == null ? trackSum : new Vector3f(evaluatedRadians).sub(editedContribution);
     }
 
     public static Form fromData(BaseType data)

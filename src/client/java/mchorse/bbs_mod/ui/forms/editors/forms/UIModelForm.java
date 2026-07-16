@@ -17,6 +17,7 @@ import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.ui.utils.pose.UIPoseEditor;
 import mchorse.bbs_mod.utils.StringUtils;
 import org.joml.Matrix4f;
+import org.joml.Vector3f;
 
 public class UIModelForm extends UIForm<ModelForm>
 {
@@ -93,6 +94,31 @@ public class UIModelForm extends UIForm<ModelForm>
     private String bonePath()
     {
         return StringUtils.combinePaths(FormUtils.getPath(this.form), this.modelPanel.poseEditor.groups.list.getCurrentFirst());
+    }
+
+    /**
+     * The additive euler base under the pose editor's channels for the picked
+     * bone ({@link FormUtils#additivePoseRotationBase}): the total comes from
+     * the bone's EVALUATED channels in the capture (rest + actions + the whole
+     * pose stack) with the pose track's own contribution subtracted, so gizmo
+     * deltas compose at the bone's effective angles. {@code null} for any other
+     * transform editor — only the pose panel edits a pose-stacked track.
+     */
+    public Vector3f poseRotationBase(UIPropTransform transform, float transition)
+    {
+        if (transform != this.modelPanel.poseEditor.transform)
+        {
+            return null;
+        }
+
+        String bone = this.modelPanel.poseEditor.groups.list.getCurrentFirst();
+
+        if (bone == null)
+        {
+            return null;
+        }
+
+        return FormUtils.additivePoseRotationBase(this.form.pose, bone, this.getEvaluatedRotation(transition, this.bonePath()));
     }
 
     @Override

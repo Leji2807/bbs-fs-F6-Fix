@@ -23,6 +23,7 @@ import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.joml.Matrices;
 import org.joml.Matrix4f;
+import org.joml.Vector3f;
 
 public abstract class UIForm <T extends Form> extends UIPanelBase<UIFormPanel<T>>
 {
@@ -100,6 +101,18 @@ public abstract class UIForm <T extends Form> extends UIPanelBase<UIFormPanel<T>
         Matrix4f matrix = local ? map.get(path).matrix() : map.get(path).origin();
 
         return matrix == null ? Matrices.EMPTY_4F : matrix;
+    }
+
+    /**
+     * The bone's EVALUATED channel rotation (radians) from the same capture
+     * {@link #getOrigin(float, String, boolean)} reads, or {@code null} — feeds
+     * the gizmo's additive overlay-editing base.
+     */
+    protected Vector3f getEvaluatedRotation(float transition, String path)
+    {
+        Form root = FormUtils.getRoot(this.form);
+
+        return FormUtilsClient.getRenderer(root).collectMatrices(this.editor.renderer.getTargetEntity(), transition).get(path).evaluatedRotation();
     }
 
     protected void registerDefaultPanels()

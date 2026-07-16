@@ -811,7 +811,6 @@ public class UIReplaysEditorUtils
             transform.getTransform(),
             () -> matrixSampler.get().getTranslation(new Vector3f())
         ));
-        drag.setAdditiveRotationBase(filmPoseRotationBase(keyframeEditor, entity.getForm(), bone.a));
         /* Restore the form to its unperturbed state */
         Form form = entity.getForm();
         if (form != null)
@@ -820,6 +819,10 @@ public class UIReplaysEditorUtils
             replay.properties.applyProperties(form, tick);
         }
 
+        /* After the restore, so the evaluated channels the base reads reflect
+         * the unperturbed pose (the helper re-collects the capture itself). */
+        drag.setAdditiveRotationBase(filmPoseRotationBase(keyframeEditor, entity, transition, bone.a));
+
         return drag;
     }
 
@@ -827,13 +830,15 @@ public class UIReplaysEditorUtils
      * The additive euler base under the edited pose/overlay track's channels for
      * the current bone ({@link FormUtils#additivePoseRotationBase}): the pose
      * stack merges per-channel, so an overlay's drag deltas must compose at the
-     * bone's EFFECTIVE angles, not the overlay's own near-zero channels. Resolves
-     * the edited track through the sheet's property path on the LIVE form, so the
-     * other tracks' contributions are exactly what the render currently applies.
-     * {@code null} (zero base) when the track isn't a pose one or the merge for
-     * this bone isn't purely additive.
+     * bone's EFFECTIVE angles, not the overlay's own near-zero channels. The
+     * total comes from the bone's EVALUATED channels in the render capture
+     * ({@link BaseFilmController#getGizmoBoneEvaluatedRotation}) — folding the
+     * animator's actions and the model's rest rotation in — with the edited
+     * track resolved through the sheet's property path on the LIVE form and its
+     * own contribution subtracted. {@code null} (zero base) when the track isn't
+     * a pose one or the merge for this bone isn't purely additive.
      */
-    private static Vector3f filmPoseRotationBase(UIKeyframeEditor keyframeEditor, Form form, String bonePath)
+    private static Vector3f filmPoseRotationBase(UIKeyframeEditor keyframeEditor, IEntity entity, float transition, String bonePath)
     {
         if (!(keyframeEditor.editor instanceof UIPoseKeyframeFactory))
         {
@@ -847,10 +852,16 @@ public class UIReplaysEditorUtils
             return null;
         }
 
-        BaseValueBasic property = FormUtils.getProperty(form, sheet.id);
-        String bone = StringUtils.fileName(bonePath);
+        BaseValueBasic property = FormUtils.getProperty(entity.getForm(), sheet.id);
 
-        return property instanceof ValuePose valuePose ? FormUtils.additivePoseRotationBase(valuePose, bone) : null;
+        if (!(property instanceof ValuePose valuePose))
+        {
+            return null;
+        }
+
+        Vector3f evaluated = BaseFilmController.getGizmoBoneEvaluatedRotation(entity, transition, bonePath);
+
+        return FormUtils.additivePoseRotationBase(valuePose, StringUtils.fileName(bonePath), evaluated);
     }
 
     /**

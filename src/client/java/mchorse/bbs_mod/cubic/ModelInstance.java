@@ -35,7 +35,9 @@ import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.colors.Color;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Pose;
+import mchorse.bbs_mod.utils.pose.Transform;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.GlUniform;
 import net.minecraft.client.gl.ShaderProgram;
@@ -48,6 +50,7 @@ import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.RotationAxis;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
@@ -441,7 +444,8 @@ public class ModelInstance implements IModelInstance
                     group.initial.translate.z / 16
                 );
                 origin.rotateY(MathUtils.PI);
-                bones.put(group.id, matrix, origin);
+
+                bones.put(group.id, matrix, origin, evaluatedChannelRotation(group.current, group.orient, true));
             }
         }
         else if (this.model instanceof BOBJModel model)
@@ -455,9 +459,49 @@ public class ModelInstance implements IModelInstance
 
                 matrix.rotateY(MathUtils.PI).mul(orderedBone.mat);
                 origin.rotateY(MathUtils.PI).mul(orderedBone.originMat);
-                bones.put(orderedBone.name, matrix, origin);
+
+                bones.put(orderedBone.name, matrix, origin, evaluatedChannelRotation(orderedBone.transform, orderedBone.orient, false));
             }
         }
+    }
+
+    /**
+     * The bone's EVALUATED channel rotation (ZYX euler radians) for the gizmo's
+     * additive overlay-editing base, or {@code null} when the render doesn't
+     * follow the channels additively: quaternion mode composes multiplicatively,
+     * and a composed {@code orient} counts only while it still EQUALS the
+     * channel rotation — the first composed layer seeds it FROM the channels
+     * (identical by construction), but stacked layers multiply and diverge,
+     * and then the additive base model doesn't apply.
+     */
+    private static Vector3f evaluatedChannelRotation(Transform current, Quaternionf orient, boolean degrees)
+    {
+        if (current.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            return null;
+        }
+
+        Vector3f radians = degrees
+            ? new Vector3f(
+                MathUtils.toRad(current.rotate.x),
+                MathUtils.toRad(current.rotate.y),
+                MathUtils.toRad(current.rotate.z)
+            )
+            : new Vector3f(current.rotate);
+
+        if (orient != null)
+        {
+            Quaternionf channels = Matrices.toQuaternionZYXRadians(radians.x, radians.y, radians.z);
+
+            /* |dot| = cos(θ/2) between the two rotations (double cover); anything
+             * under ~1.6° apart means a genuinely multiplicative stack. */
+            if (Math.abs(channels.dot(orient)) < 0.9999F)
+            {
+                return null;
+            }
+        }
+
+        return radians;
     }
 
     /**
