@@ -31,7 +31,10 @@ public enum TransformSpace
     /** The camera's right/up/forward — a constrained edit runs in screen space. */
     VIEW(true),
 
-    /** The parent's frame — the frame the bone's own channels compose in. */
+    /** The parent's frame — the frame the bone's own channels compose in.
+     *  Rotation here deliberately bumps the driven channel directly (the
+     *  pre-spaces gizmo behaviour): exact single-parameter turns with native
+     *  &gt;360° winding, Blender's gimbal-style workflow. */
     PARENT(true);
 
     /** Whether the frame math is wired up; unimplemented spaces are shown but not selectable. */
