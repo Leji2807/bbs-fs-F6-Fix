@@ -250,10 +250,16 @@ public class GizmoDrag
      * (the bone's frame before its own rotation, i.e. the parent frame), so the
      * drawn arrows already are the parent axes.
      *
-     * <p>This is NOT the frame rotation composes in &mdash; see {@link #rotationBasis}:
-     * on cubic models the renderer post-multiplies {@code Ry(180°)} after the
-     * bone's own rotation, so the drawn X/Z arrows point opposite to the axes the
-     * rotate channels turn about. The two bases agree everywhere else.
+     * <p>Rotation rings both DRAW and TURN about these axes: a ring gesture
+     * composes a delta rotation about the drawn axis (mapped into the bone's
+     * parent frame via {@link mchorse.bbs_mod.ui.framework.elements.input.drag.RotationDragMath#parentInverse}),
+     * so the bone always follows the ring the user grabbed. The MEASURED
+     * {@link #rotateAxes} (the renderer's response to the euler channels, which
+     * folds in the cubic {@code Ry(180°)} post-flip AND the euler stack's gimbal
+     * skew) is deliberately NOT a gesture basis anymore &mdash; a LOCAL ring
+     * driven by it turned about the channel's intermediate gimbal axis, not the
+     * bone's own drawn axis, drifting off the visual as the inner channels tilt.
+     * It remains the ground truth for recovering the parent frame.
      */
     public Matrix3f frameBasis(TransformSpace space)
     {
@@ -273,20 +279,6 @@ public class GizmoDrag
                  * frame in LOCAL and the origin/parent frame in PARENT. */
                 return new Matrix3f(this.gizmoWorldAxes);
         }
-    }
-
-    /**
-     * The world-space axes a rotation gesture turns about in a {@link TransformSpace}.
-     * Differs from {@link #frameBasis} only in {@link TransformSpace#LOCAL}, where it
-     * is the MEASURED {@link #rotateAxes} &mdash; the renderer's actual response to
-     * the rotate channels, which on cubic models folds in the post-multiplied
-     * {@code Ry(180°)} sign flip on X/Z that the drawn arrows don't carry. A ring
-     * sweeping a drawn arrow's direction there would turn backwards, so every
-     * rotation consumer (the ring drag, the pie preview) reads this basis.
-     */
-    public Matrix3f rotationBasis(TransformSpace space)
-    {
-        return space == TransformSpace.LOCAL ? new Matrix3f(this.rotateAxes) : this.frameBasis(space);
     }
 
     /**

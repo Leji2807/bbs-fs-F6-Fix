@@ -505,7 +505,6 @@ public abstract class DragStrategy
         {
             b.append("  rotateAxes     ").append(fmtBasis(drag.rotateAxes)).append('\n');
             b.append("  gizmoWorldAxes ").append(fmtBasis(drag.gizmoWorldAxes)).append('\n');
-            b.append("  rotationBasis  ").append(fmtBasis(drag.rotationBasis(space))).append('\n');
             b.append("  frameBasis     ").append(fmtBasis(drag.frameBasis(space))).append('\n');
         }
         else

@@ -17,10 +17,11 @@ import org.joml.Vector3f;
  * degenerates), and the per-frame deltas are unwrapped and accumulated
  * without limit so the user can wind several full turns in either direction.
  *
- * <p>The written angle is rebuilt every frame as the FIXED start value (the
- * cache) plus the total sweep — a pure function of the gesture. A single
- * euler component moves, so the angle canon does all the work here: winding
- * past 360° is just a growing number, no quaternion round-trip involved.
+ * <p>The rotation is rebuilt every frame as the FIXED grab pose plus the total
+ * sweep about the ring's world axis — a pure function of the gesture. The axis
+ * is the one the ring is DRAWN about in the active space, so in LOCAL the bone
+ * turns about its own tilted axis (true local, not the euler channel's gimbal
+ * axis); the live-anchored euler readback keeps &gt;360° winding.
  */
 public class RingRotateDrag extends DragStrategy
 {
@@ -50,10 +51,15 @@ public class RingRotateDrag extends DragStrategy
     /** The space this gesture rotates in, captured at drag start. */
     private TransformSpace space = TransformSpace.LOCAL;
 
-    /** For a non-local space: the ring's world axis expressed in the bone's parent
-     *  frame (constant for the drag), so the world turn composes onto the pose the
-     *  same gimbal-free way {@link ViewRotateDrag} does. Unused in LOCAL. */
+    /** The ring's world axis expressed in the bone's parent frame (constant for
+     *  the drag), so the turn composes onto the pose the same gimbal-free way
+     *  {@link ViewRotateDrag} does. Unused on the pole fallback. */
     private final Vector3f axisLocalParent = new Vector3f();
+
+    /** Gimbal-pole fallback of the euler LOCAL ring: the parent frame can't be
+     *  recovered exactly at the euler pole, so the gesture degrades to the legacy
+     *  single-channel bump there instead of refusing to start. */
+    private boolean channelFallback;
 
     public RingRotateDrag(DragContext ctx, Axis axis)
     {
@@ -97,12 +103,17 @@ public class RingRotateDrag extends DragStrategy
 
         this.space = this.ctx.space();
 
-        /* The world axis this ring turns around, in the active space. LOCAL is
-         * the renderer's actual rotation axis (GizmoDrag.computeRotateAxes) — not
-         * the visible arrow, since cubic models post-multiply Ry(180°) and flip
-         * bone-local X/Z; GLOBAL is the world axis; VIEW is the camera axis;
-         * PARENT is the parent frame's axis (the frame the placement carries). */
-        Vector3f axisDir = drag.rotationBasis(this.space).getColumn(this.axis.ordinal(), new Vector3f());
+        /* The world axis this ring turns around: the axis the ring is DRAWN
+         * about in the active space (frameBasis). In LOCAL that is the bone's
+         * own axis with ALL of its rotation applied — NOT the euler channel's
+         * response axis (rotateAxes), which is the intermediate gimbal axis of
+         * the ZYX stack: a Y ring driven by the channel turns about Rz·ŷ while
+         * the drawn ring sits at Rz·Ry·Rx·ŷ, so the bone visibly drifted off
+         * the ring the user grabbed whenever inner channels tilt it. Rotating
+         * about the drawn axis is sign-safe on cubic models too: the delta is
+         * DEFINED by the world axis and mapped through parentInverse (built
+         * from the measured rotateAxes, which fold in the Ry(180) post-flip). */
+        Vector3f axisDir = drag.frameBasis(this.space).getColumn(this.axis.ordinal(), new Vector3f());
 
         if (axisDir.lengthSquared() < 1.0E-8F)
         {
@@ -154,30 +165,36 @@ public class RingRotateDrag extends DragStrategy
             MathUtils.toDeg(source.z)
         );
 
-        /* Every path except an euler LOCAL ring turns around a world axis, so map
-         * it once into the bone's parent frame (constant for the drag) and apply
-         * the turn as a parent-frame delta — ViewRotateDrag's gimbal-free path,
-         * just axis-locked. Built from the measured rotateAxes (which fold in the
+        /* Every ring turns around its world axis: map it once into the bone's
+         * parent frame (constant for the drag) and apply the turn as a
+         * parent-frame delta — ViewRotateDrag's gimbal-free path, just
+         * axis-locked. Built from the measured rotateAxes (which fold in the
          * parent AND the cubic Ry(180) post-flip), NOT the raw bone orientation:
          * that flip is post-multiplied after the bone's own rotation, so the raw
-         * orientation would leave X/Z turning backwards in GLOBAL/VIEW while the
-         * euler LOCAL ring (also on rotateAxes) stays correct. */
-        if (!this.channelPath())
+         * orientation would leave X/Z turning backwards. Exactly at the euler
+         * pole the recovery degenerates; the euler LOCAL ring then falls back to
+         * the legacy single-channel bump (gimbal semantics, but alive), every
+         * other path skips the gesture as before. */
+        this.channelFallback = false;
+
+        Matrix3f parentInverse = RotationDragMath.parentInverse(this.ctx, drag);
+
+        if (parentInverse != null)
         {
-            Matrix3f parentInverse = RotationDragMath.parentInverse(this.ctx, drag);
-
-            if (parentInverse == null)
-            {
-                return;
-            }
-
             parentInverse.transform(this.axisDir, this.axisLocalParent);
+        }
 
-            if (this.axisLocalParent.lengthSquared() < 1.0E-8F)
+        if (parentInverse == null || this.axisLocalParent.lengthSquared() < 1.0E-8F)
+        {
+            if (this.space != TransformSpace.LOCAL || this.quatMode)
             {
                 return;
             }
 
+            this.channelFallback = true;
+        }
+        else
+        {
             this.axisLocalParent.normalize();
         }
 
@@ -211,10 +228,10 @@ public class RingRotateDrag extends DragStrategy
             return;
         }
 
-        /* World-axis ring (GLOBAL/VIEW, or any quaternion ring): apply the swept
-         * world turn about the ring's axis as a parent-frame delta onto the grab
-         * pose (gimbal-free, quat- and euler-aware through applyLocalDelta). */
-        if (!this.channelPath())
+        /* Apply the swept turn about the ring's world axis as a parent-frame
+         * delta onto the grab pose (gimbal-free, quat- and euler-aware through
+         * applyLocalDelta; live-anchored readback keeps >360° winding). */
+        if (!this.channelFallback)
         {
             float sweepDeg = (float) this.snapValue(this.accumulatedDeg);
             Matrix3f deltaLocal = new Matrix3f().rotation(MathUtils.toRad(sweepDeg), this.axisLocalParent);
@@ -224,10 +241,10 @@ public class RingRotateDrag extends DragStrategy
             return;
         }
 
-        /* Euler LOCAL: bump the single driven channel. Snap only the driven axis,
-         * and only in the written value — the raw accumulation stays smooth, and
-         * the other two axes carry their start values and must not be rounded out
-         * from under the user. */
+        /* Pole fallback: bump the single driven channel. Snap only the driven
+         * axis, and only in the written value — the raw accumulation stays
+         * smooth, and the other two axes carry their start values and must not
+         * be rounded out from under the user. */
         float rx = this.startRotateDeg.x;
         float ry = this.startRotateDeg.y;
         float rz = this.startRotateDeg.z;
@@ -240,14 +257,6 @@ public class RingRotateDrag extends DragStrategy
         }
 
         this.ctx.writeRotateDeg(rx, ry, rz);
-    }
-
-    /** The euler LOCAL ring is the only path that bumps a single euler channel
-     *  (to keep &gt;360° winding); every other space and the quaternion mode turn
-     *  about the ring's world axis through the gimbal-free parent-frame delta. */
-    private boolean channelPath()
-    {
-        return this.space == TransformSpace.LOCAL && !this.quatMode;
     }
 
     private double snapValue(double value)
@@ -307,10 +316,10 @@ public class RingRotateDrag extends DragStrategy
             return;
         }
 
-        /* A world-axis ring (GLOBAL/VIEW, or any quaternion ring) takes a numeric
-         * turn as an axis rotation about the ring's world axis mapped to the
-         * parent frame; only the euler LOCAL ring bumps a single channel. */
-        if (!this.channelPath())
+        /* A numeric turn rotates about the ring's world axis mapped to the
+         * parent frame — same as the drag; only the pole fallback bumps the
+         * single channel. */
+        if (!this.channelFallback)
         {
             this.numericAxisRotation(value, this.axisLocalParent);
 

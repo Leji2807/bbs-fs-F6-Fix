@@ -1184,11 +1184,10 @@ public class Gizmo
         Vector3f axisZ = this.currentTransform.getDrag().gizmoWorldAxes.getColumn(2, new Vector3f());
         /* The ring's actual world rotation axis in the active space — the same
          * basis the ring is drawn in (Gizmo.reorientForSpace) and the drag turns
-         * about. For LOCAL this equals rotateAxes (the cubic-flip-aware bone axis,
-         * so the sweep still reads correctly there); for GLOBAL/VIEW it is the
-         * world/camera axis, so the pie sweeps with the corrected rotation instead
-         * of following the raw bone axis backwards. */
-        Vector3f dragAxisDir = this.currentTransform.getDrag().rotationBasis(this.currentTransform.getSpace()).getColumn(axis.ordinal(), new Vector3f());
+         * about — one and the same now (frameBasis): the ring rotates about its
+         * drawn axis in every space, so the pie sweep direction follows the axis
+         * the geometry shows. */
+        Vector3f dragAxisDir = this.currentTransform.getDrag().frameBasis(this.currentTransform.getSpace()).getColumn(axis.ordinal(), new Vector3f());
 
         float gx = initialVec.dot(axisX);
         float gy = initialVec.dot(axisY);
