@@ -260,7 +260,16 @@ public abstract class DragStrategy
      * the exact same semantics: an offset for translate (units) and rotate
      * (degrees), a factor for scale. */
 
-    /** The typed offset in translate-channel units, honoring the local toggle and the gesture's axes. */
+    /**
+     * The typed offset of a translate gesture, honoring the active space.
+     * LOCAL keeps its historical semantics — {@code value} translate-channel
+     * units along the bone's own axes. Any other space maps {@code value}
+     * WORLD units along the space's frame axis into channel units through
+     * {@link #spaceTranslateOffset}, i.e. the exact basis the ray drag slides
+     * along — so a typed number and the cursor always move the bone the same
+     * way. Without a drag snapshot there is no frame to map through, and the
+     * legacy raw-channel offset remains as the fallback.
+     */
     protected Vector3f numericTranslateOffset(double value)
     {
         if (this.ctx.isLocal())
@@ -275,11 +284,47 @@ public abstract class DragStrategy
             return offset;
         }
 
-        Vector3f offset = new Vector3f();
+        Vector3f offset = this.spaceTranslateOffset(value, this.axis, this.axis2);
+
+        if (offset != null)
+        {
+            return offset;
+        }
+
+        offset = new Vector3f();
 
         if (this.axis == Axis.X || this.axis2 == Axis.X) offset.x = (float) value;
         if (this.axis == Axis.Y || this.axis2 == Axis.Y) offset.y = (float) value;
         if (this.axis == Axis.Z || this.axis2 == Axis.Z) offset.z = (float) value;
+
+        return offset;
+    }
+
+    /**
+     * Channel offset of {@code value} world units along the active space's
+     * axes — {@code J⁻¹ · frameBasis(space)}, the same mapping the ray
+     * translate drag builds in its {@code begin()}, kept in one place so the
+     * typed input, the additive lever and the cursor drag can never disagree
+     * about what a space's axis means. Returns {@code null} when there is no
+     * drag snapshot (no frame nor Jacobian to map through) or no axis; the
+     * caller then falls back to its legacy raw-channel behaviour.
+     */
+    protected Vector3f spaceTranslateOffset(double value, Axis axis, Axis axis2)
+    {
+        GizmoDrag drag = this.ctx.drag();
+
+        if (drag == null || axis == null)
+        {
+            return null;
+        }
+
+        Matrix3f translateBasis = TranslateDrag.invertedJacobian(drag.translateJacobian).mul(drag.frameBasis(this.ctx.space()));
+        Vector3f offset = translateBasis.getColumn(axis.ordinal(), new Vector3f()).mul((float) value);
+
+        if (axis2 != null)
+        {
+            offset.add(translateBasis.getColumn(axis2.ordinal(), new Vector3f()).mul((float) value));
+        }
 
         return offset;
     }

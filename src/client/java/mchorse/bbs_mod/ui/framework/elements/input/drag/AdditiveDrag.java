@@ -113,6 +113,23 @@ public class AdditiveDrag extends DragStrategy
             return;
         }
 
+        /* Non-local translate: the lever steps along the active space's axes
+         * (world/camera/parent), mapped to channel units the same way the ray
+         * drag does — raw channel axes are only the no-snapshot fallback. */
+        if (this.op == TransformOp.TRANSLATE)
+        {
+            Vector3f offset = this.spaceTranslateOffset(factor * dx, this.axis, this.axis2);
+
+            if (offset != null)
+            {
+                Vector3f live = transform.translate;
+
+                this.ctx.writeTranslate(live.x + offset.x, live.y + offset.y, live.z + offset.z);
+
+                return;
+            }
+        }
+
         if (this.op == TransformOp.ROTATE && this.isQuatRotate())
         {
             this.quatSweepDeg += factor * dx;
