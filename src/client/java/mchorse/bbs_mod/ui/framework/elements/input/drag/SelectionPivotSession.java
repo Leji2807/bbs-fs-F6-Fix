@@ -3,6 +3,7 @@ package mchorse.bbs_mod.ui.framework.elements.input.drag;
 import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.List;
@@ -124,12 +125,24 @@ public class SelectionPivotSession
                     .mul(deltaWorld)
                     .mul(new Matrix3f(bone.parentInverse).invert());
 
-                Matrix3f composed = parentDelta.mul(RotationDragMath.eulerZYX(bone.cache.rotate));
-                Vector3f reference = windingReference ? bone.transform.rotate : bone.cache.rotate;
+                /* Mode fork mirrors RotationDragMath.applyLocalDelta: a quaternion
+                 * bone takes the delta as a quaternion product onto its cached
+                 * quat (its euler channels are stale — composing/writing them
+                 * would leave the bone orbiting the pivot without turning);
+                 * an euler bone keeps the compatible-euler channel write. */
+                if (bone.transform.rotationMode == Transform.RotationMode.QUATERNION)
+                {
+                    bone.transform.quat.set(new Quaternionf().setFromNormalized(parentDelta).mul(bone.cache.quat));
+                }
+                else
+                {
+                    Matrix3f composed = parentDelta.mul(RotationDragMath.eulerZYX(bone.cache.rotate));
+                    Vector3f reference = windingReference ? bone.transform.rotate : bone.cache.rotate;
 
-                Matrices.toCompatibleEulerZYXRadians(composed, reference, euler);
+                    Matrices.toCompatibleEulerZYXRadians(composed, reference, euler);
 
-                bone.transform.rotate.set(euler);
+                    bone.transform.rotate.set(euler);
+                }
             }
 
             relative.set(bone.worldOrigin).sub(this.pivot);

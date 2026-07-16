@@ -27,6 +27,7 @@ import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MatrixStackUtils;
 import mchorse.bbs_mod.utils.CollectionUtils;
 import mchorse.bbs_mod.utils.colors.Colors;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Pose;
 import mchorse.bbs_mod.utils.pose.PoseManager;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
@@ -413,7 +414,7 @@ public class UIPoseEditor extends UIElement
                     return MatrixStackUtils.stripScale(scratch);
                 });
 
-                parentInverse = RotationDragMath.computeParentInverse(rotateAxes, transform.rotate);
+                parentInverse = RotationDragMath.computeParentInverse(rotateAxes, RotationDragMath.sourceEuler(transform));
 
                 Matrix3f jacobian = GizmoDrag.computeTranslateJacobian(transform, () ->
                 {
@@ -516,7 +517,7 @@ public class UIPoseEditor extends UIElement
             {
                 t.translate.set(0F, 0F, 0F);
                 t.scale.set(1F, 1F, 1F);
-                t.rotate.set(0F, 0F, 0F);
+                t.resetRotation();
             });
             this.postCallback();
 
@@ -693,7 +694,21 @@ public class UIPoseEditor extends UIElement
 
     private static void negateRotation(Transform transform)
     {
-        transform.rotate.mul(-1F, -1F, -1F);
+        /* The invert convention is per-CHANNEL negation (not the true inverse
+         * rotation — Rz(-z)·Ry(-y)·Rx(-x) ≠ R⁻¹ on multi-axis poses), so a
+         * quaternion bone must run the same convention on its decomposed
+         * angles; quat.conjugate() would be a different involution and the
+         * inverted partners would diverge from their euler siblings. */
+        if (transform.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            Vector3f euler = Matrices.toEulerZYXRadians(transform.quat, new Vector3f());
+
+            transform.quat.set(Matrices.toQuaternionZYXRadians(-euler.x, -euler.y, -euler.z));
+        }
+        else
+        {
+            transform.rotate.mul(-1F, -1F, -1F);
+        }
     }
 
     private void applyFixToSelection(float value)

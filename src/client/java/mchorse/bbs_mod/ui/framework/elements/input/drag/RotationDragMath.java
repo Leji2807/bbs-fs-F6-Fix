@@ -57,11 +57,22 @@ public final class RotationDragMath
      */
     public static Vector3f cacheSourceEuler(DragContext ctx)
     {
-        Transform cache = ctx.cache();
+        return sourceEuler(ctx.cache());
+    }
 
-        return cache.rotationMode == Transform.RotationMode.QUATERNION
-            ? Matrices.toEulerZYXRadians(cache.quat, new Vector3f())
-            : new Vector3f(cache.rotate);
+    /**
+     * A transform's effective ZYX euler as the axis-measurement source, mode-aware:
+     * in QUATERNION mode the euler channels are stale, so this decomposes the live
+     * quaternion — the exact angles {@link GizmoDrag#computeRotateAxes} perturbs.
+     * Feeding the stale channels to {@link #computeParentInverse} instead would
+     * evaluate {@link #eulerAxes} at a different orientation than the measured
+     * {@code rotateAxes} and recover a wrong parent frame.
+     */
+    public static Vector3f sourceEuler(Transform transform)
+    {
+        return transform.rotationMode == Transform.RotationMode.QUATERNION
+            ? Matrices.toEulerZYXRadians(transform.quat, new Vector3f())
+            : new Vector3f(transform.rotate);
     }
 
     /**
