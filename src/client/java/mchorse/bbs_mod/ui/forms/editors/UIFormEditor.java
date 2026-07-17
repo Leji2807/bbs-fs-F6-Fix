@@ -976,7 +976,7 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
     {
         if (this.statesEditor.isVisible())
         {
-            return TransformSpace.LOCAL;
+            return this.statesKeyframes.getGizmoSpace();
         }
 
         if (this.isBodyPartGizmoMode())

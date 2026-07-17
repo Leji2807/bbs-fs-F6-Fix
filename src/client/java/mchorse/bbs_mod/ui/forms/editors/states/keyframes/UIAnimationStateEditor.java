@@ -34,6 +34,7 @@ import mchorse.bbs_mod.ui.utils.StencilFormFramebuffer;
 import mchorse.bbs_mod.l10n.keys.IKey;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.utils.MatrixStackUtils;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.utils.Pair;
 import mchorse.bbs_mod.utils.StringUtils;
 import mchorse.bbs_mod.utils.colors.Colors;
@@ -401,6 +402,19 @@ public class UIAnimationStateEditor extends UIElement
     }
 
     /**
+     * The space the states gizmo is drawn in — the active keyframe transform's
+     * own, exactly like the film reads it ({@code UIFilmController.getBoneSpace})
+     * and the form editor's pose panel. Hardcoding LOCAL here (as this editor
+     * did) left the gizmo drawn on the bone's axes while the drag ran in the
+     * picked space, so a GLOBAL X-drag slid along world X under an arrow
+     * pointing along the bone.
+     */
+    public TransformSpace getGizmoSpace()
+    {
+        return this.keyframeEditor == null ? TransformSpace.LOCAL : this.keyframeEditor.getBoneSpace();
+    }
+
+    /**
      * Same as {@link #getOrigin(float)} but always returns the rotation-bearing
      * matrix regardless of the keyframe's GLOBAL flag. Required for the
      * sampling-based rotation-axis helper in {@link GizmoDrag}.
@@ -426,7 +440,15 @@ public class UIAnimationStateEditor extends UIElement
 
         Form root = FormUtils.getRoot(this.editor.form);
         MatrixCache map = FormUtilsClient.getRenderer(root).collectMatrices(this.editor.renderer.getTargetEntity(), transition);
-        Matrix4f matrix = (!forceMatrix && bone.b) ? map.get(bone.a).origin() : map.get(bone.a).matrix();
+
+        /* Placement flavour, THE shared convention (film's renderAxes, the form
+         * editor's pose and body-part paths): LOCAL sits on the bone's own frame
+         * (its full matrix), every other space on the origin flavour — the frame
+         * BEFORE the bone's own rotation, i.e. the parent frame, which PARENT
+         * keeps as-is and GLOBAL/VIEW reorient away from. This editor had the two
+         * swapped, so its LOCAL gizmo drew the parent's axes. forceMatrix keeps
+         * the rotation-bearing matrix for the axis sampler regardless. */
+        Matrix4f matrix = (forceMatrix || bone.b) ? map.get(bone.a).matrix() : map.get(bone.a).origin();
 
         return matrix == null ? Matrices.EMPTY_4F : matrix;
     }
