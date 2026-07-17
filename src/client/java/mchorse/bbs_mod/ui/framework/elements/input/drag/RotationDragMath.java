@@ -178,12 +178,8 @@ public final class RotationDragMath
      * already folds in the parent and any model flips, so this recovers the
      * pure parent rotation; it is constant for the whole drag since the parent
      * doesn't move. Returns {@code null} when {@code rotateAxes} is degenerate.
-     *
-     * <p>Still used by the multi-bone pivot session, which captures per-bone
-     * {@code rotateAxes} without a live {@link DragContext}; single-bone drags
-     * use the euler-free {@link #parentInverse(DragContext, GizmoDrag)} instead.
      */
-    public static Matrix3f computeParentInverse(Matrix3f rotateAxes, Vector3f sourceRadians)
+    private static Matrix3f computeParentInverse(Matrix3f rotateAxes, Vector3f sourceRadians)
     {
         Matrix3f rotateAxesInverse = new Matrix3f(rotateAxes);
 
@@ -202,7 +198,7 @@ public final class RotationDragMath
      * but skew as the bone turns, which is exactly why the decomposition has to
      * be re-evaluated against the live pose rather than a frozen snapshot.
      */
-    public static Matrix3f eulerAxes(Vector3f rotateRadians)
+    private static Matrix3f eulerAxes(Vector3f rotateRadians)
     {
         Matrix3f axes = new Matrix3f();
 
