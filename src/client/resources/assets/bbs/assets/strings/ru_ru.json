@@ -1143,6 +1143,7 @@
 	"bbs.ui.paste": "Вставить",
 	"bbs.ui.pick": "Выбрать",
 	"bbs.ui.pose.context.apply": "Применить к дочерним элементам",
+	"bbs.ui.pose.context.color": "Цвет кости",
 	"bbs.ui.pose.context.copy": "Скопировать позу",
 	"bbs.ui.pose.context.fix": "Зафиксировать",
 	"bbs.ui.pose.context.fix-tooltip": "0 - без фиксации, 1 - с полной фиксацией",

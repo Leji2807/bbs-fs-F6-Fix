@@ -4,10 +4,11 @@ import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.ui.Keys;
 import mchorse.bbs_mod.ui.UIKeys;
+import mchorse.bbs_mod.ui.dashboard.panels.UIDashboardPanels;
+import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.UIElement;
 import mchorse.bbs_mod.ui.framework.elements.UIScrollView;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
-import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UIColor;
 import mchorse.bbs_mod.ui.framework.elements.input.UIDeltaPropTransform;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
@@ -19,6 +20,7 @@ import mchorse.bbs_mod.ui.utils.resizers.AutomaticResizer;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.ui.utils.presets.UIDataContextMenu;
 import mchorse.bbs_mod.utils.CollectionUtils;
+import mchorse.bbs_mod.utils.Direction;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Pose;
@@ -45,7 +47,9 @@ public class UIPoseEditor extends UIElement
     public UIBoneList groups;
     public UITrackpad fix;
     public UIColor color;
-    public UIToggle lighting;
+    /** Lighting on/off — an icon toggle: it carries its own state ({@link UIIcon#isActive()})
+     *  and the panel paints the selection highlight behind it in {@link #render}. */
+    public UIIcon lighting;
     public UIPropTransform transform;
 
     private String group = "";
@@ -78,8 +82,9 @@ public class UIPoseEditor extends UIElement
                 this.applyChildren((p) -> this.setFix(p, (float) this.fix.getValue()));
             });
         });
-        this.color = new UIColor((c) -> this.applyColorToSelection(c));
+        this.color = new UIColor((c) -> this.applyColorToSelection(c)).noLabel();
         this.color.withAlpha();
+        this.color.tooltip(UIKeys.POSE_CONTEXT_COLOR);
         this.color.context((menu) ->
         {
             menu.action(Icons.DOWNLOAD, UIKeys.POSE_CONTEXT_APPLY, () ->
@@ -87,13 +92,14 @@ public class UIPoseEditor extends UIElement
                 this.applyChildren((p) -> this.setColor(p, this.color.picker.color.getARGBColor()));
             });
         });
-        this.lighting = new UIToggle(UIKeys.FORMS_EDITORS_GENERAL_LIGHTING, (b) -> this.applyLightingToSelection(b.getValue()));
-        this.lighting.h(UIConstants.CONTROL_HEIGHT);
+        this.lighting = new UIIcon(Icons.LIGHT, (b) -> this.applyLightingToSelection(!this.lighting.isActive()));
+        this.lighting.wh(UIConstants.CONTROL_HEIGHT, UIConstants.CONTROL_HEIGHT);
+        this.lighting.tooltip(UIKeys.FORMS_EDITORS_GENERAL_LIGHTING);
         this.lighting.context((menu) ->
         {
             menu.action(Icons.DOWNLOAD, UIKeys.POSE_CONTEXT_APPLY, () ->
             {
-                this.applyChildren((p) -> this.setLighting(p, this.lighting.getValue()));
+                this.applyChildren((p) -> this.setLighting(p, this.lighting.isActive()));
             });
         });
         this.transform = this.createTransformEditor();
@@ -102,7 +108,10 @@ public class UIPoseEditor extends UIElement
         this.keys().register(Keys.TRANSFORMATIONS_TOGGLE_FIX, this::toggleFix).category(UIKeys.TRANSFORMS_KEYS_CATEGORY);
 
         this.column().vertical().stretch();
-        this.add(this.groups, UI.labelRow(UIKeys.POSE_CONTEXT_FIX, this.fix), UI.row(this.lighting, this.color), this.transform.marginTop(4));
+        /* Fix, colour and lighting share one row: each names itself by tooltip
+         * rather than a label, so the three fit on a line and the bone list
+         * above them keeps the height the labels used to eat. */
+        this.add(this.groups, UI.row(2, 0, UIConstants.CONTROL_HEIGHT, this.fix, this.color, this.lighting), this.transform.marginTop(4));
     }
 
     @Override
@@ -114,6 +123,20 @@ public class UIPoseEditor extends UIElement
         }
 
         super.resize();
+    }
+
+    @Override
+    public void render(UIContext context)
+    {
+        /* Lighting is on: paint the same selection highlight the transform
+         * panel's rotation-mode toggle uses, so an icon that carries state
+         * reads as pressed rather than as a plain button. */
+        if (this.lighting.isActive())
+        {
+            UIDashboardPanels.renderHighlight(context.batcher, this.lighting.area, Direction.LEFT);
+        }
+
+        super.render(context);
     }
 
     /**
@@ -411,7 +434,7 @@ public class UIPoseEditor extends UIElement
             lastLimb = "";
             this.fix.setValue(0F);
             this.color.setColor(Colors.WHITE);
-            this.lighting.setValue(false);
+            this.lighting.active(false);
             this.transform.setTransform(null);
 
             return;
@@ -425,7 +448,7 @@ public class UIPoseEditor extends UIElement
 
         this.fix.setValue(poseTransform.fix);
         this.color.setColor(poseTransform.color.getARGBColor());
-        this.lighting.setValue(poseTransform.lighting == 0F);
+        this.lighting.active(poseTransform.lighting == 0F);
         this.transform.setTransform(poseTransform);
     }
 
@@ -593,7 +616,7 @@ public class UIPoseEditor extends UIElement
     private void applyLightingToSelection(boolean value)
     {
         this.forEachSelectedPose((pt) -> this.setLighting(pt, value));
-        this.lighting.setValue(value);
+        this.lighting.active(value);
     }
 
     private void toggleFix()
