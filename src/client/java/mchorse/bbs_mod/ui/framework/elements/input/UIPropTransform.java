@@ -774,19 +774,14 @@ public class UIPropTransform extends UITransform
         GizmoDrag drag = this.getHotkeyDrag();
         boolean ray = BBSSettings.transformHotkeys3dRay.get() && drag != null;
 
-        /* The scale key defaults to a uniform three-axis scale (Blender-style);
-         * X/Y/Z then constrain it to one axis via setEditingAxis. */
-        if (op == TransformOp.SCALE)
-        {
-            this.enableUniformScale(drag, true);
-
-            return;
-        }
-
         /* G/S/R walk their handles in the user-configured order (the
          * *_hotkey_order settings), wrapping past the end back to the first
          * step. Steps whose handle is unavailable drop out: the ray-driven
-         * ones without a rendered gizmo, the sphere when it's turned off. */
+         * ones without a rendered gizmo, the sphere when it's turned off.
+         * Scale's uniform three-axis lever is a step of that walk like any
+         * other (Blender's plain S, first in the default order) — it used to
+         * short-circuit the whole method, which left every repeat press of S
+         * restarting it and the scale order setting driving nothing. */
         HotkeyTarget target = this.nextHotkeyTarget(op, ray);
 
         if (target == HotkeyTarget.VIEW)
@@ -800,6 +795,10 @@ public class UIPropTransform extends UITransform
         else if (target == HotkeyTarget.SCREEN)
         {
             this.enableScreenTranslate(drag, true);
+        }
+        else if (target == HotkeyTarget.ALL)
+        {
+            this.enableUniformScale(drag, true);
         }
         else
         {
@@ -818,6 +817,10 @@ public class UIPropTransform extends UITransform
         if (this.isViewRotate()) return HotkeyTarget.VIEW;
         if (this.isSphereRotate()) return HotkeyTarget.SPHERE;
         if (this.isScreenTranslate()) return HotkeyTarget.SCREEN;
+        /* Before the axis checks: the uniform lever parks on Axis.X, so reading
+         * the axis alone would report it as the X step and the walk would skip
+         * straight past X on the next press. */
+        if (this.isScaleAll()) return HotkeyTarget.ALL;
         if (this.axis == Axis.Y) return HotkeyTarget.Y;
         if (this.axis == Axis.Z) return HotkeyTarget.Z;
 
@@ -1688,6 +1691,8 @@ public class UIPropTransform extends UITransform
         VIEW("view", null, true),
         SPHERE("sphere", null, true),
         SCREEN("screen", null, true),
+        /** Scale's non-axis step: one lever drives all three axes (Blender's plain S). */
+        ALL("all", null, false),
         X("x", Axis.X, false),
         Y("y", Axis.Y, false),
         Z("z", Axis.Z, false);

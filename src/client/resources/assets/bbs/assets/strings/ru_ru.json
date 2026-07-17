@@ -1523,6 +1523,7 @@
 	"bbs.ui.transforms.space.wip": "%s (пока не реализовано)",
 	"bbs.ui.transforms.rotation.quaternion": "Кватернион",
 	"bbs.ui.transforms.rotation.mode_tooltip": "Хранение вращения (клик — переключить Эйлер / Кватернион).\n\nКватернион без gimbal lock; Эйлер сохраняет обороты >360° и покомпонентные кривые.",
+	"bbs.ui.transforms.target.all": "Все оси",
 	"bbs.ui.transforms.target.screen": "Экран",
 	"bbs.ui.transforms.target.sphere": "Сфера",
 	"bbs.ui.transforms.target.view": "Взгляд",

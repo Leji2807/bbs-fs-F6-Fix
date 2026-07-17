@@ -1201,6 +1201,7 @@ public class UIKeys
     public static final IKey TRANSFORMS_ROTATION_QUATERNION = L10n.lang("bbs.ui.transforms.rotation.quaternion");
     public static final IKey TRANSFORMS_ROTATION_MODE_TOOLTIP = L10n.lang("bbs.ui.transforms.rotation.mode_tooltip");
     public static final IKey TRANSFORMS_CONTEXT_SWITCH_VIEW = L10n.lang("bbs.ui.transforms.context.switch_view");
+    public static final IKey TRANSFORMS_TARGET_ALL = L10n.lang("bbs.ui.transforms.target.all");
     public static final IKey TRANSFORMS_TARGET_SCREEN = L10n.lang("bbs.ui.transforms.target.screen");
     public static final IKey TRANSFORMS_TARGET_SPHERE = L10n.lang("bbs.ui.transforms.target.sphere");
     public static final IKey TRANSFORMS_TARGET_VIEW = L10n.lang("bbs.ui.transforms.target.view");

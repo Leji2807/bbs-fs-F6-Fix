@@ -238,6 +238,18 @@ public class UITrackpad extends UIBaseTextbox
         return this.increment(1 / 16D).values(1 / 32D, 1 / 128D, 1 / 2D);
     }
 
+    /**
+     * Steps for a multiplier that lives around 1 (a scale). Without a preset
+     * these fields fall back to the generic default, which is tuned for
+     * whole-number values and moves a scale about eight times faster than the
+     * same drag moves a translate — both in the field itself and in the
+     * hotkey lever that borrows the field's step ({@code additiveFactor}).
+     */
+    public UITrackpad factor()
+    {
+        return this.increment(0.1D).values(0.01D, 0.002D, 0.05D);
+    }
+
     public UITrackpad metric()
     {
         return this.values(0.1D, 0.01D, 1);

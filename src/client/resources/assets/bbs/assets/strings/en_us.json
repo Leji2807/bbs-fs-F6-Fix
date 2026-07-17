@@ -1536,6 +1536,7 @@
 	"bbs.ui.transforms.space.wip": "%s (not implemented yet)",
 	"bbs.ui.transforms.rotation.quaternion": "Quaternion",
 	"bbs.ui.transforms.rotation.mode_tooltip": "Rotation storage (click to toggle Euler / Quaternion).\n\nQuaternion is gimbal-free; Euler keeps >360° spins and per-component curves.",
+	"bbs.ui.transforms.target.all": "All axes",
 	"bbs.ui.transforms.target.screen": "Screen",
 	"bbs.ui.transforms.target.sphere": "Sphere",
 	"bbs.ui.transforms.target.view": "View",
