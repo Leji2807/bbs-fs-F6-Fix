@@ -171,9 +171,24 @@ public class Matrices
     /** See {@link #toCompatibleEulerZYXRadians(Quaternionf, Vector3f, Vector3f)}; from a rotation matrix. */
     public static Vector3f toCompatibleEulerZYXRadians(Matrix3f rotation, Vector3f referenceRadians, Vector3f dest)
     {
-        Vector3f raw = eulerZYXRaw(rotation, referenceRadians, new Vector3f());
+        return toCompatibleEulerZYXRadians(rotation, referenceRadians, referenceRadians, dest);
+    }
 
-        return compatibleEulerZYX(raw, referenceRadians, dest);
+    /**
+     * The readback with the branch and the winding anchored separately — see
+     * {@link #compatibleEulerZYX(Vector3f, Vector3f, Vector3f, Vector3f)} for
+     * why those are different questions. {@code branchReferenceRadians} decides
+     * which of the two euler families the result belongs to (a grab-fixed anchor
+     * lets a gesture self-recover past the pole); {@code windingReferenceRadians}
+     * decides the whole turns on top of it (the previous value is the only thing
+     * that knows how far it has wound). Same reference twice = the single-anchor
+     * flavour above.
+     */
+    public static Vector3f toCompatibleEulerZYXRadians(Matrix3f rotation, Vector3f branchReferenceRadians, Vector3f windingReferenceRadians, Vector3f dest)
+    {
+        Vector3f raw = eulerZYXRaw(rotation, branchReferenceRadians, new Vector3f());
+
+        return compatibleEulerZYX(raw, branchReferenceRadians, windingReferenceRadians, dest);
     }
 
     /** See {@link #toCompatibleEulerZYXRadians(Quaternionf, Vector3f, Vector3f)}; angles in degrees. */
@@ -245,20 +260,56 @@ public class Matrices
      */
     private static Vector3f compatibleEulerZYX(Vector3f raw, Vector3f reference, Vector3f dest)
     {
+        return compatibleEulerZYX(raw, reference, reference, dest);
+    }
+
+    /**
+     * The readback with its two anchors separated — they answer different
+     * questions and a caller may want them anchored differently:
+     *
+     * <ul>
+     * <li>{@code branchReference} picks the FAMILY: the principal solution or
+     * its flip {@code (x+π, π−y, z+π)}. This is what strands near the pole —
+     * a path passing beside that branch point flows onto the flipped family and
+     * a live anchor keeps it there for good, so an anchor fixed at the grab is
+     * what lets a gesture self-recover.</li>
+     * <li>{@code windingReference} picks the WHOLE TURNS added to the chosen
+     * family. This is what makes a value continue past ±180° instead of folding
+     * back; only the previous value can tell how far it has already wound.</li>
+     * </ul>
+     *
+     * <p>Passing one reference for both is the classic behaviour and stays
+     * exactly what it was. Splitting them is not a compromise between the two
+     * properties — the family and the turn count are independent, so a caller
+     * can have a grab-stable branch AND a continuously winding value.
+     */
+    private static Vector3f compatibleEulerZYX(Vector3f raw, Vector3f branchReference, Vector3f windingReference, Vector3f dest)
+    {
         float halfTurn = (float) Math.PI;
         float fullTurn = halfTurn * 2F;
 
-        float ax = unwrapNear(raw.x, reference.x, fullTurn);
-        float ay = unwrapNear(raw.y, reference.y, fullTurn);
-        float az = unwrapNear(raw.z, reference.z, fullTurn);
+        float ax = unwrapNear(raw.x, branchReference.x, fullTurn);
+        float ay = unwrapNear(raw.y, branchReference.y, fullTurn);
+        float az = unwrapNear(raw.z, branchReference.z, fullTurn);
 
-        float bx = unwrapNear(raw.x + halfTurn, reference.x, fullTurn);
-        float by = unwrapNear(halfTurn - raw.y, reference.y, fullTurn);
-        float bz = unwrapNear(raw.z + halfTurn, reference.z, fullTurn);
+        float bx = unwrapNear(raw.x + halfTurn, branchReference.x, fullTurn);
+        float by = unwrapNear(halfTurn - raw.y, branchReference.y, fullTurn);
+        float bz = unwrapNear(raw.z + halfTurn, branchReference.z, fullTurn);
 
-        boolean flip = offsetL1(bx, by, bz, reference) < offsetL1(ax, ay, az, reference);
+        boolean flip = offsetL1(bx, by, bz, branchReference) < offsetL1(ax, ay, az, branchReference);
 
-        return flip ? dest.set(bx, by, bz) : dest.set(ax, ay, az);
+        /* Re-wind the chosen family from its raw angles: the branch pick above
+         * already spent its unwrap on the branch anchor, and the turn count has
+         * to come from the winding anchor instead. */
+        float x = flip ? raw.x + halfTurn : raw.x;
+        float y = flip ? halfTurn - raw.y : raw.y;
+        float z = flip ? raw.z + halfTurn : raw.z;
+
+        return dest.set(
+            unwrapNear(x, windingReference.x, fullTurn),
+            unwrapNear(y, windingReference.y, fullTurn),
+            unwrapNear(z, windingReference.z, fullTurn)
+        );
     }
 
     /** {@code value} shifted by whole {@code period}s to sit nearest {@code reference}. */

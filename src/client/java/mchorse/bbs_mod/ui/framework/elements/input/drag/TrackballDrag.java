@@ -125,10 +125,10 @@ public class TrackballDrag extends SphereDrag
             .rotate(yaw, this.upLocal.x, this.upLocal.y, this.upLocal.z)
             .rotate(pitch, this.rightLocal.x, this.rightLocal.y, this.rightLocal.z);
 
-        /* Reference = the grab euler, NOT the live channels: the write stays a
-         * pure function of the gesture, so a near-pole passage self-recovers to
-         * the branch nearest the grab instead of stranding X/Z at ±180 (see
-         * RotationDragMath.writeCompatibleEuler). */
+        /* Branch anchored to the grab euler, so a near-pole passage self-recovers
+         * instead of stranding X/Z at ±180; the winding follows the live channels
+         * on its own, so the spin keeps counting past half a turn (see
+         * RotationDragMath.applyLocalDelta). */
         RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, source, source);
     }
 

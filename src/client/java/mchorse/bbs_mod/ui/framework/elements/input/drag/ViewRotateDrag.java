@@ -19,9 +19,10 @@ import org.joml.Vector3f;
  * (the cache) plus the total swept angle about the view axis anchored at
  * grab time — a pure function of the gesture, never of the previous frame's
  * euler readback. The euler angles are read out once per frame in the one
- * shared place ({@link RotationDragMath#writeCompatibleEuler}), anchored to
- * the GRAB euler so the written channels are a pure function of the gesture
- * too — a pole passage self-recovers instead of stranding X/Z at ±180.
+ * shared place ({@link RotationDragMath#applyLocalDelta}), with its euler
+ * family anchored to the GRAB — a pole passage self-recovers instead of
+ * stranding X/Z at ±180 — while the winding keeps counting from the live
+ * channels, so a sweep past half a turn stays a growing number.
  */
 public class ViewRotateDrag extends DragStrategy
 {
@@ -163,8 +164,8 @@ public class ViewRotateDrag extends DragStrategy
 
         Matrix3f deltaLocal = new Matrix3f().rotation(MathUtils.toRad(this.accumulatedDeg), this.viewLocalAxis);
 
-        /* Grab-anchored readback — free rotation self-recovers through the
-         * euler pole instead of stranding X/Z at ±180 (see writeCompatibleEuler). */
+        /* Grab-anchored branch — free rotation self-recovers through the euler
+         * pole instead of stranding X/Z at ±180 (see applyLocalDelta). */
         RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, base, base);
     }
 

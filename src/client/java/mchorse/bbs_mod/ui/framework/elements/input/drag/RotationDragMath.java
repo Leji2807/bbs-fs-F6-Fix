@@ -113,55 +113,35 @@ public final class RotationDragMath
     }
 
     /**
-     * Decompose {@code rotation} to ZYX euler and write it into the transform's
-     * rotate channel as the representation nearest {@code referenceRadians}
-     * (branch and winding), via {@link Matrices#toCompatibleEulerZYXRadians}.
-     *
-     * <p>The choice of reference is the whole game here — the euler map has a
-     * BRANCH POINT at the middle-angle pole (y = ±90°), so a drag path passing
-     * near the pole continuously flows onto the flipped branch
-     * {@code (x±180, 180−y, z±180)}; no unwrap can prevent that, only the anchor
-     * decides where the values settle:
-     *
-     * <ul>
-     * <li><b>The GRAB euler</b> (the same base the delta composes onto) makes the
-     * written channels a pure function of the gesture: a near-pole passage shows
-     * a brief large-X/Z transient (those orientations genuinely have no
-     * small-X/Z representation) but self-recovers to the branch nearest the
-     * grab once past — a clean Y-sweep ends as {@code (small, y, small)}, and a
-     * pre-existing wound pose (y=720°) keeps its winding since the anchor
-     * carries it. Free rotations (trackball/arcball/view) use this.</li>
-     * <li><b>The LIVE channels</b> (previous frame's write) follow strict
-     * continuity, which accumulates winding across full turns — but a near-pole
-     * passage then STRANDS the values on the far branch (X/Z parked at ±180,
-     * y folding back) for the rest of the gesture. Only the ring uses this,
-     * where multi-turn winding is the feature and the axis is fixed (an
-     * axis-aligned corridor crosses poles cleanly; see the ring).</li>
-     * </ul>
-     */
-    public static void writeCompatibleEuler(DragContext ctx, Matrix3f rotation, Vector3f referenceRadians)
-    {
-        Vector3f euler = Matrices.toCompatibleEulerZYXRadians(rotation, referenceRadians, new Vector3f());
-
-        ctx.writeRotateDeg(MathUtils.toDeg(euler.x), MathUtils.toDeg(euler.y), MathUtils.toDeg(euler.z));
-    }
-
-    /**
      * Compose a parent-frame delta rotation onto the grab base and write it per
      * the edited transform's mode. In QUATERNION mode the composed rotation is
      * stored as a quaternion straight from the delta — no euler decomposition,
-     * so the drag never hits gimbal lock. In EULER mode it decomposes ZYX to the
-     * representation nearest {@code referenceEuler}.
+     * so the drag never hits gimbal lock, and winding is meaningless there. In
+     * EULER mode it decomposes ZYX with the two readback anchors held apart:
      *
-     * @param deltaLocal     the delta rotation in the bone's parent frame (a pure
+     * <ul>
+     * <li>The WINDING always follows the LIVE channels. Continuity is not a
+     * preference — a value can only know how far it has already wound from
+     * itself, so anchoring it to the grab capped every gesture at half a turn:
+     * a trackball spin past 180° kept turning the bone but wrote the angle
+     * folded back (185° stored as −175°), which is the same orientation but the
+     * wrong number to keyframe.</li>
+     * <li>The BRANCH follows {@code branchEuler} — the GRAB euler for the free
+     * rotations, so a near-pole passage self-recovers instead of stranding the
+     * outer angles at ±180 for the rest of the gesture; the LIVE channels for
+     * the ring, whose fixed axis crosses poles cleanly.</li>
+     * </ul>
+     *
+     * <p>These two used to share one anchor, which forced a choice between
+     * winding and pole-recovery. They are independent questions, so nothing is
+     * traded by answering them separately.
+     *
+     * @param deltaLocal  the delta rotation in the bone's parent frame (a pure
      *        rotation matrix); left untouched.
-     * @param baseEuler      the grab euler stack the euler path composes onto.
-     * @param referenceEuler the euler anchor of the readback — the GRAB euler for
-     *        the free rotations (path-independent, self-recovering through the
-     *        pole), the LIVE channels for the winding ring; the trade-off is on
-     *        {@link #writeCompatibleEuler}.
+     * @param baseEuler   the grab euler stack the euler path composes onto.
+     * @param branchEuler the euler family anchor (see above).
      */
-    public static void applyLocalDelta(DragContext ctx, Matrix3f deltaLocal, Vector3f baseEuler, Vector3f referenceEuler)
+    public static void applyLocalDelta(DragContext ctx, Matrix3f deltaLocal, Vector3f baseEuler, Vector3f branchEuler)
     {
         if (ctx.transform().rotationMode == Transform.RotationMode.QUATERNION)
         {
@@ -173,17 +153,19 @@ public final class RotationDragMath
         }
 
         /* An additive layer (pose overlay) renders as ZYX(add + channels), so the
-         * delta must compose onto — and the continuity anchor sit at — the
-         * EFFECTIVE angles; the written channels then shed the base again
+         * delta must compose onto — and both anchors sit at — the EFFECTIVE
+         * angles; the written channels then shed the base again
          * (channels' = total − add). Zero base collapses to the classic math. */
         GizmoDrag drag = ctx.drag();
         Vector3f add = drag == null ? new Vector3f() : drag.additiveRotationBase;
         Vector3f effectiveBase = new Vector3f(baseEuler).add(add);
-        Vector3f effectiveReference = new Vector3f(referenceEuler).add(add);
+        Vector3f effectiveBranch = new Vector3f(branchEuler).add(add);
+        Vector3f effectiveWinding = new Vector3f(ctx.transform().rotate).add(add);
 
         Vector3f euler = Matrices.toCompatibleEulerZYXRadians(
             new Matrix3f(deltaLocal).mul(eulerZYX(effectiveBase)),
-            effectiveReference,
+            effectiveBranch,
+            effectiveWinding,
             new Vector3f()
         ).sub(add);
 

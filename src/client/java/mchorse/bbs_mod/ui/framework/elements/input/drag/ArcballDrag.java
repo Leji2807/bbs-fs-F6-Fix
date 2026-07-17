@@ -194,8 +194,8 @@ public class ArcballDrag extends SphereDrag
             .rotation(MathUtils.toRad(this.rollDeg), this.viewLocal)
             .rotate(arc);
 
-        /* Grab-anchored readback — free rotation self-recovers through the
-         * euler pole instead of stranding X/Z at ±180 (see writeCompatibleEuler). */
+        /* Grab-anchored branch — free rotation self-recovers through the euler
+         * pole instead of stranding X/Z at ±180 (see applyLocalDelta). */
         RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, source, source);
     }
 }
