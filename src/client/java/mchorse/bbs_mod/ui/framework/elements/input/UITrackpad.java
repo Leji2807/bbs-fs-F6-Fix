@@ -244,10 +244,12 @@ public class UITrackpad extends UIBaseTextbox
      * whole-number values and moves a scale about eight times faster than the
      * same drag moves a translate — both in the field itself and in the
      * hotkey lever that borrows the field's step ({@code additiveFactor}).
+     * Landed between the two: a hair over the translate step, since a scale
+     * covers its useful range in far less travel than a position does.
      */
     public UITrackpad factor()
     {
-        return this.increment(0.1D).values(0.01D, 0.002D, 0.05D);
+        return this.increment(0.25D).values(0.05D, 0.01D, 0.25D);
     }
 
     public UITrackpad metric()
