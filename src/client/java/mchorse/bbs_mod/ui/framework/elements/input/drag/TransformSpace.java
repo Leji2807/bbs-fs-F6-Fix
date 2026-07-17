@@ -1,5 +1,7 @@
 package mchorse.bbs_mod.ui.framework.elements.input.drag;
 
+import java.util.List;
+
 /**
  * The reference frame a gizmo edit operates in &mdash; Blender's transform
  * orientation, reduced to the frames that make sense for a per-bone editor.
@@ -45,24 +47,18 @@ public enum TransformSpace
         this.implemented = implemented;
     }
 
+    /**
+     * The order the picker lists the frames in: {@link #PARENT} leads (it is the
+     * default, and the frame the channels natively compose in), then the rest.
+     * Deliberately NOT the enum's own order — {@code BBSSettings.transformSpace}
+     * persists the ordinal, so reordering the constants would silently remap
+     * everyone's stored choice.
+     */
+    public static final List<TransformSpace> DISPLAY_ORDER = List.of(PARENT, LOCAL, GLOBAL, VIEW);
+
     /** Whether this is the local frame; the single distinction older consumers make. */
     public boolean isLocal()
     {
         return this == LOCAL;
-    }
-
-    /** The next selectable frame in the cycle, skipping any that aren't implemented yet. */
-    public TransformSpace next()
-    {
-        TransformSpace[] values = values();
-        TransformSpace next = this;
-
-        do
-        {
-            next = values[(next.ordinal() + 1) % values.length];
-        }
-        while (!next.implemented && next != this);
-
-        return next;
     }
 }

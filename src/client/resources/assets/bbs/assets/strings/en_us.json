@@ -1512,7 +1512,7 @@
 	"bbs.ui.transforms.context.mode_euler": "Rotation: switch to Euler",
 	"bbs.ui.transforms.context.mode_quaternion": "Rotation: switch to Quaternion",
 	"bbs.ui.transforms.context.switch_global": "Switch to global",
-	"bbs.ui.transforms.context.switch_local": "Switch to local",
+	"bbs.ui.transforms.space.open": "Open space list",
 	"bbs.ui.transforms.context.switch_view": "Switch to view",
 	"bbs.ui.transforms.combined": "Combined",
 	"bbs.ui.transforms.editing": "Editing...",

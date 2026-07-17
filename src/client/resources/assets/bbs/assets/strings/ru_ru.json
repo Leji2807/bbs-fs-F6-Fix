@@ -1499,7 +1499,7 @@
 	"bbs.ui.transforms.context.mode_euler": "Поворот: переключить на Эйлер",
 	"bbs.ui.transforms.context.mode_quaternion": "Поворот: переключить на Кватернион",
 	"bbs.ui.transforms.context.switch_global": "Переключить глобальный режим",
-	"bbs.ui.transforms.context.switch_local": "Переключить локальный режим",
+	"bbs.ui.transforms.space.open": "Открыть список пространств",
 	"bbs.ui.transforms.context.switch_view": "Переключить режим вида",
 	"bbs.ui.transforms.combined": "Совмещённый",
 	"bbs.ui.transforms.editing": "Редактируется...",

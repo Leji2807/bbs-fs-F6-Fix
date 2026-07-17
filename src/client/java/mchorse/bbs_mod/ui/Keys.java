@@ -127,7 +127,11 @@ public class Keys
     public static final KeyCombo TRANSFORMATIONS_Z = new KeyCombo("z", UIKeys.GENERAL_Z, GLFW.GLFW_KEY_Z).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_TOGGLE_AXES = new KeyCombo("toggle_axes", UIKeys.TRANSFORMS_KEYS_TOGGLE_AXES, GLFW.GLFW_KEY_F8).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_HIDE_GIZMO = new KeyCombo("hide_gizmo", UIKeys.TRANSFORMS_KEYS_HIDE_GIZMO, GLFW.GLFW_KEY_LEFT_ALT).categoryKey("transformations");
-    public static final KeyCombo TRANSFORMATIONS_TOGGLE_LOCAL = new KeyCombo("toggle_local", UIKeys.TRANSFORMS_CONTEXT_SWITCH_LOCAL, GLFW.GLFW_KEY_Q).categoryKey("transformations");
+    /* The combo id is the settings key a custom binding is stored under, so it stays
+     * "toggle_local" — the name this key had when it toggled the local flag — even
+     * though it now opens the space list. Renaming it would silently reset everyone's
+     * rebound key to the default. */
+    public static final KeyCombo TRANSFORMATIONS_SPACE_MENU = new KeyCombo("toggle_local", UIKeys.TRANSFORMS_SPACE_OPEN, GLFW.GLFW_KEY_Q).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_PIVOT_MODE = new KeyCombo("pivot_mode", UIKeys.TRANSFORMS_KEYS_PIVOT_MODE, GLFW.GLFW_KEY_PERIOD).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_ROTATION_MODE = new KeyCombo("rotation_mode", UIKeys.TRANSFORMS_KEYS_ROTATION_MODE, GLFW.GLFW_KEY_Q, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_TOGGLE_FIX = new KeyCombo("toggle_fix", UIKeys.TRANSFORMS_KEYS_TOGGLE_FIX, GLFW.GLFW_KEY_Y).categoryKey("transformations");

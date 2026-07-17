@@ -361,12 +361,6 @@ public class UIPropTransform extends UITransform
         return space;
     }
 
-    /** Hotkey cycle: step to the next implemented space. */
-    private void cycleSpace()
-    {
-        this.selectSpace(this.space.next());
-    }
-
     /** Switch to a specific frame (dropdown pick / hotkey) and remember it globally. */
     private void selectSpace(TransformSpace space)
     {
@@ -380,8 +374,14 @@ public class UIPropTransform extends UITransform
         this.updateSpaceLabel();
     }
 
-    /** Open the clip-style space list: each implemented frame with its icon and colour
-     *  (a not-yet-implemented frame would show greyed out and inert). */
+    /**
+     * Open the clip-style space list: each implemented frame with its icon and
+     * colour (a not-yet-implemented frame would show greyed out and inert), in
+     * the picker's own order ({@link TransformSpace#DISPLAY_ORDER}, PARENT
+     * first). The list is auto-keyed, so the hotkey that opens it at the cursor
+     * turns picking a frame into a two-stroke gesture (open, then press the
+     * frame's number).
+     */
     private void openSpaceMenu()
     {
         UIContext context = this.getContext();
@@ -393,7 +393,9 @@ public class UIPropTransform extends UITransform
 
         context.replaceContextMenu((menu) ->
         {
-            for (TransformSpace space : TransformSpace.values())
+            menu.autoKeys();
+
+            for (TransformSpace space : TransformSpace.DISPLAY_ORDER)
             {
                 if (space.implemented)
                 {
@@ -494,11 +496,7 @@ public class UIPropTransform extends UITransform
         this.keys().register(Keys.TRANSFORMATIONS_X, () -> this.setEditingAxis(Axis.X)).active(active).category(category);
         this.keys().register(Keys.TRANSFORMATIONS_Y, () -> this.setEditingAxis(Axis.Y)).active(active).category(category);
         this.keys().register(Keys.TRANSFORMATIONS_Z, () -> this.setEditingAxis(Axis.Z)).active(active).category(category);
-        this.keys().register(Keys.TRANSFORMATIONS_TOGGLE_LOCAL, () ->
-        {
-            this.cycleSpace();
-            UIUtils.playClick();
-        }).active(enabled).category(category);
+        this.keys().register(Keys.TRANSFORMATIONS_SPACE_MENU, this::openSpaceMenu).active(enabled).category(category);
         this.keys().register(Keys.TRANSFORMATIONS_ROTATION_MODE, this::toggleRotationMode).active(enabled).category(category);
 
         if (this.supportsPivotModes())
