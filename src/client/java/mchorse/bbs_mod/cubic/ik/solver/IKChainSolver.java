@@ -199,7 +199,7 @@ public final class IKChainSolver
         {
             for (int c = 0; c < 3; c++)
             {
-                if (!joint.locked[c] && joint.weight(c) > 0F)
+                if (movableWeight(joint, c) > 0F)
                 {
                     columns++;
                 }
@@ -215,14 +215,12 @@ public final class IKChainSolver
         IKJoint[] joints = chain.joints;
         int n = joints.length;
         Vector3f error = new Vector3f(goal).sub(chain.effector);
+        float errorBefore = error.length();
 
-        /* Weighted Jacobian columns (w · axis × (effector − pivot)), and
-         * A = J·Jᵀ + λ²I accumulated from them (3×3, symmetric). */
+        /* Weighted Jacobian columns (w · axis × (effector − pivot)). A channel
+         * pinned by its limits (min == max) can never move — it never enters. */
         float[] columns = new float[n * 9];
-        float a00 = lambdaSq, a01 = 0F, a02 = 0F;
-        float a11 = lambdaSq, a12 = 0F;
-        float a22 = lambdaSq;
-
+        boolean[] frozen = new boolean[n * 3];
         Vector3f axis = new Vector3f();
 
         for (int i = 0; i < n; i++)
@@ -231,10 +229,11 @@ public final class IKChainSolver
 
             for (int c = 0; c < 3; c++)
             {
-                float w = joint.locked[c] ? 0F : joint.weight(c);
+                float w = movableWeight(joint, c);
 
                 if (w <= 0F)
                 {
+                    frozen[i * 3 + c] = true;
                     continue;
                 }
 
@@ -249,26 +248,160 @@ public final class IKChainSolver
                 columns[at] = column.x;
                 columns[at + 1] = column.y;
                 columns[at + 2] = column.z;
-
-                a00 += column.x * column.x;
-                a01 += column.x * column.y;
-                a02 += column.x * column.z;
-                a11 += column.y * column.y;
-                a12 += column.y * column.z;
-                a22 += column.z * column.z;
             }
+        }
+
+        float[] saved = new float[n * 3];
+
+        for (int i = 0; i < n; i++)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                saved[i * 3 + c] = IKJoint.get(joints[i].angles, c);
+            }
+        }
+
+        /* Phase 1: the full damped Gauss-Newton step. */
+        float[] deltas = solveDeltas(chain, columns, frozen, error, lambdaSq);
+
+        if (deltas == null)
+        {
+            return false;
+        }
+
+        float largest = applyDeltas(chain, deltas, 1F);
+
+        chain.forward();
+
+        if (chain.effector.distance(goal) <= errorBefore)
+        {
+            return largest > STALL_STEP;
+        }
+
+        /* Phase 2 (active set): when the limit clamp CUT part of that step, what
+         * was applied is no longer a descent direction — the free channels moved
+         * by amounts agreed with motion the clamp then denied. Freeze the cut
+         * channels and re-solve: the step redistributes over what can actually
+         * move and descends again, which is how a limited elbow hands the rest
+         * of the reach to the free joints instead of stalling the whole solve. */
+        boolean cut = false;
+
+        for (int i = 0; i < n; i++)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                int at = i * 3 + c;
+
+                if (!frozen[at] && deltas[at] != 0F && Math.abs(IKJoint.get(joints[i].angles, c) - (saved[at] + deltas[at])) > 1.0e-7f)
+                {
+                    frozen[at] = true;
+                    cut = true;
+                }
+            }
+        }
+
+        restoreAngles(chain, saved);
+
+        if (cut)
+        {
+            deltas = solveDeltas(chain, columns, frozen, error, lambdaSq);
+
+            if (deltas != null)
+            {
+                largest = applyDeltas(chain, deltas, 1F);
+                chain.forward();
+
+                if (chain.effector.distance(goal) <= errorBefore)
+                {
+                    return largest > STALL_STEP;
+                }
+
+                restoreAngles(chain, saved);
+            }
+        }
+
+        /* Phase 3 (backtracking): the step overshot — near-degenerate goals make
+         * a damped step OSCILLATE, and running out of iterations mid-oscillation
+         * hands each frame a random phase of it (the chain twitches while the
+         * target barely moves). Retry at half scale a few times; if even the
+         * smallest scale is worse, this is the local best — restore and stop.
+         * Error is monotonically non-increasing, frames stay steady. */
+        if (deltas != null)
+        {
+            float scale = 0.5F;
+
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                largest = applyDeltas(chain, deltas, scale);
+                chain.forward();
+
+                if (chain.effector.distance(goal) <= errorBefore)
+                {
+                    return largest > STALL_STEP;
+                }
+
+                restoreAngles(chain, saved);
+                scale *= 0.5F;
+            }
+        }
+
+        chain.forward();
+
+        return false;
+    }
+
+    /** How much this channel may move at all: 0 when locked, weightless, or pinned by min == max limits. */
+    private static float movableWeight(IKJoint joint, int axis)
+    {
+        if (joint.locked[axis] || (joint.limited[axis] && joint.limitMin[axis] >= joint.limitMax[axis]))
+        {
+            return 0F;
+        }
+
+        return joint.weight(axis);
+    }
+
+    /**
+     * Solves the damped normal equations over the unfrozen columns and returns
+     * the per-channel deltas {@code W·Jᵀ·y} (the second W of {@code W²·Ĵᵀ·y} —
+     * the first is inside the stored columns), clamped to {@link #MAX_STEP};
+     * {@code null} when the system is singular.
+     */
+    private static float[] solveDeltas(IKChain chain, float[] columns, boolean[] frozen, Vector3f error, float lambdaSq)
+    {
+        IKJoint[] joints = chain.joints;
+        int n = joints.length;
+        float a00 = lambdaSq, a01 = 0F, a02 = 0F;
+        float a11 = lambdaSq, a12 = 0F;
+        float a22 = lambdaSq;
+
+        for (int at = 0; at < n * 3; at++)
+        {
+            if (frozen[at])
+            {
+                continue;
+            }
+
+            float x = columns[at * 3];
+            float y = columns[at * 3 + 1];
+            float z = columns[at * 3 + 2];
+
+            a00 += x * x;
+            a01 += x * y;
+            a02 += x * z;
+            a11 += y * y;
+            a12 += y * z;
+            a22 += z * z;
         }
 
         Vector3f y = solveSymmetric3(a00, a01, a02, a11, a12, a22, error);
 
         if (y == null)
         {
-            return false;
+            return null;
         }
 
-        /* Δθ = W·Jᵀ·y (the second W of W²·Ĵᵀ·y — the first is inside the stored
-         * columns), clamped per channel; apply and re-pose. */
-        float largest = 0F;
+        float[] deltas = new float[n * 3];
 
         for (int i = 0; i < n; i++)
         {
@@ -276,28 +409,60 @@ public final class IKChainSolver
 
             for (int c = 0; c < 3; c++)
             {
-                float w = joint.locked[c] ? 0F : joint.weight(c);
+                int at = i * 3 + c;
 
-                if (w <= 0F)
+                if (frozen[at])
                 {
                     continue;
                 }
 
-                int at = (i * 3 + c) * 3;
-                float delta = w * (columns[at] * y.x + columns[at + 1] * y.y + columns[at + 2] * y.z);
+                float w = movableWeight(joint, c);
+                float delta = w * (columns[at * 3] * y.x + columns[at * 3 + 1] * y.y + columns[at * 3 + 2] * y.z);
 
-                delta = Math.max(-MAX_STEP, Math.min(MAX_STEP, delta));
-                largest = Math.max(largest, Math.abs(delta));
+                deltas[at] = Math.max(-MAX_STEP, Math.min(MAX_STEP, delta));
+            }
+        }
 
-                IKJoint.set(joint.angles, c, IKJoint.get(joint.angles, c) + delta);
+        return deltas;
+    }
+
+    /** Applies {@code scale}-sized deltas onto the current angles; returns the largest applied delta. */
+    private static float applyDeltas(IKChain chain, float[] deltas, float scale)
+    {
+        float largest = 0F;
+
+        for (int i = 0; i < chain.joints.length; i++)
+        {
+            IKJoint joint = chain.joints[i];
+
+            for (int c = 0; c < 3; c++)
+            {
+                float delta = deltas[i * 3 + c] * scale;
+
+                if (delta != 0F)
+                {
+                    largest = Math.max(largest, Math.abs(delta));
+                    IKJoint.set(joint.angles, c, IKJoint.get(joint.angles, c) + delta);
+                }
             }
 
             joint.clampLimits();
         }
 
-        chain.forward();
+        return largest;
+    }
 
-        return largest > STALL_STEP;
+    private static void restoreAngles(IKChain chain, float[] saved)
+    {
+        for (int i = 0; i < chain.joints.length; i++)
+        {
+            IKJoint joint = chain.joints[i];
+
+            for (int c = 0; c < 3; c++)
+            {
+                IKJoint.set(joint.angles, c, saved[i * 3 + c]);
+            }
+        }
     }
 
     /** Solves the symmetric 3×3 system A·y = b by Cramer; null when A is singular. */
