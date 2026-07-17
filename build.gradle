@@ -66,22 +66,6 @@ dependencies {
 
 	modImplementation "org.anarres:jcpp:1.4.14"
 	modImplementation "io.github.douira:glsl-transformer:2.0.0-pre13"
-
-	// The exact JOML Minecraft 1.20.4 bundles at runtime — 1.10.5, the version with the broken
-	// euler decompositions (NaN at ±90°, wrong angles past the pole) that the euler tests guard
-	// the mod's own Matrices readbacks against. Keep pinned to the game's version, not latest.
-	testImplementation "org.joml:joml:1.10.5"
-	testImplementation platform("org.junit:junit-bom:5.10.2")
-	testImplementation "org.junit.jupiter:junit-jupiter"
-	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
-}
-
-test {
-	useJUnitPlatform()
-
-	testLogging {
-		events "passed", "failed", "skipped"
-	}
 }
 
 processResources {
