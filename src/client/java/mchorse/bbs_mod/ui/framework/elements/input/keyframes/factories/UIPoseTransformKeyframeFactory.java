@@ -3,9 +3,8 @@ package mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories;
 import mchorse.bbs_mod.ui.film.replays.UIReplaysEditorUtils;
 import mchorse.bbs_mod.ui.Keys;
 import mchorse.bbs_mod.ui.UIKeys;
-import mchorse.bbs_mod.ui.dashboard.panels.UIDashboardPanels;
-import mchorse.bbs_mod.ui.framework.UIContext;
-import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
+import mchorse.bbs_mod.l10n.keys.IKey;
+import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UIColor;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
@@ -13,8 +12,6 @@ import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframeSheet;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframes;
 import mchorse.bbs_mod.ui.utils.UI;
-import mchorse.bbs_mod.ui.utils.icons.Icons;
-import mchorse.bbs_mod.utils.Direction;
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
 import mchorse.bbs_mod.utils.pose.Transform;
@@ -25,8 +22,7 @@ public class UIPoseTransformKeyframeFactory extends UIKeyframeFactory<PoseTransf
 {
     public UITrackpad fix;
     public UIColor color;
-    /** Lighting on/off as an icon toggle; the panel paints its highlight in {@link #render}. */
-    public UIIcon lighting;
+    public UIToggle lighting;
     public UIPropTransform transform;
 
     public UIPoseTransformKeyframeFactory(Keyframe<PoseTransform> keyframe, UIKeyframes editor)
@@ -56,39 +52,28 @@ public class UIPoseTransformKeyframeFactory extends UIKeyframeFactory<PoseTransf
             {
                 UIPoseTransforms.apply(editor, keyframe, (poseT) -> poseT.color.set(c));
             }
-        }).noLabel();
+        });
         this.color.withAlpha();
-        this.color.tooltip(UIKeys.POSE_CONTEXT_COLOR);
         this.color.setColor(keyframe.getValue().color.getARGBColor());
 
-        this.lighting = new UIIcon(Icons.LIGHT, (b) ->
+        /* Label comes from the row, not the toggle's own — see the pose editor. */
+        this.lighting = new UIToggle(IKey.EMPTY, (b) ->
         {
             if (this.transform.getTransform() instanceof PoseTransform)
             {
-                boolean value = !this.lighting.isActive();
-
-                this.lighting.active(value);
-                UIPoseTransforms.apply(editor, keyframe, (poseT) -> poseT.lighting = value ? 0F : 1F);
+                UIPoseTransforms.apply(editor, keyframe, (poseT) -> poseT.lighting = b.getValue() ? 0F : 1F);
             }
         });
-        this.lighting.wh(UIConstants.CONTROL_HEIGHT, UIConstants.CONTROL_HEIGHT);
-        this.lighting.tooltip(UIKeys.FORMS_EDITORS_GENERAL_LIGHTING);
-        this.lighting.active(keyframe.getValue().lighting == 0F);
+        this.lighting.h(UIConstants.CONTROL_HEIGHT);
+        this.lighting.setValue(keyframe.getValue().lighting == 0F);
 
-        /* One row, each element named by its tooltip — same layout as the pose
-         * editor's, which this panel mirrors. */
-        this.scroll.add(UI.row(2, 0, UIConstants.CONTROL_HEIGHT, this.fix, this.color, this.lighting), this.transform.marginTop(4));
-    }
-
-    @Override
-    public void render(UIContext context)
-    {
-        if (this.lighting.isActive())
-        {
-            UIDashboardPanels.renderHighlight(context.batcher, this.lighting.area, Direction.LEFT);
-        }
-
-        super.render(context);
+        /* Same labelRow grid as the pose editor, which this panel mirrors. */
+        this.scroll.add(
+            UI.labelRow(UIKeys.POSE_CONTEXT_FIX, this.fix),
+            UI.labelRow(UIKeys.POSE_CONTEXT_COLOR, this.color),
+            UI.labelRow(UIKeys.FORMS_EDITORS_GENERAL_LIGHTING, this.lighting),
+            this.transform.marginTop(4)
+        );
     }
 
     private void toggleFix()
