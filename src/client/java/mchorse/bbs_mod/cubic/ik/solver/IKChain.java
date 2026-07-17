@@ -124,8 +124,11 @@ public final class IKChain
      * world rotation {@code delta} about its own pivot, by folding the delta into
      * the joint's channel angles (compatible-euler, anchored to the current
      * angles so continuity and winding survive) and re-running {@link #forward()}.
-     * The pole constraint's root twist and any seed nudge go through here, so
-     * every mutation of the chain flows through the one variable — the angles.
+     * The angles are clamped back into the joint's limits, so the solver's
+     * invariant — angles always within limits — holds through every mutation.
+     * The pole constraint's root twist, the goal pre-alignment and any seed nudge
+     * go through here, so every mutation of the chain flows through the one
+     * variable — the angles.
      */
     public void rotateJointWorld(int index, Quaternionf delta)
     {
@@ -134,6 +137,7 @@ public final class IKChain
         Quaternionf local = new Quaternionf(joint.parentRotation).conjugate().mul(world);
 
         Matrices.toCompatibleEulerZYXRadians(local, joint.angles, joint.angles);
+        joint.clampLimits();
         this.forward();
     }
 }

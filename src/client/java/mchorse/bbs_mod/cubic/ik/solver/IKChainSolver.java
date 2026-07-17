@@ -71,11 +71,14 @@ public final class IKChainSolver
     public static Result solve(IKChain chain, Vector3f goal, Vector3f polePoint, float poleAngle, Params params)
     {
         chain.forward();
+        alignToGoal(chain, goal);
 
         if (polePoint != null)
         {
             applyPole(chain, goal, polePoint, poleAngle);
         }
+
+        breakExtension(chain, goal, polePoint);
 
         float damping = params.dampingRatio() * chain.totalLength();
         float lambdaSq = damping * damping;
@@ -145,6 +148,173 @@ public final class IKChainSolver
         }
 
         return goal;
+    }
+
+    /**
+     * Pre-aligns the chain towards a goal in the BACK half-space: when the goal
+     * sits more than 90° away from the current root→effector direction, the ROOT
+     * joint rigidly turns the chain by the EXCESS over 90° (zero at the boundary
+     * — poses stay continuous in the goal; 90° at the exact antipode). Interior
+     * FK bends and twists ride along untouched, and the iterations finish the job
+     * from a live gradient.
+     *
+     * <p>This is the cure for the ANTIPODAL stall: with the goal opposite the FK
+     * chain, every Jacobian column is perpendicular to the error (a first-order
+     * saddle) and the iterations have no gradient to follow — the solve used to
+     * die two steps in, a chain-length short. Goals in the FRONT half-space are
+     * deliberately left alone: descent handles them, and a full re-aim there
+     * would trample root stiffness and manufacture the straight-chain degeneracy
+     * it then has to break. Alignment is a pure function of (FK pose, goal), so
+     * the solve stays stateless and scrub-safe; the turn side is ambiguous only
+     * at the exact antipode (and with a pole, the pole re-fixes the plane
+     * right after anyway).
+     *
+     * <p>Skipped when the root has locked or limited axes — a rigid re-aim would
+     * trample what those are protecting; such rigs keep the plain damped descent.
+     */
+    public static void alignToGoal(IKChain chain, Vector3f goal)
+    {
+        IKJoint root = chain.joints[0];
+
+        for (int c = 0; c < 3; c++)
+        {
+            if (root.locked[c] || root.limited[c] || root.weight(c) <= 0F)
+            {
+                return;
+            }
+        }
+
+        Vector3f effectorDir = new Vector3f(chain.effector).sub(root.position);
+        Vector3f goalDir = new Vector3f(goal).sub(root.position);
+
+        if (effectorDir.lengthSquared() < EPS * EPS || goalDir.lengthSquared() < EPS * EPS)
+        {
+            return;
+        }
+
+        effectorDir.normalize();
+        goalDir.normalize();
+
+        float angle = effectorDir.angle(goalDir);
+        float excess = angle - (float) (Math.PI / 2.0);
+
+        if (excess <= 0F)
+        {
+            return;
+        }
+
+        Vector3f axis = new Vector3f(effectorDir).cross(goalDir);
+
+        if (axis.lengthSquared() < EPS * EPS)
+        {
+            /* Exact antipode: the turn side is genuinely ambiguous — pick a
+             * deterministic perpendicular (the pole snaps the plane after). */
+            axis = stablePerpendicular(effectorDir);
+        }
+        else
+        {
+            axis.normalize();
+        }
+
+        chain.rotateJointWorld(0, new Quaternionf().rotationAxis(excess, axis.x, axis.y, axis.z));
+    }
+
+    /**
+     * Breaks the STRAIGHT-CHAIN degeneracy: a dead-straight chain with the goal
+     * closer than full reach has no defined bend plane — the Jacobian columns all
+     * run perpendicular to the compression the goal asks for, and the solve
+     * sticks fully extended (Blender locks up the same way; riggers pre-bend the
+     * knee in rest to avoid it). This nudges the first interior joint a fraction
+     * of a degree towards the pole side (or a deterministic side without a pole)
+     * through its most-aligned FREE channel — locks, limits and stiffness are
+     * respected — and descent takes it from there. A goal at or past full reach
+     * leaves the chain straight, as it should be.
+     */
+    public static void breakExtension(IKChain chain, Vector3f goal, Vector3f polePoint)
+    {
+        if (chain.joints.length < 2)
+        {
+            return;
+        }
+
+        Vector3f root = chain.joints[0].position;
+        float reach = chain.totalLength();
+        float goalDistance = root.distance(goal);
+
+        if (reach < EPS || goalDistance >= reach * 0.999F)
+        {
+            return;
+        }
+
+        /* Straightness: the effector of a straight chain sits a full arc length out. */
+        if (root.distance(chain.effector) < reach * 0.999F)
+        {
+            return;
+        }
+
+        Vector3f goalDir = new Vector3f(goal).sub(root);
+
+        if (goalDir.lengthSquared() < EPS * EPS)
+        {
+            return;
+        }
+
+        goalDir.normalize();
+
+        /* The side to fold towards: the pole's, else a deterministic perpendicular. */
+        Vector3f side = polePoint == null ? null : perpendicular(new Vector3f(polePoint).sub(root), goalDir);
+
+        if (side == null)
+        {
+            side = stablePerpendicular(goalDir);
+        }
+
+        /* The world axis whose turn moves the sub-chain towards that side. */
+        Vector3f bendAxis = new Vector3f(goalDir).cross(side).normalize();
+
+        /* The elbow's most-aligned movable channel takes the nudge. */
+        IKJoint elbow = chain.joints[1];
+        Vector3f axis = new Vector3f();
+        int best = -1;
+        float bestScore = 0F;
+
+        for (int c = 0; c < 3; c++)
+        {
+            if (movableWeight(elbow, c) <= 0F)
+            {
+                continue;
+            }
+
+            float score = chain.channelAxis(1, c, axis).dot(bendAxis);
+
+            if (Math.abs(score) > Math.abs(bestScore))
+            {
+                best = c;
+                bestScore = score;
+            }
+        }
+
+        if (best < 0 || Math.abs(bestScore) < EPS)
+        {
+            return;
+        }
+
+        IKJoint.set(elbow.angles, best, IKJoint.get(elbow.angles, best) + Math.signum(bestScore) * 0.02F);
+        elbow.clampLimits();
+        chain.forward();
+    }
+
+    /** A deterministic unit perpendicular to {@code dir}: cross with world Z, falling back to world Y. */
+    private static Vector3f stablePerpendicular(Vector3f dir)
+    {
+        Vector3f perp = new Vector3f(dir).cross(0F, 0F, 1F);
+
+        if (perp.lengthSquared() < EPS * EPS)
+        {
+            perp.set(dir).cross(0F, 1F, 0F);
+        }
+
+        return perp.normalize();
     }
 
     /**
@@ -330,7 +500,7 @@ public final class IKChainSolver
         {
             float scale = 0.5F;
 
-            for (int attempt = 0; attempt < 3; attempt++)
+            for (int attempt = 0; attempt < 6; attempt++)
             {
                 largest = applyDeltas(chain, deltas, scale);
                 chain.forward();
@@ -402,6 +572,7 @@ public final class IKChainSolver
         }
 
         float[] deltas = new float[n * 3];
+        float largest = 0F;
 
         for (int i = 0; i < n; i++)
         {
@@ -417,9 +588,26 @@ public final class IKChainSolver
                 }
 
                 float w = movableWeight(joint, c);
-                float delta = w * (columns[at * 3] * y.x + columns[at * 3 + 1] * y.y + columns[at * 3 + 2] * y.z);
 
-                deltas[at] = Math.max(-MAX_STEP, Math.min(MAX_STEP, delta));
+                deltas[at] = w * (columns[at * 3] * y.x + columns[at * 3 + 1] * y.y + columns[at * 3 + 2] * y.z);
+                largest = Math.max(largest, Math.abs(deltas[at]));
+            }
+        }
+
+        /* Cap the step by scaling the WHOLE vector, never by clamping channels
+         * individually: with a large |y| (an ill-conditioned near-straight pose)
+         * a per-channel clamp saturates every delta to ±MAX_STEP and the step
+         * degenerates into a vector of signs — no longer a descent direction, so
+         * the monotone acceptance rejects it at every scale and the solve stalls
+         * with a live gradient. Scaling preserves the direction, and a scaled
+         * damped step always descends for a small enough backtrack. */
+        if (largest > MAX_STEP)
+        {
+            float scale = MAX_STEP / largest;
+
+            for (int at = 0; at < n * 3; at++)
+            {
+                deltas[at] *= scale;
             }
         }
 

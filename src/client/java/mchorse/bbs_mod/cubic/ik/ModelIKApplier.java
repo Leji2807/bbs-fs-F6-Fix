@@ -39,12 +39,6 @@ final class ModelIKApplier
 
     private static final float EPS = 1.0e-6f;
 
-    /** How straight the live chain must be for the rest-bend seed to kick in, radians. */
-    private static final float STRAIGHT_EPSILON = 0.01F;
-
-    /** The rest-bend seed nudge, radians — just enough to hand the solver a bend side. */
-    private static final float SEED_BEND = 0.0087F;
-
     /* Legacy BOBJ position-level solve (replaced at the BOBJ port milestone). */
     private static final int LEGACY_MAX_ITERATIONS = 12;
     private static final float LEGACY_TOLERANCE = 1.0e-4f;
@@ -196,7 +190,7 @@ final class ModelIKApplier
 
         if (model instanceof Model cubic)
         {
-            applyChainCubic(cubic, workIds, frames, target, polePoint, poleAngle, softness, weight, tipTarget);
+            applyChainCubic(cubic, workIds, frames, target, pole, polePoint, poleAngle, softness, weight, tipTarget);
         }
         else if (model instanceof BOBJModel bobj)
         {
@@ -218,7 +212,7 @@ final class ModelIKApplier
      * (the constraint-stack contract), and the solved angles START from them,
      * so the twist the animator posed survives into the solve by construction.
      */
-    private static void applyChainCubic(Model model, List<String> workIds, Map<String, PivotFrame> frames, Vector3f target, Vector3f polePoint, float poleAngle, float softness, float weight, Quaternionf tipTarget)
+    private static void applyChainCubic(Model model, List<String> workIds, Map<String, PivotFrame> frames, Vector3f target, boolean pole, Vector3f polePoint, float poleAngle, float softness, float weight, Quaternionf tipTarget)
     {
         IKChain chain = captureChain(model, workIds, frames);
 
@@ -227,7 +221,18 @@ final class ModelIKApplier
             return;
         }
 
-        seedRestBend(model, workIds, chain);
+        /* Pole ON with no pole target bone = the REST-AUTHORED virtual pole: the bend
+         * plane is stabilized towards the side the model was built bent towards (knee
+         * forward, elbow back), lifted by the chain root's current parent frame so it
+         * tracks the shoulder/hip. Without it the bend side is ambiguous and a target
+         * orbiting the character makes the chain SNAP sides at the degenerate
+         * directions (Blender behaves the same — its riggers always add a pole; this
+         * bakes that rule in). A rig with no authored bend (a rope) has no side to
+         * offer and keeps the pure pose-driven behavior. */
+        if (pole && polePoint == null)
+        {
+            polePoint = restVirtualPole(model, workIds, chain);
+        }
 
         Vector3f goal = IKChainSolver.softGoal(chain, target, softness);
 
@@ -355,62 +360,48 @@ final class ModelIKApplier
     }
 
     /**
-     * The straight-chain seed (Blender's rigging rule, automated): a chain that
-     * is dead straight in its LIVE pose has no bend plane — the Jacobian is
-     * degenerate along the limb and the solve would stick (Blender locks up the
-     * same way; riggers pre-bend the knee in rest to avoid it). When the MODEL
-     * was authored with a rest bend, that authored bend is the side the limb is
-     * built to fold towards — so nudge the first interior joint a fraction of a
-     * degree into the rest-bend plane and let the solve take it from there. A
-     * rig with no authored bend (a rope, a straight stick) gets no seed and
-     * keeps the pure Blender behavior: it bends from whatever the FK pose
-     * offers, and sticks in the exact degenerate point.
+     * The rest-authored virtual pole point: the direction the chain's first
+     * interior pivot sticks out from the rest root-to-effector line — where the
+     * model's own elbow/knee points — lifted into the world by the chain root's
+     * current parent frame (the same lift {@link #restBendNormal} uses) and
+     * placed a chain-length away from the root. {@code null} when the chain is
+     * too short or authored dead straight (no side to prefer).
      */
-    private static void seedRestBend(Model model, List<String> workIds, IKChain chain)
+    private static Vector3f restVirtualPole(Model model, List<String> workIds, IKChain chain)
     {
-        if (chain.joints.length < 2 || !isChainStraight(chain))
+        if (chain.joints.length < 2)
         {
-            return;
+            return null;
         }
 
-        Vector3f restNormal = restBendNormal(model, workIds, chain.rootParentRotation);
+        ModelGroup root = model.getGroup(workIds.get(0));
+        ModelGroup elbow = model.getGroup(workIds.get(1));
+        ModelGroup effector = model.getGroup(workIds.get(workIds.size() - 1));
 
-        if (restNormal == null)
+        if (root == null || elbow == null || effector == null)
         {
-            return;
+            return null;
         }
 
-        chain.forward();
-        chain.rotateJointWorld(1, new Quaternionf().rotationAxis(SEED_BEND, restNormal.x, restNormal.y, restNormal.z));
-    }
+        Vector3f axis = new Vector3f(effector.initial.translate).sub(root.initial.translate);
 
-    /** Whether every interior joint of the captured chain is collinear with its neighbours. */
-    private static boolean isChainStraight(IKChain chain)
-    {
-        Vector3f previous = null;
-
-        for (int i = 0; i < chain.joints.length; i++)
+        if (axis.lengthSquared() < EPS * EPS)
         {
-            Vector3f from = chain.joints[i].startPosition;
-            Vector3f to = i + 1 < chain.joints.length ? chain.joints[i + 1].startPosition : chain.startEffector;
-            Vector3f segment = new Vector3f(to).sub(from);
-
-            if (segment.lengthSquared() < EPS * EPS)
-            {
-                continue;
-            }
-
-            segment.normalize();
-
-            if (previous != null && previous.angle(segment) > STRAIGHT_EPSILON)
-            {
-                return false;
-            }
-
-            previous = segment;
+            return null;
         }
 
-        return true;
+        axis.normalize();
+
+        Vector3f side = perpendicularTo(new Vector3f(elbow.initial.translate).sub(root.initial.translate), axis);
+
+        if (side == null)
+        {
+            return null;
+        }
+
+        chain.rootParentRotation.transform(side);
+
+        return new Vector3f(chain.joints[0].startPosition).fma(chain.totalLength(), side);
     }
 
     /**
@@ -622,6 +613,19 @@ final class ModelIKApplier
         return restDir;
     }
 
+    /** {@code v} projected onto the plane perpendicular to unit {@code axis}, normalized; {@code null} if degenerate. */
+    private static Vector3f perpendicularTo(Vector3f v, Vector3f axis)
+    {
+        Vector3f out = new Vector3f(v);
+        float dot = out.dot(axis);
+
+        out.x -= axis.x * dot;
+        out.y -= axis.y * dot;
+        out.z -= axis.z * dot;
+
+        return out.lengthSquared() < EPS * EPS ? null : out.normalize();
+    }
+
     /* ------------------------------------------------------------------ */
     /* LEGACY BOBJ PATH — the old position-level solve, kept verbatim      */
     /* until the BOBJ port onto the channel-space core. Everything below   */
@@ -817,19 +821,6 @@ final class ModelIKApplier
         }
 
         return normals;
-    }
-
-    /** {@code v} projected onto the plane perpendicular to unit {@code axis}, normalized; {@code null} if degenerate. */
-    private static Vector3f perpendicularTo(Vector3f v, Vector3f axis)
-    {
-        Vector3f out = new Vector3f(v);
-        float dot = out.dot(axis);
-
-        out.x -= axis.x * dot;
-        out.y -= axis.y * dot;
-        out.z -= axis.z * dot;
-
-        return out.lengthSquared() < EPS * EPS ? null : out.normalize();
     }
 
     /** A deterministic unit perpendicular to {@code dir}, cross with world Z (falling back to world Y when parallel). */
