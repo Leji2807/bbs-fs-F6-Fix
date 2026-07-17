@@ -2,7 +2,6 @@ package mchorse.bbs_mod.cubic.ik;
 
 import mchorse.bbs_mod.bobj.BOBJBone;
 import mchorse.bbs_mod.cubic.IModel;
-import mchorse.bbs_mod.cubic.constraints.ModelConstraintsConfig.BoneConstraint;
 import mchorse.bbs_mod.cubic.data.model.Model;
 import mchorse.bbs_mod.cubic.data.model.ModelGroup;
 import mchorse.bbs_mod.cubic.ik.solver.IKJoint;
@@ -11,7 +10,6 @@ import mchorse.bbs_mod.cubic.ik.solver.IKTreeSolver;
 import mchorse.bbs_mod.cubic.model.bobj.BOBJModel;
 import mchorse.bbs_mod.cubic.render.CubicRenderer.PivotFrame;
 import mchorse.bbs_mod.cubic.render.ModelPivotFrames;
-import mchorse.bbs_mod.cubic.render.ModelRotationBlender;
 import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Quaternionf;
@@ -26,6 +24,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Directs the compiled IK chains onto a model, cubic and BOBJ alike, through
+ * the channel-space tree solver: overlapping chains merge and negotiate,
+ * disjoint chains solve independently ancestor-first. Both bone flavours meet
+ * the same frame convention — a pivot frame's parentRotation carries
+ * everything before the bone's own channel rotation (for BOBJ that includes
+ * its rest {@code relBoneMat}), so {@code worldRot = parentRot · Rz·Ry·Rx} and
+ * the solver never needs to know which model it is posing. What differs is
+ * only reads and writes: cubic channels are degrees on {@link ModelGroup},
+ * BOBJ channels are radians on {@link BOBJBone} — both write the result to
+ * their {@code orient} (the constraint-stack contract; channels stay the
+ * read-only FK truth).
+ */
 final class ModelIKApplier
 {
     /**
@@ -40,10 +51,6 @@ final class ModelIKApplier
 
     private static final float EPS = 1.0e-6f;
 
-    /* Legacy BOBJ position-level solve (replaced at the BOBJ port milestone). */
-    private static final int LEGACY_MAX_ITERATIONS = 12;
-    private static final float LEGACY_TOLERANCE = 1.0e-4f;
-
     private ModelIKApplier()
     {
     }
@@ -53,7 +60,7 @@ final class ModelIKApplier
     {
     }
 
-    public static void apply(IModel model, List<ModelIKCache.CompiledChain> chains, Map<String, ModelIKConfig.JointDoF> jointDoF, Map<String, Vector3f> controllerTargets, Map<String, Vector3f> poleTargets, Map<String, Float> targetWeights, Map<String, Float> poleWeights, Map<String, IKControl> controlOverrides, Map<String, BoneConstraint> boneLimits)
+    public static void apply(IModel model, List<ModelIKCache.CompiledChain> chains, Map<String, ModelIKConfig.JointDoF> jointDoF, Map<String, Vector3f> controllerTargets, Map<String, Vector3f> poleTargets, Map<String, Float> targetWeights, Map<String, Float> poleWeights, Map<String, IKControl> controlOverrides)
     {
         if (model == null || chains == null || chains.isEmpty())
         {
@@ -71,37 +78,15 @@ final class ModelIKApplier
             LOG.setLength(0);
         }
 
-        if (model instanceof Model cubic)
+        /* OVERLAPPING chains merge into one tree and solve together — shared
+         * bones negotiate between the goals (Blender's tree merge). Disjoint
+         * chains stay independent solves. */
+        for (List<ModelIKCache.CompiledChain> group : groupOverlapping(ordered))
         {
-            /* OVERLAPPING chains merge into one tree and solve together — shared
-             * bones negotiate between the goals (Blender's tree merge). Disjoint
-             * chains stay independent solves, ancestor-first as before. */
-            for (List<ModelIKCache.CompiledChain> group : groupOverlapping(ordered))
+            Set<String> wanted = new HashSet<>();
+
+            for (ModelIKCache.CompiledChain chain : group)
             {
-                Set<String> wanted = new HashSet<>();
-
-                for (ModelIKCache.CompiledChain chain : group)
-                {
-                    wanted.add(chain.target());
-                    wanted.addAll(chain.chainRootToEffector());
-
-                    if (chain.poleTarget() != null && !chain.poleTarget().isEmpty())
-                    {
-                        wanted.add(chain.poleTarget());
-                    }
-                }
-
-                Map<String, PivotFrame> frames = new HashMap<>(wanted.size() * 2);
-
-                ModelPivotFrames.collect(model, wanted, frames, null);
-                applyGroupCubic(cubic, group, frames, jointDoF, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
-            }
-        }
-        else if (model instanceof BOBJModel bobj)
-        {
-            for (ModelIKCache.CompiledChain chain : ordered)
-            {
-                Set<String> wanted = new HashSet<>();
                 wanted.add(chain.target());
                 wanted.addAll(chain.chainRootToEffector());
 
@@ -109,18 +94,12 @@ final class ModelIKApplier
                 {
                     wanted.add(chain.poleTarget());
                 }
-
-                Map<String, PivotFrame> frames = new HashMap<>(wanted.size() * 2);
-
-                ModelPivotFrames.collect(model, wanted, frames, null);
-
-                ResolvedChain resolved = resolveChain(model, chain, frames, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
-
-                if (resolved != null)
-                {
-                    applyChainBobjLegacy(bobj, resolved, frames, boneLimits);
-                }
             }
+
+            Map<String, PivotFrame> frames = new HashMap<>(wanted.size() * 2);
+
+            ModelPivotFrames.collect(model, wanted, frames, null);
+            applyGroup(model, group, frames, jointDoF, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
         }
 
         if (LOG_IK)
@@ -309,21 +288,21 @@ final class ModelIKApplier
     }
 
     /* ------------------------------------------------------------------ */
-    /* Cubic: channel-space damped-least-squares solve over a merged tree  */
+    /* The channel-space damped-least-squares solve over a merged tree     */
     /* ------------------------------------------------------------------ */
 
     /**
-     * The cubic solve for one group of overlapping chains: capture the union of
+     * The solve for one group of overlapping chains: capture the union of
      * their directed bones into the channel-space tree ({@link IKTree}), one
      * effector per chain, soften each goal against its own chain's reach, run
-     * the DLS solve (with Blender's pole per chain), and write each bone's
-     * solved local rotation to {@link ModelGroup#orient} blended against the FK
-     * base by the IK weight. The euler channels are never touched — they stay
-     * the read-only FK truth (the constraint-stack contract), and the solved
-     * angles START from them, so the twist the animator posed survives into
-     * the solve by construction.
+     * the DLS solve (with Blender's pole per chain and the tip orientation
+     * task), and write each bone's solved local rotation to its {@code orient}
+     * blended against the FK base by the IK weight. The channels are never
+     * touched — they stay the read-only FK truth (the constraint-stack
+     * contract), and the solved angles START from them, so the twist the
+     * animator posed survives into the solve by construction.
      */
-    private static void applyGroupCubic(Model model, List<ModelIKCache.CompiledChain> group, Map<String, PivotFrame> frames, Map<String, ModelIKConfig.JointDoF> jointDoF, Map<String, Vector3f> controllerTargets, Map<String, Vector3f> poleTargets, Map<String, Float> targetWeights, Map<String, Float> poleWeights, Map<String, IKControl> controlOverrides)
+    private static void applyGroup(IModel model, List<ModelIKCache.CompiledChain> group, Map<String, PivotFrame> frames, Map<String, ModelIKConfig.JointDoF> jointDoF, Map<String, Vector3f> controllerTargets, Map<String, Vector3f> poleTargets, Map<String, Float> targetWeights, Map<String, Float> poleWeights, Map<String, IKControl> controlOverrides)
     {
         List<ResolvedChain> resolved = new ArrayList<>(group.size());
 
@@ -366,10 +345,9 @@ final class ModelIKApplier
 
         for (int i = 0; i < nodes.size(); i++)
         {
-            ModelGroup bone = model.getGroup(nodes.get(i));
             PivotFrame frame = frames.get(nodes.get(i));
 
-            if (bone == null || frame == null)
+            if (frame == null)
             {
                 return;
             }
@@ -379,7 +357,12 @@ final class ModelIKApplier
             joint.startPosition.set(frame.position());
             joint.startWorldRotation.set(frame.worldRotation());
             tree.startParentRotation[i].set(frame.parentRotation());
-            sourceAngles(bone, joint.startAngles);
+
+            if (sourceAngles(model, nodes.get(i), joint.startAngles) == null)
+            {
+                return;
+            }
+
             joint.angles.set(joint.startAngles);
             tree.parentIndex[i] = nearestAncestor(model, nodes.get(i), nodeIndex);
 
@@ -427,11 +410,11 @@ final class ModelIKApplier
              * weighs about as much as a full-reach position miss. */
             if (r.tipTarget() != null)
             {
-                ModelGroup tip = model.getGroup(workIds.get(workIds.size() - 1));
+                Quaternionf tipLocal = evaluatedRotation(model, workIds.get(workIds.size() - 1));
 
-                if (tip != null)
+                if (tipLocal != null)
                 {
-                    effector.orientGoal = new Quaternionf(r.tipTarget()).mul(tip.evaluatedRotation().conjugate());
+                    effector.orientGoal = new Quaternionf(r.tipTarget()).mul(tipLocal.conjugate());
                     effector.orientWeight = reach / (float) Math.PI;
                 }
             }
@@ -458,7 +441,7 @@ final class ModelIKApplier
             logTreeOut(tree, result);
         }
 
-        writeTree(model, nodes, tree, resolved);
+        writeTree(model, nodes, tree, resolved, frames);
     }
 
     /** The captured arc length root joint → last joint → effector point, along the tree. */
@@ -507,24 +490,114 @@ final class ModelIKApplier
         return -1;
     }
 
+    /* ------------------------------------------------------------------ */
+    /* The two bone flavours behind one door                               */
+    /* ------------------------------------------------------------------ */
+
     /**
      * The bone's FK rotation as ZYX angles in radians — the solve's start value.
-     * Euler bones read their channels directly (cubic channels are degrees);
-     * quaternion-mode bones and bones carrying a composed {@code orient} (layer
-     * stacks) decompose the evaluated rotation compatibly against the channels,
-     * so the start stays continuous with what the animator sees.
+     * Euler bones read their channels directly (cubic channels are degrees,
+     * BOBJ channels are radians); quaternion-mode bones and bones carrying a
+     * composed {@code orient} (layer stacks) decompose the evaluated rotation
+     * compatibly against the channels, so the start stays continuous with what
+     * the animator sees. {@code null} when the bone does not exist.
      */
-    private static Vector3f sourceAngles(ModelGroup bone, Vector3f dest)
+    private static Vector3f sourceAngles(IModel model, String id, Vector3f dest)
     {
-        float toRad = (float) (Math.PI / 180.0);
-        Vector3f channels = dest.set(bone.current.rotate).mul(toRad);
-
-        if (bone.orient == null && bone.current.rotationMode != Transform.RotationMode.QUATERNION)
+        if (model instanceof Model cubic)
         {
-            return channels;
+            ModelGroup bone = cubic.getGroup(id);
+
+            if (bone == null)
+            {
+                return null;
+            }
+
+            float toRad = (float) (Math.PI / 180.0);
+            Vector3f channels = dest.set(bone.current.rotate).mul(toRad);
+
+            if (bone.orient == null && bone.current.rotationMode != Transform.RotationMode.QUATERNION)
+            {
+                return channels;
+            }
+
+            return Matrices.toCompatibleEulerZYXRadians(bone.evaluatedRotation(), new Vector3f(channels), dest);
         }
 
-        return Matrices.toCompatibleEulerZYXRadians(bone.evaluatedRotation(), new Vector3f(channels), dest);
+        if (model instanceof BOBJModel bobj)
+        {
+            BOBJBone bone = bobj.getArmature().bones.get(id);
+
+            if (bone == null)
+            {
+                return null;
+            }
+
+            Vector3f channels = dest.set(bone.transform.rotate);
+
+            if (bone.orient == null && bone.transform.rotationMode != Transform.RotationMode.QUATERNION)
+            {
+                return channels;
+            }
+
+            return Matrices.toCompatibleEulerZYXRadians(bone.evaluatedRotation(), new Vector3f(channels), dest);
+        }
+
+        return null;
+    }
+
+    /** The bone's evaluated FK local rotation (fresh instance); {@code null} when it does not exist. */
+    private static Quaternionf evaluatedRotation(IModel model, String id)
+    {
+        if (model instanceof Model cubic)
+        {
+            ModelGroup bone = cubic.getGroup(id);
+
+            return bone == null ? null : bone.evaluatedRotation();
+        }
+
+        if (model instanceof BOBJModel bobj)
+        {
+            BOBJBone bone = bobj.getArmature().bones.get(id);
+
+            return bone == null ? null : bone.evaluatedRotation();
+        }
+
+        return null;
+    }
+
+    /** Writes the solved local rotation to the bone's {@code orient}; false when it does not exist. */
+    private static boolean writeOrient(IModel model, String id, Quaternionf orient)
+    {
+        if (model instanceof Model cubic)
+        {
+            ModelGroup bone = cubic.getGroup(id);
+
+            if (bone == null)
+            {
+                return false;
+            }
+
+            bone.orient = orient;
+
+            return true;
+        }
+
+        if (model instanceof BOBJModel bobj)
+        {
+            BOBJBone bone = bobj.getArmature().bones.get(id);
+
+            if (bone == null)
+            {
+                return false;
+            }
+
+            bone.orient = orient;
+
+            return true;
+        }
+
+        return false;
     }
 
     /** Copies the config's per-bone freedom onto a solver joint; limits are authored in degrees. */
@@ -556,27 +629,71 @@ final class ModelIKApplier
     /**
      * The rest-authored virtual pole point for a chain: the direction its first
      * interior pivot sticks out from the rest root-to-effector line — where the
-     * model's own elbow/knee points — lifted into the world by the chain root's
-     * current parent frame and placed a reach away from the root. {@code null}
-     * when the chain is too short or authored dead straight (no side to prefer).
+     * model's own elbow/knee points — lifted into the world and placed a reach
+     * away from the root. Cubic rest geometry lives in the authored pivots
+     * (lifted by the chain root's current parent frame); BOBJ rest geometry
+     * lives in the bind matrices, and the lift is the DELTA of the root's
+     * parent frame from its bind orientation (BOBJ ancestors carry authored
+     * rest rotations, so the raw parent frame alone would double-count them).
+     * {@code null} when the chain is too short or authored dead straight (no
+     * side to prefer).
      */
-    private static Vector3f restVirtualPole(Model model, List<String> workIds, Quaternionf rootParentRotation, Vector3f rootPosition, float reach)
+    private static Vector3f restVirtualPole(IModel model, List<String> workIds, Quaternionf rootParentRotation, Vector3f rootPosition, float reach)
     {
         if (workIds.size() < 3)
         {
             return null;
         }
 
-        ModelGroup root = model.getGroup(workIds.get(0));
-        ModelGroup elbow = model.getGroup(workIds.get(1));
-        ModelGroup effector = model.getGroup(workIds.get(workIds.size() - 1));
+        Vector3f restRoot;
+        Vector3f restElbow;
+        Vector3f restEffector;
+        Quaternionf lift;
 
-        if (root == null || elbow == null || effector == null)
+        if (model instanceof Model cubic)
+        {
+            ModelGroup root = cubic.getGroup(workIds.get(0));
+            ModelGroup elbow = cubic.getGroup(workIds.get(1));
+            ModelGroup effector = cubic.getGroup(workIds.get(workIds.size() - 1));
+
+            if (root == null || elbow == null || effector == null)
+            {
+                return null;
+            }
+
+            restRoot = root.initial.translate;
+            restElbow = elbow.initial.translate;
+            restEffector = effector.initial.translate;
+            lift = new Quaternionf(rootParentRotation);
+        }
+        else if (model instanceof BOBJModel bobj)
+        {
+            Map<String, BOBJBone> bones = bobj.getArmature().bones;
+            BOBJBone root = bones.get(workIds.get(0));
+            BOBJBone elbow = bones.get(workIds.get(1));
+            BOBJBone effector = bones.get(workIds.get(workIds.size() - 1));
+
+            if (root == null || elbow == null || effector == null)
+            {
+                return null;
+            }
+
+            restRoot = root.boneMat.getTranslation(new Vector3f());
+            restElbow = elbow.boneMat.getTranslation(new Vector3f());
+            restEffector = effector.boneMat.getTranslation(new Vector3f());
+
+            /* In bind pose (zero channels) the root's parent frame IS its bind
+             * rotation, so the current-vs-bind delta is the exact world lift. */
+            Quaternionf bindParent = root.boneMat.getUnnormalizedRotation(new Quaternionf());
+
+            lift = new Quaternionf(rootParentRotation).mul(bindParent.conjugate());
+        }
+        else
         {
             return null;
         }
 
-        Vector3f axis = new Vector3f(effector.initial.translate).sub(root.initial.translate);
+        Vector3f axis = new Vector3f(restEffector).sub(restRoot);
 
         if (axis.lengthSquared() < EPS * EPS)
         {
@@ -585,28 +702,28 @@ final class ModelIKApplier
 
         axis.normalize();
 
-        Vector3f side = perpendicularTo(new Vector3f(elbow.initial.translate).sub(root.initial.translate), axis);
+        Vector3f side = perpendicularTo(new Vector3f(restElbow).sub(restRoot), axis);
 
         if (side == null)
         {
             return null;
         }
 
-        rootParentRotation.transform(side);
+        lift.transform(side);
 
         return new Vector3f(rootPosition).fma(reach, side);
     }
 
     /**
      * Writes the solved tree onto the bones: each node's local rotation is
-     * composed from its solved channel angles and written raw to
-     * {@link ModelGroup#orient}, blended against the FK base (the bone's
-     * evaluated rotation) by the strongest weight of the chains running through
-     * it. The blended world frames advance the same rigid way the solve did —
-     * the frames the renderer establishes — so each chain's tip target lands in
+     * composed from its solved channel angles and written raw to its
+     * {@code orient}, blended against the FK base (the bone's evaluated
+     * rotation) by the strongest weight of the chains running through it. The
+     * blended world frames advance the same rigid way the solve did — the
+     * frames the renderer establishes — so each chain's tip target lands in
      * the right frame at any weight.
      */
-    private static void writeTree(Model model, List<String> nodes, IKTree tree, List<ResolvedChain> resolved)
+    private static void writeTree(IModel model, List<String> nodes, IKTree tree, List<ResolvedChain> resolved, Map<String, PivotFrame> frames)
     {
         int n = nodes.size();
         float[] nodeWeight = new float[n];
@@ -628,17 +745,20 @@ final class ModelIKApplier
 
         for (int i = 0; i < n; i++)
         {
-            ModelGroup bone = model.getGroup(nodes.get(i));
+            Quaternionf evaluated = evaluatedRotation(model, nodes.get(i));
 
-            if (bone == null)
+            if (evaluated == null)
             {
                 return;
             }
 
             Quaternionf solvedLocal = Matrices.toLocalRotationZYXRadians(tree.joints[i].angles);
-            Quaternionf applied = nodeWeight[i] >= 1F - EPS ? solvedLocal : bone.evaluatedRotation().slerp(solvedLocal, nodeWeight[i]);
+            Quaternionf applied = nodeWeight[i] >= 1F - EPS ? solvedLocal : evaluated.slerp(solvedLocal, nodeWeight[i]);
 
-            bone.orient = applied;
+            if (!writeOrient(model, nodes.get(i), applied))
+            {
+                return;
+            }
 
             /* Blended world walk, rigid-model style: the parent frame is the captured
              * one carried by how far the nearest captured ancestor's BLENDED world
@@ -662,8 +782,12 @@ final class ModelIKApplier
 
         /* Tip follows target: each chain's effector bone (not a solver node of its
          * own chain) copies the controller's world orientation, in its parent's
-         * BLENDED frame. Written after the nodes, so on the rare rig where a tip
-         * doubles as another chain's directed bone, the tip orientation wins. */
+         * BLENDED frame. The tip's captured parent frame carries everything between
+         * the last directed bone and the tip's own rotation (for BOBJ its rest
+         * relBoneMat), so it is advanced by the last bone's blended delta — for a
+         * cubic bone that reduces to the last bone's blended world exactly. Written
+         * after the nodes, so on the rare rig where a tip doubles as another
+         * chain's directed bone, the tip orientation wins. */
         for (int e = 0; e < resolved.size(); e++)
         {
             ResolvedChain r = resolved.get(e);
@@ -674,7 +798,8 @@ final class ModelIKApplier
             }
 
             List<String> workIds = r.workIds();
-            ModelGroup tip = model.getGroup(workIds.get(workIds.size() - 1));
+            String tipId = workIds.get(workIds.size() - 1);
+            PivotFrame tipFrame = frames.get(tipId);
             Integer lastJoint = null;
 
             for (int i = 0; i < n; i++)
@@ -686,14 +811,22 @@ final class ModelIKApplier
                 }
             }
 
-            if (tip == null || lastJoint == null)
+            if (tipFrame == null || lastJoint == null)
             {
                 continue;
             }
 
-            Quaternionf tipLocal = new Quaternionf(blendedWorld[lastJoint]).conjugate().mul(r.tipTarget());
+            Quaternionf lastDelta = new Quaternionf(blendedWorld[lastJoint]).mul(new Quaternionf(tree.joints[lastJoint].startWorldRotation).conjugate());
+            Quaternionf tipParent = lastDelta.mul(new Quaternionf(tipFrame.parentRotation()));
+            Quaternionf tipLocal = tipParent.conjugate().mul(r.tipTarget());
+            Quaternionf evaluated = evaluatedRotation(model, tipId);
 
-            tip.orient = r.weight() >= 1F - EPS ? tipLocal : tip.evaluatedRotation().slerp(tipLocal, r.weight());
+            if (evaluated == null)
+            {
+                continue;
+            }
+
+            writeOrient(model, tipId, r.weight() >= 1F - EPS ? tipLocal : evaluated.slerp(tipLocal, r.weight()));
         }
     }
 
@@ -820,90 +953,6 @@ final class ModelIKApplier
         return weights == null ? 1F : weights.getOrDefault(id, 1F);
     }
 
-    /**
-     * The chain's authored bend side, in model space: the normal of the rest bend
-     * plane {@code restDir[0] x restDir[1]} — the side the limb was modelled bent
-     * towards (knee forward, elbow back) — taken in the root's local frame and
-     * lifted by the root's current world rotation, so it tracks the limb as the
-     * shoulder/hip turns. Returns {@code null} when the chain is shorter than two
-     * bones or the rest pose is dead straight (no authored bend — a rope).
-     */
-    private static Vector3f restBendNormal(IModel model, List<String> chainIds, Quaternionf rootParentRotation)
-    {
-        if (chainIds.size() < 3)
-        {
-            return null;
-        }
-
-        Vector3f a = restDirection(model, chainIds, 0);
-        Vector3f b = restDirection(model, chainIds, 1);
-
-        if (a == null || b == null)
-        {
-            return null;
-        }
-
-        Vector3f normal = new Vector3f(a).cross(b);
-
-        if (normal.lengthSquared() < EPS * EPS)
-        {
-            return null;
-        }
-
-        return rootParentRotation.transform(normal.normalize());
-    }
-
-    /**
-     * The bone's local rest direction towards its child, taken exactly as that
-     * model's renderer takes it (cubic: pivot difference; BOBJ: the renderer's
-     * own {@link ModelRotationBlender#getBobjRestDirection}).
-     */
-    private static Vector3f restDirection(IModel model, List<String> chainIds, int i)
-    {
-        String id = chainIds.get(i);
-        String childId = chainIds.get(i + 1);
-
-        if (model instanceof Model cubic)
-        {
-            ModelGroup bone = cubic.getGroup(id);
-            ModelGroup child = cubic.getGroup(childId);
-
-            if (bone == null || child == null)
-            {
-                return null;
-            }
-
-            return normalizeRest(new Vector3f(child.initial.translate).sub(bone.initial.translate));
-        }
-
-        if (model instanceof BOBJModel bobj)
-        {
-            BOBJBone bone = bobj.getArmature().bones.get(id);
-            BOBJBone child = bobj.getArmature().bones.get(childId);
-
-            if (bone == null)
-            {
-                return null;
-            }
-
-            return normalizeRest(ModelRotationBlender.getBobjRestDirection(bobj, bone, child, chainIds, i));
-        }
-
-        return null;
-    }
-
-    private static Vector3f normalizeRest(Vector3f restDir)
-    {
-        if (restDir.lengthSquared() < 1.0e-12f)
-        {
-            restDir.set(0F, -1F, 0F);
-        }
-
-        restDir.normalize();
-
-        return restDir;
-    }
-
     /** {@code v} projected onto the plane perpendicular to unit {@code axis}, normalized; {@code null} if degenerate. */
     private static Vector3f perpendicularTo(Vector3f v, Vector3f axis)
     {
@@ -915,277 +964,5 @@ final class ModelIKApplier
         out.z -= axis.z * dot;
 
         return out.lengthSquared() < EPS * EPS ? null : out.normalize();
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* LEGACY BOBJ PATH — the old position-level solve, kept verbatim      */
-    /* until the BOBJ port onto the channel-space core. Everything below   */
-    /* serves only BOBJ models and goes away with that port.               */
-    /* ------------------------------------------------------------------ */
-
-    private static void applyChainBobjLegacy(BOBJModel model, ResolvedChain resolved, Map<String, PivotFrame> frames, Map<String, BoneConstraint> boneLimits)
-    {
-        List<String> workIds = resolved.workIds();
-        List<Vector3f> currentPositions = new ArrayList<>(workIds.size());
-        Quaternionf rootParentRotation = null;
-
-        for (String id : workIds)
-        {
-            PivotFrame frame = frames.get(id);
-
-            if (frame == null)
-            {
-                return;
-            }
-
-            currentPositions.add(new Vector3f(frame.position()));
-
-            if (rootParentRotation == null)
-            {
-                rootParentRotation = new Quaternionf(frame.parentRotation());
-            }
-        }
-
-        if (rootParentRotation == null)
-        {
-            return;
-        }
-
-        IKSolver.Limit[] limits = buildLimits(model, workIds, boneLimits);
-        Vector3f restHinge = restBendNormal(model, workIds, rootParentRotation);
-
-        Vector3f bendNormal = new Vector3f();
-        List<Vector3f> solved = IKSolver.solve(currentPositions, resolved.target(), resolved.pole(), resolved.polePoint(), resolved.poleAngle(), resolved.softness(), LEGACY_MAX_ITERATIONS, LEGACY_TOLERANCE, limits, limits == null ? null : rootParentRotation, restHinge, bendNormal);
-
-        /* The bend-plane normal the solve settled on (zero when undefined). Passed to the
-         * orientation pass as the roll-reference seed so a fully straight chain keeps a
-         * stable twist instead of jittering at the reach boundary. */
-        Vector3f bendSeed = bendNormal.lengthSquared() < EPS * EPS ? null : bendNormal;
-
-        if (workIds.size() >= 3)
-        {
-            buildChainOrientationsBobj(model, workIds, solved, rootParentRotation, resolved.weight(), resolved.tipTarget(), bendSeed);
-        }
-        else
-        {
-            Vector3f[] solvedArray = solved.toArray(new Vector3f[solved.size()]);
-            ModelRotationBlender.applyWeightedRotations(model, rootParentRotation, workIds, solvedArray, resolved.weight());
-        }
-    }
-
-    /**
-     * Gives each BOBJ IK bone a full local orientation written to
-     * {@link BOBJBone#orient}, which the armature applies in place of the euler
-     * rotate. BOBJ bones carry a per-bone REST rotation (their {@code relBoneMat}),
-     * so the rest and solved frames are walked separately: the rest frame advances
-     * by {@code relBoneMat} alone, the solved frame by each bone's applied
-     * orientation then {@code relBoneMat}. Both build the roll reference by
-     * parallel transport in world, so at rest the two frames coincide and the
-     * orientation is identity — no baseline twist. Cubic's X-mirror convention
-     * ({@link Matrices#orientMirroredX}) applies to the shared model space.
-     */
-    private static void buildChainOrientationsBobj(BOBJModel model, List<String> chainIds, List<Vector3f> solved, Quaternionf rootParentRotation, float weight, Quaternionf tipTarget, Vector3f bendSeed)
-    {
-        int bones = chainIds.size() - 1;
-        Map<String, BOBJBone> bonesMap = model.getArmature().bones;
-        BOBJBone[] chainBones = new BOBJBone[bones];
-        Vector3f[] restDir = new Vector3f[bones];
-        Quaternionf[] relRot = new Quaternionf[bones];
-        Vector3f[] segWorld = new Vector3f[bones];
-
-        for (int i = 0; i < bones; i++)
-        {
-            BOBJBone bone = bonesMap.get(chainIds.get(i));
-            Vector3f seg = new Vector3f(solved.get(i + 1)).sub(solved.get(i));
-
-            restDir[i] = restDirection(model, chainIds, i);
-
-            if (bone == null || restDir[i] == null || seg.lengthSquared() < EPS * EPS)
-            {
-                return;
-            }
-
-            chainBones[i] = bone;
-            relRot[i] = bone.relBoneMat.getNormalizedRotation(new Quaternionf());
-            segWorld[i] = seg.normalize();
-        }
-
-        /* Rest-pose world frames advance by relBoneMat alone (geometry rest, no bone
-         * rotation); the root's own relBoneMat is already baked into rootParentRotation. */
-        Quaternionf[] restFrame = new Quaternionf[bones];
-        restFrame[0] = new Quaternionf(rootParentRotation);
-
-        for (int i = 1; i < bones; i++)
-        {
-            restFrame[i] = new Quaternionf(restFrame[i - 1]).mul(relRot[i]);
-        }
-
-        Vector3f[] restDirWorld = new Vector3f[bones];
-
-        for (int i = 0; i < bones; i++)
-        {
-            restDirWorld[i] = restFrame[i].transform(new Vector3f(restDir[i]));
-        }
-
-        Vector3f[] restNormalWorld = transportNormals(restDirWorld);
-        Vector3f[] solvedNormalWorld = transportNormals(segWorld, bendSeed);
-
-        /* Solved-pose world frame advances by each bone's applied orientation, then the
-         * next bone's relBoneMat — so a child decomposes against the frame the armature
-         * actually establishes (blended orientation at weight < 1). */
-        Quaternionf originRot = new Quaternionf(rootParentRotation);
-
-        for (int i = 0; i < bones; i++)
-        {
-            Quaternionf invOrigin = new Quaternionf(originRot).conjugate();
-            Vector3f segLocal = invOrigin.transform(new Vector3f(segWorld[i]));
-            Vector3f normalLocal = invOrigin.transform(new Vector3f(solvedNormalWorld[i]));
-            Vector3f restNormalLocal = new Quaternionf(restFrame[i]).conjugate().transform(new Vector3f(restNormalWorld[i]));
-
-            Quaternionf localRot = Matrices.orientMirroredX(restDir[i], restNormalLocal, segLocal, normalLocal);
-            Quaternionf oriented = weight >= 1F - EPS ? new Quaternionf(localRot) : chainBones[i].evaluatedRotation().slerp(localRot, weight);
-
-            chainBones[i].orient = oriented;
-
-            if (i + 1 < bones)
-            {
-                originRot.mul(oriented).mul(relRot[i + 1]);
-            }
-        }
-
-        /* Tip follows target: the effector copies the controller's world orientation. Its
-         * parent frame is the last directed bone's frame advanced by its applied
-         * orientation and the tip's own relBoneMat. */
-        if (tipTarget != null)
-        {
-            BOBJBone tip = bonesMap.get(chainIds.get(chainIds.size() - 1));
-
-            if (tip != null)
-            {
-                Quaternionf tipRelRot = tip.relBoneMat.getNormalizedRotation(new Quaternionf());
-                Quaternionf tipParent = new Quaternionf(originRot).mul(chainBones[bones - 1].orient).mul(tipRelRot);
-                Quaternionf tipLocal = tipParent.conjugate().mul(tipTarget);
-
-                tip.orient = weight >= 1F - EPS ? new Quaternionf(tipLocal) : tip.evaluatedRotation().slerp(tipLocal, weight);
-            }
-        }
-    }
-
-    /**
-     * Carries a roll-reference normal along a chain of unit directions by parallel
-     * transport: seeded from the bend of the first two segments (a stable perpendicular
-     * when they are collinear), then rotated minimally from each segment to the next.
-     */
-    private static Vector3f[] transportNormals(Vector3f[] dirs)
-    {
-        return transportNormals(dirs, null);
-    }
-
-    /**
-     * {@code seedHint} (when non-null) is a stable bend-plane normal used to seed the
-     * roll reference where the first two segments are collinear — a straightened chain.
-     * It is the LIMIT the live bend normal {@code dirs[0] x dirs[1]} approaches as the
-     * chain straightens, so seeding with it keeps the roll continuous through full
-     * extension.
-     */
-    private static Vector3f[] transportNormals(Vector3f[] dirs, Vector3f seedHint)
-    {
-        int m = dirs.length;
-        Vector3f[] normals = new Vector3f[m];
-        Vector3f seed = m >= 2 ? new Vector3f(dirs[0]).cross(dirs[1]) : new Vector3f();
-
-        if (seed.lengthSquared() < 1.0e-10f)
-        {
-            Vector3f hint = seedHint == null ? null : perpendicularTo(seedHint, dirs[0]);
-
-            normals[0] = hint != null ? hint : stablePerpendicular(dirs[0]);
-        }
-        else
-        {
-            normals[0] = seed.normalize();
-        }
-
-        for (int i = 1; i < m; i++)
-        {
-            Vector3f n = new Quaternionf().rotationTo(dirs[i - 1], dirs[i]).transform(new Vector3f(normals[i - 1]));
-
-            normals[i] = n.normalize();
-        }
-
-        return normals;
-    }
-
-    /** A deterministic unit perpendicular to {@code dir}, cross with world Z (falling back to world Y when parallel). */
-    private static Vector3f stablePerpendicular(Vector3f dir)
-    {
-        Vector3f perp = new Vector3f(dir).cross(0F, 0F, 1F);
-
-        if (perp.lengthSquared() < EPS * EPS)
-        {
-            perp.set(dir).cross(0F, 1F, 0F);
-        }
-
-        return perp.normalize();
-    }
-
-    /**
-     * Builds per-bone rotation limits for the legacy BOBJ solve from the
-     * constraints config (the cubic path's limits live in the IK config's
-     * per-bone DoF instead). Returns {@code null} when no bone in the chain is
-     * constrained (fast path).
-     */
-    private static IKSolver.Limit[] buildLimits(IModel model, List<String> chainIds, Map<String, BoneConstraint> boneLimits)
-    {
-        if (boneLimits == null || boneLimits.isEmpty())
-        {
-            return null;
-        }
-
-        int directed = chainIds.size() - 1;
-
-        if (directed < 1)
-        {
-            return null;
-        }
-
-        boolean any = false;
-
-        for (int i = 0; i < directed; i++)
-        {
-            BoneConstraint c = boneLimits.get(chainIds.get(i));
-
-            if (c != null && c.enabled())
-            {
-                any = true;
-                break;
-            }
-        }
-
-        if (!any)
-        {
-            return null;
-        }
-
-        IKSolver.Limit[] limits = new IKSolver.Limit[directed];
-
-        for (int i = 0; i < directed; i++)
-        {
-            String id = chainIds.get(i);
-            Vector3f restDir = restDirection(model, chainIds, i);
-
-            if (restDir == null)
-            {
-                return null;
-            }
-
-            BoneConstraint c = boneLimits.get(id);
-            boolean enabled = c != null && c.enabled();
-
-            limits[i] = enabled
-                ? new IKSolver.Limit(true, restDir, c.minX(), c.minY(), c.minZ(), c.maxX(), c.maxY(), c.maxZ())
-                : new IKSolver.Limit(false, restDir, 0F, 0F, 0F, 0F, 0F, 0F);
-        }
-
-        return limits;
     }
 }

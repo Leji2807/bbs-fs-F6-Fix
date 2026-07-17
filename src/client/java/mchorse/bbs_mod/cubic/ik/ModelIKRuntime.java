@@ -2,8 +2,6 @@ package mchorse.bbs_mod.cubic.ik;
 
 import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.ModelInstance;
-import mchorse.bbs_mod.cubic.constraints.ModelConstraintsConfig.BoneConstraint;
-import mchorse.bbs_mod.cubic.constraints.ModelConstraintsRuntime;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.forms.forms.ModelForm;
 import org.joml.Vector3f;
@@ -58,7 +56,6 @@ public final class ModelIKRuntime
             return;
         }
 
-        Map<String, BoneConstraint> boneLimits = ModelConstraintsRuntime.getBones(instance);
         Map<String, IKControl> controlOverrides = null;
         Map<String, Float> targetWeights = null;
         Map<String, Float> poleWeights = null;
@@ -70,7 +67,7 @@ public final class ModelIKRuntime
             poleWeights = form.poleTargetWeights;
         }
 
-        ModelIKApplier.apply(model, chains, compiled.bones(), controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides, boneLimits);
+        ModelIKApplier.apply(model, chains, compiled.bones(), controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
     }
 
     /**
