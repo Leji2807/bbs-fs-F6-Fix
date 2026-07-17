@@ -4,6 +4,7 @@ import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.ik.ModelIKConfig;
 import mchorse.bbs_mod.cubic.ik.ModelIKIO;
+import mchorse.bbs_mod.cubic.ik.ModelIKRuntime;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.forms.forms.ModelForm;
 import mchorse.bbs_mod.forms.renderers.ModelFormRenderer;
@@ -29,6 +30,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
@@ -46,8 +48,26 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     public UITrackpad weight;
     public UIToggle tipRotation;
 
+    public UIToggle lockX;
+    public UIToggle lockY;
+    public UIToggle lockZ;
+    public UIToggle limitX;
+    public UIToggle limitY;
+    public UIToggle limitZ;
+    public UITrackpad limitMinX;
+    public UITrackpad limitMaxX;
+    public UITrackpad limitMinY;
+    public UITrackpad limitMaxY;
+    public UITrackpad limitMinZ;
+    public UITrackpad limitMaxZ;
+    public UITrackpad stiffnessX;
+    public UITrackpad stiffnessY;
+    public UITrackpad stiffnessZ;
+
     private String selectedBone = "";
     private Map<String, IKData> ikData = new HashMap<>();
+    private Map<String, JointData> jointData = new HashMap<>();
+    private ModelInstance model;
     private String presetGroup = "";
     private boolean syncingUI;
 
@@ -62,6 +82,52 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         public float weight = ModelIKConfig.DEFAULT_WEIGHT;
         public boolean enabled = true;
         public boolean tipRotation = ModelIKConfig.DEFAULT_TIP_ROTATION;
+    }
+
+    /** Mutable UI shadow of {@link ModelIKConfig.JointDoF} — the selected bone's joint freedom. */
+    private static class JointData
+    {
+        public boolean lockX, lockY, lockZ;
+        public boolean limitX, limitY, limitZ;
+        public float minX = ModelIKConfig.JointDoF.DEFAULT_MIN;
+        public float maxX = ModelIKConfig.JointDoF.DEFAULT_MAX;
+        public float minY = ModelIKConfig.JointDoF.DEFAULT_MIN;
+        public float maxY = ModelIKConfig.JointDoF.DEFAULT_MAX;
+        public float minZ = ModelIKConfig.JointDoF.DEFAULT_MIN;
+        public float maxZ = ModelIKConfig.JointDoF.DEFAULT_MAX;
+        public float stiffnessX, stiffnessY, stiffnessZ;
+
+        public static JointData from(ModelIKConfig.JointDoF dof)
+        {
+            JointData data = new JointData();
+
+            data.lockX = dof.lockX();
+            data.lockY = dof.lockY();
+            data.lockZ = dof.lockZ();
+            data.limitX = dof.limitX();
+            data.limitY = dof.limitY();
+            data.limitZ = dof.limitZ();
+            data.minX = dof.minX();
+            data.maxX = dof.maxX();
+            data.minY = dof.minY();
+            data.maxY = dof.maxY();
+            data.minZ = dof.minZ();
+            data.maxZ = dof.maxZ();
+            data.stiffnessX = dof.stiffnessX();
+            data.stiffnessY = dof.stiffnessY();
+            data.stiffnessZ = dof.stiffnessZ();
+
+            return data;
+        }
+
+        public ModelIKConfig.JointDoF toDoF()
+        {
+            return new ModelIKConfig.JointDoF(this.lockX, this.lockY, this.lockZ,
+                this.limitX, this.minX, this.maxX,
+                this.limitY, this.minY, this.maxY,
+                this.limitZ, this.minZ, this.maxZ,
+                this.stiffnessX, this.stiffnessY, this.stiffnessZ);
+        }
     }
 
     public UIModelIKFormPanel(UIForm editor)
@@ -220,6 +286,38 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.tipRotation
         );
 
+        /* The selected bone's JOINT freedom — per axis: lock, limit (degrees), stiffness.
+         * Per BONE, not per chain: a bone shared by several chains has one set of joints. */
+        this.lockX = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LOCK.format("X"), (d, v) -> d.lockX = v);
+        this.lockY = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LOCK.format("Y"), (d, v) -> d.lockY = v);
+        this.lockZ = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LOCK.format("Z"), (d, v) -> d.lockZ = v);
+
+        this.limitX = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LIMIT.format("X"), (d, v) -> d.limitX = v);
+        this.limitY = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LIMIT.format("Y"), (d, v) -> d.limitY = v);
+        this.limitZ = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LIMIT.format("Z"), (d, v) -> d.limitZ = v);
+
+        this.limitMinX = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MIN, (d, v) -> d.minX = v);
+        this.limitMaxX = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MAX, (d, v) -> d.maxX = v);
+        this.limitMinY = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MIN, (d, v) -> d.minY = v);
+        this.limitMaxY = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MAX, (d, v) -> d.maxY = v);
+        this.limitMinZ = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MIN, (d, v) -> d.minZ = v);
+        this.limitMaxZ = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MAX, (d, v) -> d.maxZ = v);
+
+        this.stiffnessX = this.jointStiffness((d, v) -> d.stiffnessX = v);
+        this.stiffnessY = this.jointStiffness((d, v) -> d.stiffnessY = v);
+        this.stiffnessZ = this.jointStiffness((d, v) -> d.stiffnessZ = v);
+
+        UISection joint = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT);
+
+        joint.fields.add(
+            this.lockX, this.lockY, this.lockZ,
+            this.limitX.marginTop(UIConstants.SECTION_GAP), UI.row(this.limitMinX, this.limitMaxX),
+            this.limitY.marginTop(UIConstants.SECTION_GAP), UI.row(this.limitMinY, this.limitMaxY),
+            this.limitZ.marginTop(UIConstants.SECTION_GAP), UI.row(this.limitMinZ, this.limitMaxZ),
+            UI.label(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS).marginTop(UIConstants.SECTION_GAP),
+            UI.row(this.stiffnessX, this.stiffnessY, this.stiffnessZ)
+        );
+
         UIIcon debugSettings = new UIIcon(Icons.GEAR, (b) -> this.getContext().replaceContextMenu(new UIDebugOverlayContextMenu(BBSSettings.ikDebug)));
 
         debugSettings.tooltip(UIKeys.MODEL_DEBUG_CONFIGURE);
@@ -233,8 +331,63 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.options.add(
             debugRow,
             this.bones,
-            settings
+            settings,
+            joint
         );
+    }
+
+    private UIToggle jointToggle(IKey label, BiConsumer<JointData, Boolean> setter)
+    {
+        return new UIToggle(label, (b) ->
+        {
+            if (this.syncingUI || this.selectedBone.isEmpty())
+            {
+                return;
+            }
+
+            setter.accept(this.getOrCreateJoint(this.selectedBone), b.getValue());
+            this.updateLabels();
+            this.commitChanges();
+        });
+    }
+
+    private UITrackpad jointDegrees(IKey tooltip, BiConsumer<JointData, Float> setter)
+    {
+        UITrackpad pad = this.jointPad(setter);
+
+        pad.limit(-180D, 180D).increment(5D).values(1D, 0.5D, 5D);
+        pad.tooltip(tooltip);
+
+        return pad;
+    }
+
+    private UITrackpad jointStiffness(BiConsumer<JointData, Float> setter)
+    {
+        UITrackpad pad = this.jointPad(setter);
+
+        pad.limit(0D, 1D).increment(0.1D).values(0.1D, 0.05D, 0.2D);
+        pad.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS);
+
+        return pad;
+    }
+
+    private UITrackpad jointPad(BiConsumer<JointData, Float> setter)
+    {
+        return new UITrackpad((v) ->
+        {
+            if (this.syncingUI || this.selectedBone.isEmpty())
+            {
+                return;
+            }
+
+            setter.accept(this.getOrCreateJoint(this.selectedBone), v.floatValue());
+            this.commitChanges();
+        });
+    }
+
+    private JointData getOrCreateJoint(String bone)
+    {
+        return this.jointData.computeIfAbsent(bone, k -> new JointData());
     }
 
     @Override
@@ -245,6 +398,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.debug.setValue(BBSSettings.ikDebug.enabled.get());
 
         ModelInstance model = ModelFormRenderer.getModel(form);
+        this.model = model;
         this.presetGroup = this.resolvePresetGroup(form, model);
 
         if (model == null || model.model == null)
@@ -253,6 +407,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.bones.deselect();
             this.selectedBone = "";
             this.ikData.clear();
+            this.jointData.clear();
 
             this.setElementsEnabled(false);
         }
@@ -283,6 +438,26 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.softness.setEnabled(enabled);
         this.weight.setEnabled(enabled);
         this.tipRotation.setEnabled(enabled);
+        this.setJointEnabled(enabled);
+    }
+
+    private void setJointEnabled(boolean enabled)
+    {
+        this.lockX.setEnabled(enabled);
+        this.lockY.setEnabled(enabled);
+        this.lockZ.setEnabled(enabled);
+        this.limitX.setEnabled(enabled);
+        this.limitY.setEnabled(enabled);
+        this.limitZ.setEnabled(enabled);
+        this.limitMinX.setEnabled(enabled);
+        this.limitMaxX.setEnabled(enabled);
+        this.limitMinY.setEnabled(enabled);
+        this.limitMaxY.setEnabled(enabled);
+        this.limitMinZ.setEnabled(enabled);
+        this.limitMaxZ.setEnabled(enabled);
+        this.stiffnessX.setEnabled(enabled);
+        this.stiffnessY.setEnabled(enabled);
+        this.stiffnessZ.setEnabled(enabled);
     }
 
     @Override
@@ -330,31 +505,65 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         }
 
         IKData data = this.ikData.get(this.selectedBone);
+        JointData joint = this.jointData.get(this.selectedBone);
 
         String targetLabel = data == null ? "" : data.target;
         boolean active = data != null && data.enabled;
         boolean poleOn = data != null && data.pole;
         boolean canEdit = !this.selectedBone.isEmpty() && this.bones.isEnabled() && active;
 
+        /* Loud cycle validation: a target (or pole) the chain itself drives closes a
+         * feedback loop, so such a chain does not compile — the labels say so. */
+        boolean cyclicTarget = data != null && this.isCyclic(data, targetLabel);
+        boolean cyclicPole = data != null && this.isCyclic(data, data.poleTarget);
+
         this.syncingUI = true;
 
         try
         {
-            this.target.label = UIKeys.FORMS_EDITORS_MODEL_IK_TARGET.format(this.formatBone(targetLabel));
+            this.target.label = UIKeys.FORMS_EDITORS_MODEL_IK_TARGET.format(this.formatBone(targetLabel) + (cyclicTarget ? UIKeys.FORMS_EDITORS_MODEL_IK_CYCLE.get() : ""));
             this.chainLength.setValue(data == null ? ModelIKConfig.DEFAULT_CHAIN_LENGTH : data.chainLength);
             this.pole.setValue(poleOn);
-            this.poleTarget.label = UIKeys.FORMS_EDITORS_MODEL_IK_POLE_TARGET.format(this.formatBone(data == null ? "" : data.poleTarget));
+            this.poleTarget.label = UIKeys.FORMS_EDITORS_MODEL_IK_POLE_TARGET.format(this.formatBone(data == null ? "" : data.poleTarget) + (cyclicPole ? UIKeys.FORMS_EDITORS_MODEL_IK_CYCLE.get() : ""));
             this.poleAngle.setValue(data == null ? ModelIKConfig.DEFAULT_POLE_ANGLE : data.poleAngle);
             this.softness.setValue(data == null ? ModelIKConfig.DEFAULT_SOFTNESS : data.softness);
             this.weight.setValue(data == null ? ModelIKConfig.DEFAULT_WEIGHT : data.weight);
             this.tipRotation.setValue(data != null && data.tipRotation);
             this.enabled.setEnabled(this.bones.isEnabled() && !this.selectedBone.isEmpty());
             this.enabled.setValue(active);
+
+            this.lockX.setValue(joint != null && joint.lockX);
+            this.lockY.setValue(joint != null && joint.lockY);
+            this.lockZ.setValue(joint != null && joint.lockZ);
+            this.limitX.setValue(joint != null && joint.limitX);
+            this.limitY.setValue(joint != null && joint.limitY);
+            this.limitZ.setValue(joint != null && joint.limitZ);
+            this.limitMinX.setValue(joint == null ? ModelIKConfig.JointDoF.DEFAULT_MIN : joint.minX);
+            this.limitMaxX.setValue(joint == null ? ModelIKConfig.JointDoF.DEFAULT_MAX : joint.maxX);
+            this.limitMinY.setValue(joint == null ? ModelIKConfig.JointDoF.DEFAULT_MIN : joint.minY);
+            this.limitMaxY.setValue(joint == null ? ModelIKConfig.JointDoF.DEFAULT_MAX : joint.maxY);
+            this.limitMinZ.setValue(joint == null ? ModelIKConfig.JointDoF.DEFAULT_MIN : joint.minZ);
+            this.limitMaxZ.setValue(joint == null ? ModelIKConfig.JointDoF.DEFAULT_MAX : joint.maxZ);
+            this.stiffnessX.setValue(joint == null ? 0D : joint.stiffnessX);
+            this.stiffnessY.setValue(joint == null ? 0D : joint.stiffnessY);
+            this.stiffnessZ.setValue(joint == null ? 0D : joint.stiffnessZ);
         }
         finally
         {
             this.syncingUI = false;
         }
+
+        /* The joint is a property of the BONE, editable regardless of whether a chain
+         * ends here — it affects every chain running through this bone. */
+        boolean canEditJoint = !this.selectedBone.isEmpty() && this.bones.isEnabled();
+
+        this.setJointEnabled(canEditJoint);
+        this.limitMinX.setEnabled(canEditJoint && joint != null && joint.limitX);
+        this.limitMaxX.setEnabled(canEditJoint && joint != null && joint.limitX);
+        this.limitMinY.setEnabled(canEditJoint && joint != null && joint.limitY);
+        this.limitMaxY.setEnabled(canEditJoint && joint != null && joint.limitY);
+        this.limitMinZ.setEnabled(canEditJoint && joint != null && joint.limitZ);
+        this.limitMaxZ.setEnabled(canEditJoint && joint != null && joint.limitZ);
 
         this.target.setEnabled(canEdit);
         this.chainLength.setEnabled(canEdit);
@@ -376,6 +585,17 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         return bone == null || bone.isEmpty() ? "-" : bone;
     }
 
+    /** Whether pointing the selected bone's chain at {@code bone} would close a feedback loop. */
+    private boolean isCyclic(IKData data, String bone)
+    {
+        if (bone == null || bone.isEmpty() || this.model == null || this.model.model == null)
+        {
+            return false;
+        }
+
+        return ModelIKRuntime.isCyclicTarget(this.model.model, this.selectedBone, data.chainLength, bone);
+    }
+
     private void load()
     {
         ModelIKConfig config = null;
@@ -390,8 +610,9 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     private void load(ModelIKConfig config)
     {
         this.ikData.clear();
+        this.jointData.clear();
 
-        if (config == null || config.chains() == null)
+        if (config == null)
         {
             return;
         }
@@ -399,29 +620,49 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         List<String> bones = this.bones.getList();
         boolean filterByBones = bones != null && !bones.isEmpty();
 
-        for (ModelIKConfig.Chain chain : config.chains())
+        if (config.chains() != null)
         {
-            if (chain == null || chain.tip() == null || chain.tip().isEmpty())
+            for (ModelIKConfig.Chain chain : config.chains())
+            {
+                if (chain == null || chain.tip() == null || chain.tip().isEmpty())
+                {
+                    continue;
+                }
+
+                if (filterByBones && !bones.contains(chain.tip()))
+                {
+                    continue;
+                }
+
+                IKData data = new IKData();
+                data.target = chain.target();
+                data.chainLength = chain.chainLength();
+                data.pole = chain.pole();
+                data.poleTarget = chain.poleTarget();
+                data.poleAngle = chain.poleAngle();
+                data.softness = chain.softness();
+                data.weight = chain.weight();
+                data.enabled = chain.enabled();
+                data.tipRotation = chain.tipRotation();
+                this.ikData.put(chain.tip(), data);
+            }
+        }
+
+        for (Map.Entry<String, ModelIKConfig.JointDoF> entry : config.bones().entrySet())
+        {
+            String bone = entry.getKey();
+
+            if (bone == null || bone.isEmpty() || entry.getValue() == null)
             {
                 continue;
             }
 
-            if (filterByBones && !bones.contains(chain.tip()))
+            if (filterByBones && !bones.contains(bone))
             {
                 continue;
             }
 
-            IKData data = new IKData();
-            data.target = chain.target();
-            data.chainLength = chain.chainLength();
-            data.pole = chain.pole();
-            data.poleTarget = chain.poleTarget();
-            data.poleAngle = chain.poleAngle();
-            data.softness = chain.softness();
-            data.weight = chain.weight();
-            data.enabled = chain.enabled();
-            data.tipRotation = chain.tipRotation();
-            this.ikData.put(chain.tip(), data);
+            this.jointData.put(bone, JointData.from(entry.getValue()));
         }
     }
 
@@ -454,12 +695,37 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             out.add(new ModelIKConfig.Chain(tip, data.target, data.chainLength, data.pole, data.poleTarget, data.poleAngle, data.softness, data.weight, data.enabled, data.tipRotation));
         }
 
-        if (out.isEmpty())
+        Map<String, ModelIKConfig.JointDoF> joints = new HashMap<>();
+
+        for (Map.Entry<String, JointData> entry : this.jointData.entrySet())
+        {
+            String bone = entry.getKey();
+            JointData data = entry.getValue();
+
+            if (bone == null || bone.isEmpty() || data == null)
+            {
+                continue;
+            }
+
+            if (filterByBones && !bones.contains(bone))
+            {
+                continue;
+            }
+
+            ModelIKConfig.JointDoF dof = data.toDoF();
+
+            if (!dof.isFree())
+            {
+                joints.put(bone, dof);
+            }
+        }
+
+        if (out.isEmpty() && joints.isEmpty())
         {
             return new MapType();
         }
 
-        return ModelIKIO.toData(new ModelIKConfig(out));
+        return ModelIKIO.toData(new ModelIKConfig(out, joints));
     }
 
     private void applyPresetData(MapType map)

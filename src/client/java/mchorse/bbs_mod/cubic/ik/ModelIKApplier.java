@@ -47,7 +47,7 @@ final class ModelIKApplier
     {
     }
 
-    public static void apply(IModel model, List<ModelIKCache.CompiledChain> chains, Map<String, Vector3f> controllerTargets, Map<String, Vector3f> poleTargets, Map<String, Float> targetWeights, Map<String, Float> poleWeights, Map<String, IKControl> controlOverrides, Map<String, BoneConstraint> boneLimits)
+    public static void apply(IModel model, List<ModelIKCache.CompiledChain> chains, Map<String, ModelIKConfig.JointDoF> jointDoF, Map<String, Vector3f> controllerTargets, Map<String, Vector3f> poleTargets, Map<String, Float> targetWeights, Map<String, Float> poleWeights, Map<String, IKControl> controlOverrides, Map<String, BoneConstraint> boneLimits)
     {
         if (model == null || chains == null || chains.isEmpty())
         {
@@ -79,7 +79,7 @@ final class ModelIKApplier
             Map<String, PivotFrame> frames = new HashMap<>(wanted.size() * 2);
             ModelPivotFrames.collect(model, wanted, frames, null);
 
-            applyChain(model, chain, frames, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides, boneLimits);
+            applyChain(model, chain, frames, jointDoF, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides, boneLimits);
         }
 
         if (LOG_IK)
@@ -124,7 +124,7 @@ final class ModelIKApplier
         return depth;
     }
 
-    private static void applyChain(IModel model, ModelIKCache.CompiledChain chain, Map<String, PivotFrame> frames, Map<String, Vector3f> controllerTargets, Map<String, Vector3f> poleTargets, Map<String, Float> targetWeights, Map<String, Float> poleWeights, Map<String, IKControl> controlOverrides, Map<String, BoneConstraint> boneLimits)
+    private static void applyChain(IModel model, ModelIKCache.CompiledChain chain, Map<String, PivotFrame> frames, Map<String, ModelIKConfig.JointDoF> jointDoF, Map<String, Vector3f> controllerTargets, Map<String, Vector3f> poleTargets, Map<String, Float> targetWeights, Map<String, Float> poleWeights, Map<String, IKControl> controlOverrides, Map<String, BoneConstraint> boneLimits)
     {
         /* The film's `ik` track may override the chain's static config scalars.
          * IK weight is independent of pose `fix` — freezing a bone pins it to rest
@@ -190,7 +190,7 @@ final class ModelIKApplier
 
         if (model instanceof Model cubic)
         {
-            applyChainCubic(cubic, workIds, frames, target, pole, polePoint, poleAngle, softness, weight, tipTarget);
+            applyChainCubic(cubic, workIds, frames, jointDoF, target, pole, polePoint, poleAngle, softness, weight, tipTarget);
         }
         else if (model instanceof BOBJModel bobj)
         {
@@ -212,9 +212,9 @@ final class ModelIKApplier
      * (the constraint-stack contract), and the solved angles START from them,
      * so the twist the animator posed survives into the solve by construction.
      */
-    private static void applyChainCubic(Model model, List<String> workIds, Map<String, PivotFrame> frames, Vector3f target, boolean pole, Vector3f polePoint, float poleAngle, float softness, float weight, Quaternionf tipTarget)
+    private static void applyChainCubic(Model model, List<String> workIds, Map<String, PivotFrame> frames, Map<String, ModelIKConfig.JointDoF> jointDoF, Vector3f target, boolean pole, Vector3f polePoint, float poleAngle, float softness, float weight, Quaternionf tipTarget)
     {
-        IKChain chain = captureChain(model, workIds, frames);
+        IKChain chain = captureChain(model, workIds, frames, jointDoF);
 
         if (chain == null)
         {
@@ -293,10 +293,12 @@ final class ModelIKApplier
      * bone's evaluated rotation — the rotation the renderer actually applies —
      * decomposed continuously against the euler channels, so a quaternion-mode
      * bone or a composed layer stack enters the solve without a branch flip and
-     * a plain euler bone enters byte-exact. Returns {@code null} when a frame or
+     * a plain euler bone enters byte-exact. Each joint picks up its per-bone
+     * freedom from the config's "bones" section (locks, degree limits converted
+     * to the solver's radians, stiffness). Returns {@code null} when a frame or
      * bone is missing (the solve is silently skipped, as before).
      */
-    private static IKChain captureChain(Model model, List<String> workIds, Map<String, PivotFrame> frames)
+    private static IKChain captureChain(Model model, List<String> workIds, Map<String, PivotFrame> frames, Map<String, ModelIKConfig.JointDoF> jointDoF)
     {
         int directed = workIds.size() - 1;
 
@@ -334,9 +336,42 @@ final class ModelIKApplier
             joint.startWorldRotation.set(frame.worldRotation());
             sourceAngles(bone, joint.startAngles);
             joint.angles.set(joint.startAngles);
+
+            ModelIKConfig.JointDoF dof = jointDoF == null ? null : jointDoF.get(workIds.get(i));
+
+            if (dof != null)
+            {
+                applyDoF(joint, dof);
+            }
         }
 
         return chain;
+    }
+
+    /** Copies the config's per-bone freedom onto a solver joint; limits are authored in degrees. */
+    private static void applyDoF(IKJoint joint, ModelIKConfig.JointDoF dof)
+    {
+        float toRad = (float) (Math.PI / 180.0);
+
+        joint.locked[0] = dof.lockX();
+        joint.locked[1] = dof.lockY();
+        joint.locked[2] = dof.lockZ();
+
+        joint.limited[0] = dof.limitX();
+        joint.limited[1] = dof.limitY();
+        joint.limited[2] = dof.limitZ();
+
+        joint.limitMin[0] = dof.minX() * toRad;
+        joint.limitMin[1] = dof.minY() * toRad;
+        joint.limitMin[2] = dof.minZ() * toRad;
+
+        joint.limitMax[0] = dof.maxX() * toRad;
+        joint.limitMax[1] = dof.maxY() * toRad;
+        joint.limitMax[2] = dof.maxZ() * toRad;
+
+        joint.stiffness[0] = dof.stiffnessX();
+        joint.stiffness[1] = dof.stiffnessY();
+        joint.stiffness[2] = dof.stiffnessZ();
     }
 
     /**

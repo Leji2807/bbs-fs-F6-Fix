@@ -487,6 +487,13 @@ public class UIKeys
     public static final IKey FORMS_EDITORS_MODEL_IK_SOFTNESS = L10n.lang("bbs.ui.forms.editors.model.ik.softness");
     public static final IKey FORMS_EDITORS_MODEL_IK_WEIGHT = L10n.lang("bbs.ui.forms.editors.model.ik.weight");
     public static final IKey FORMS_EDITORS_MODEL_IK_TIP_ROTATION = L10n.lang("bbs.ui.forms.editors.model.ik.tip_rotation");
+    public static final IKey FORMS_EDITORS_MODEL_IK_CYCLE = L10n.lang("bbs.ui.forms.editors.model.ik.cycle");
+    public static final IKey FORMS_EDITORS_MODEL_IK_JOINT = L10n.lang("bbs.ui.forms.editors.model.ik.joint");
+    public static final IKey FORMS_EDITORS_MODEL_IK_JOINT_LOCK = L10n.lang("bbs.ui.forms.editors.model.ik.joint.lock");
+    public static final IKey FORMS_EDITORS_MODEL_IK_JOINT_LIMIT = L10n.lang("bbs.ui.forms.editors.model.ik.joint.limit");
+    public static final IKey FORMS_EDITORS_MODEL_IK_JOINT_MIN = L10n.lang("bbs.ui.forms.editors.model.ik.joint.min");
+    public static final IKey FORMS_EDITORS_MODEL_IK_JOINT_MAX = L10n.lang("bbs.ui.forms.editors.model.ik.joint.max");
+    public static final IKey FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS = L10n.lang("bbs.ui.forms.editors.model.ik.joint.stiffness");
     public static final IKey FORMS_EDITORS_MODEL_IK_CONTEXT_COPY = L10n.lang("bbs.ui.forms.editors.model.ik.context.copy");
     public static final IKey FORMS_EDITORS_MODEL_IK_CONTEXT_PASTE = L10n.lang("bbs.ui.forms.editors.model.ik.context.paste");
     public static final IKey FORMS_EDITORS_MODEL_IK_CONTEXT_RESET = L10n.lang("bbs.ui.forms.editors.model.ik.context.reset");

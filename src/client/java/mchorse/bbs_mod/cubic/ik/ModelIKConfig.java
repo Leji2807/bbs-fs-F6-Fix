@@ -1,9 +1,16 @@
 package mchorse.bbs_mod.cubic.ik;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
-public record ModelIKConfig(List<Chain> chains)
+public record ModelIKConfig(List<Chain> chains, Map<String, JointDoF> bones)
 {
+    public ModelIKConfig
+    {
+        bones = bones == null ? Collections.emptyMap() : bones;
+    }
+
     public static final float DEFAULT_WEIGHT = 1F;
     public static final String DEFAULT_POLE_TARGET = "";
     public static final float DEFAULT_POLE_ANGLE = 0F;
@@ -43,6 +50,47 @@ public record ModelIKConfig(List<Chain> chains)
             }
 
             return Math.min(value, 1F);
+        }
+    }
+
+    /**
+     * Per-bone joint freedom for the IK solve — Blender's bone IK panel. Per
+     * axis: {@code lock} removes the axis from the solve entirely (it stays
+     * frozen at its FK value, so an authored twist survives); {@code limit}
+     * clamps the CHANNEL angle into [min, max] degrees — the same numbers the
+     * animator sees on the rotation pads; {@code stiffness} 0..1 makes the axis
+     * increasingly reluctant to move, shifting the bend to freer joints. One
+     * entry per bone of the MODEL — a bone shared by several chains has one
+     * set of joints, like a Blender pose bone.
+     */
+    public record JointDoF(boolean lockX, boolean lockY, boolean lockZ,
+                           boolean limitX, float minX, float maxX,
+                           boolean limitY, float minY, float maxY,
+                           boolean limitZ, float minZ, float maxZ,
+                           float stiffnessX, float stiffnessY, float stiffnessZ)
+    {
+        public static final float DEFAULT_MIN = -180F;
+        public static final float DEFAULT_MAX = 180F;
+
+        public static final JointDoF FREE = new JointDoF(false, false, false,
+            false, DEFAULT_MIN, DEFAULT_MAX,
+            false, DEFAULT_MIN, DEFAULT_MAX,
+            false, DEFAULT_MIN, DEFAULT_MAX,
+            0F, 0F, 0F);
+
+        public JointDoF
+        {
+            stiffnessX = Chain.clamp01(stiffnessX);
+            stiffnessY = Chain.clamp01(stiffnessY);
+            stiffnessZ = Chain.clamp01(stiffnessZ);
+        }
+
+        /** A free joint carries no information and is not serialized. */
+        public boolean isFree()
+        {
+            return !this.lockX && !this.lockY && !this.lockZ
+                && !this.limitX && !this.limitY && !this.limitZ
+                && this.stiffnessX <= 0F && this.stiffnessY <= 0F && this.stiffnessZ <= 0F;
         }
     }
 }

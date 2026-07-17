@@ -70,7 +70,24 @@ public final class ModelIKRuntime
             poleWeights = form.poleTargetWeights;
         }
 
-        ModelIKApplier.apply(model, chains, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides, boneLimits);
+        ModelIKApplier.apply(model, chains, compiled.bones(), controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides, boneLimits);
+    }
+
+    /**
+     * Whether pointing the chain that ends at {@code tip} (spanning {@code
+     * chainLength} bones up) at {@code target} is cyclic — the target is one of
+     * the chain's own bones, so the solve's variables would move the very point
+     * it chases. Such a chain does not compile; the panel uses this to mark the
+     * pick loudly.
+     */
+    public static boolean isCyclicTarget(IModel model, String tip, int chainLength, String target)
+    {
+        if (model == null || tip == null || tip.isEmpty() || target == null || target.isEmpty())
+        {
+            return false;
+        }
+
+        return ModelIKCache.chainIdsFor(model, tip, chainLength).contains(target);
     }
 
     /**
