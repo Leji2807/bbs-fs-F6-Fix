@@ -69,7 +69,7 @@ public class UIPoseTransformKeyframeFactory extends UIKeyframeFactory<PoseTransf
         this.scroll.add(
             UI.labelRow(UIKeys.POSE_CONTEXT_FIX, this.fix),
             UI.labelRow(this.lighting, this.color),
-            this.transform.marginTop(4)
+            this.transform
         );
     }
 

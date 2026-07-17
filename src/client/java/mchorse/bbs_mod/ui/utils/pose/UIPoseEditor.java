@@ -110,7 +110,7 @@ public class UIPoseEditor extends UIElement
             this.groups,
             UI.labelRow(UIKeys.POSE_CONTEXT_FIX, this.fix),
             UI.labelRow(this.lighting, this.color),
-            this.transform.marginTop(4)
+            this.transform
         );
     }
 
