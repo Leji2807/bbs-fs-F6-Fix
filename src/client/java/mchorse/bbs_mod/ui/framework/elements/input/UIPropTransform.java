@@ -61,6 +61,11 @@ public class UIPropTransform extends UITransform
 
     private static final Vector3f ZERO_RING_VEC = new Vector3f();
 
+    /** Box of the translate / scale / rotate row icons — one size for the whole
+     *  set, a touch above the panel's {@link UIConstants#CONTROL_HEIGHT} default
+     *  so the rotation toggle among them is a comfortable click target. */
+    private static final int ROW_ICON_SIZE = 18;
+
     private Transform transform;
     private Runnable preCallback;
     private Runnable postCallback;
@@ -154,20 +159,26 @@ public class UIPropTransform extends UITransform
         });
 
         /* The rotation-row icon toggles the bone's rotation storage (euler / quaternion);
-         * the active state is drawn as a highlight in render(), like the other toggles.
-         * It gets the standard 20px icon box (the panel's icons default to 16). */
+         * the active state is drawn as a highlight in render(), like the other toggles. */
         this.iconR.callback = (b) -> this.toggleRotationMode();
         this.iconR.tooltip(UIKeys.TRANSFORMS_ROTATION_MODE_TOOLTIP);
-        this.iconR.wh(18, 18);
         this.iconR.setEnabled(true);
+
+        /* All three row icons share one box. The rotation one is an interactive
+         * toggle and wants a comfortable target, but sizing only it left it
+         * visibly bigger than its translate/scale neighbours — the row reads as
+         * one set, so the box belongs to the set, not to the one that happens to
+         * be clickable. */
+        this.iconT.wh(ROW_ICON_SIZE, ROW_ICON_SIZE);
+        this.iconS.wh(ROW_ICON_SIZE, ROW_ICON_SIZE);
+        this.iconR.wh(ROW_ICON_SIZE, ROW_ICON_SIZE);
 
         /* The space picker is a dropdown on its own row above T/S/R (it replaced the
          * old click-to-cycle on the translate-row icon, which is decorative again). */
         this.spaceButton = new UISpaceButton();
         this.spaceButton.tooltip(UIKeys.TRANSFORMS_SPACE_TOOLTIP);
         this.prepend(UI.labelRow(UIKeys.TRANSFORMS_SPACE_TITLE, this.spaceButton));
-        /* Space + translate + scale rows are CONTROL_HEIGHT; the rotate row is as tall
-         * as its 20px toggle icon. */
+        /* Four rows: the space picker above translate / scale / rotate. */
         this.h(3 * UIConstants.CONTROL_HEIGHT + 20);
         this.updateSpaceLabel();
 
