@@ -93,13 +93,27 @@ public class UI
 
     public static UIElement labelRow(IKey label, int controlWidth, UIElement element)
     {
+        return labelRow(label(label, UIConstants.CONTROL_HEIGHT).labelAnchor(0, 0.5F), controlWidth, element);
+    }
+
+    /**
+     * The same grid as {@link #labelRow(IKey, UIElement)}, but the left side is an
+     * element rather than a name — for a row whose label slot does something itself
+     * (a toggle that names itself, say). Its control still pins to the shared
+     * divider column, so such a row lines up with the plain label rows around it
+     * instead of spanning the full width on its own.
+     */
+    public static UIElement labelRow(UIElement label, UIElement element)
+    {
+        return labelRow(label, UIConstants.VALUE_WIDTH, element);
+    }
+
+    public static UIElement labelRow(UIElement label, int controlWidth, UIElement element)
+    {
         UIElement row = new UIElement();
 
         row.row(UIConstants.MARGIN).preferred(0).height(UIConstants.CONTROL_HEIGHT);
-        row.add(
-            label(label, UIConstants.CONTROL_HEIGHT).labelAnchor(0, 0.5F),
-            element.w(controlWidth)
-        );
+        row.add(label, element.w(controlWidth));
 
         return row;
     }

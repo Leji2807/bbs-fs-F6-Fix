@@ -2,7 +2,6 @@ package mchorse.bbs_mod.ui.utils.pose;
 
 import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.data.types.MapType;
-import mchorse.bbs_mod.l10n.keys.IKey;
 import mchorse.bbs_mod.ui.Keys;
 import mchorse.bbs_mod.ui.UIKeys;
 import mchorse.bbs_mod.ui.framework.elements.UIElement;
@@ -88,9 +87,7 @@ public class UIPoseEditor extends UIElement
                 this.applyChildren((p) -> this.setColor(p, this.color.picker.color.getARGBColor()));
             });
         });
-        /* The label comes from the row, not the toggle's own: inside a labelRow
-         * a self-labelling toggle would name itself twice. */
-        this.lighting = new UIToggle(IKey.EMPTY, (b) -> this.applyLightingToSelection(b.getValue()));
+        this.lighting = new UIToggle(UIKeys.FORMS_EDITORS_GENERAL_LIGHTING, (b) -> this.applyLightingToSelection(b.getValue()));
         this.lighting.h(UIConstants.CONTROL_HEIGHT);
         this.lighting.context((menu) ->
         {
@@ -105,15 +102,14 @@ public class UIPoseEditor extends UIElement
         this.keys().register(Keys.TRANSFORMATIONS_TOGGLE_FIX, this::toggleFix).category(UIKeys.TRANSFORMS_KEYS_CATEGORY);
 
         this.column().vertical().stretch();
-        /* All three properties go through labelRow, so their names line up in one
-         * column and their controls in another at the shared control width. Colour
-         * and lighting used to sit in a bare two-element row that ignored that
-         * grid, leaving them out of step with the fix row right above. */
+        /* Both rows ride the same labelRow grid, so the fix trackpad and the colour
+         * swatch pin to one divider column. The lighting toggle keeps its own name
+         * and takes the label slot of its row — it used to sit in a bare row that
+         * spanned the full width and ignored that column. */
         this.add(
             this.groups,
             UI.labelRow(UIKeys.POSE_CONTEXT_FIX, this.fix),
-            UI.labelRow(UIKeys.POSE_CONTEXT_COLOR, this.color),
-            UI.labelRow(UIKeys.FORMS_EDITORS_GENERAL_LIGHTING, this.lighting),
+            UI.labelRow(this.lighting, this.color),
             this.transform.marginTop(4)
         );
     }

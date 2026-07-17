@@ -3,7 +3,6 @@ package mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories;
 import mchorse.bbs_mod.ui.film.replays.UIReplaysEditorUtils;
 import mchorse.bbs_mod.ui.Keys;
 import mchorse.bbs_mod.ui.UIKeys;
-import mchorse.bbs_mod.l10n.keys.IKey;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UIColor;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
@@ -56,8 +55,7 @@ public class UIPoseTransformKeyframeFactory extends UIKeyframeFactory<PoseTransf
         this.color.withAlpha();
         this.color.setColor(keyframe.getValue().color.getARGBColor());
 
-        /* Label comes from the row, not the toggle's own — see the pose editor. */
-        this.lighting = new UIToggle(IKey.EMPTY, (b) ->
+        this.lighting = new UIToggle(UIKeys.FORMS_EDITORS_GENERAL_LIGHTING, (b) ->
         {
             if (this.transform.getTransform() instanceof PoseTransform)
             {
@@ -70,8 +68,7 @@ public class UIPoseTransformKeyframeFactory extends UIKeyframeFactory<PoseTransf
         /* Same labelRow grid as the pose editor, which this panel mirrors. */
         this.scroll.add(
             UI.labelRow(UIKeys.POSE_CONTEXT_FIX, this.fix),
-            UI.labelRow(UIKeys.POSE_CONTEXT_COLOR, this.color),
-            UI.labelRow(UIKeys.FORMS_EDITORS_GENERAL_LIGHTING, this.lighting),
+            UI.labelRow(this.lighting, this.color),
             this.transform.marginTop(4)
         );
     }
