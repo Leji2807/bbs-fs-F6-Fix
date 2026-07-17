@@ -45,7 +45,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     public UITrackpad softness;
     public UITrackpad weight;
     public UIToggle tipRotation;
-    public UIToggle stretch;
 
     private String selectedBone = "";
     private Map<String, IKData> ikData = new HashMap<>();
@@ -63,7 +62,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         public float weight = ModelIKConfig.DEFAULT_WEIGHT;
         public boolean enabled = true;
         public boolean tipRotation = ModelIKConfig.DEFAULT_TIP_ROTATION;
-        public boolean stretch = ModelIKConfig.DEFAULT_STRETCH;
     }
 
     public UIModelIKFormPanel(UIForm editor)
@@ -208,18 +206,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.commitChanges();
         });
 
-        this.stretch = new UIToggle(UIKeys.FORMS_EDITORS_MODEL_IK_STRETCH, (b) ->
-        {
-            if (this.syncingUI || this.selectedBone.isEmpty())
-            {
-                return;
-            }
-
-            IKData data = this.getOrCreateData(this.selectedBone);
-            data.stretch = b.getValue();
-            this.commitChanges();
-        });
-
         UISection settings = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_SETTINGS);
 
         settings.fields.add(
@@ -231,8 +217,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_POLE_ANGLE, this.poleAngle).marginTop(UIConstants.SECTION_GAP),
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_SOFTNESS, this.softness).marginTop(UIConstants.SECTION_GAP),
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_WEIGHT, this.weight).marginTop(UIConstants.SECTION_GAP),
-            this.tipRotation,
-            this.stretch
+            this.tipRotation
         );
 
         UIIcon debugSettings = new UIIcon(Icons.GEAR, (b) -> this.getContext().replaceContextMenu(new UIDebugOverlayContextMenu(BBSSettings.ikDebug)));
@@ -298,7 +283,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.softness.setEnabled(enabled);
         this.weight.setEnabled(enabled);
         this.tipRotation.setEnabled(enabled);
-        this.stretch.setEnabled(enabled);
     }
 
     @Override
@@ -364,7 +348,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.softness.setValue(data == null ? ModelIKConfig.DEFAULT_SOFTNESS : data.softness);
             this.weight.setValue(data == null ? ModelIKConfig.DEFAULT_WEIGHT : data.weight);
             this.tipRotation.setValue(data != null && data.tipRotation);
-            this.stretch.setValue(data != null && data.stretch);
             this.enabled.setEnabled(this.bones.isEnabled() && !this.selectedBone.isEmpty());
             this.enabled.setValue(active);
         }
@@ -381,7 +364,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.softness.setEnabled(canEdit);
         this.weight.setEnabled(canEdit);
         this.tipRotation.setEnabled(canEdit);
-        this.stretch.setEnabled(canEdit);
     }
 
     private IKData getOrCreateData(String bone)
@@ -439,7 +421,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             data.weight = chain.weight();
             data.enabled = chain.enabled();
             data.tipRotation = chain.tipRotation();
-            data.stretch = chain.stretch();
             this.ikData.put(chain.tip(), data);
         }
     }
@@ -470,7 +451,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
                 continue;
             }
 
-            out.add(new ModelIKConfig.Chain(tip, data.target, data.chainLength, data.pole, data.poleTarget, data.poleAngle, data.softness, data.weight, data.enabled, data.tipRotation, data.stretch));
+            out.add(new ModelIKConfig.Chain(tip, data.target, data.chainLength, data.pole, data.poleTarget, data.poleAngle, data.softness, data.weight, data.enabled, data.tipRotation));
         }
 
         if (out.isEmpty())

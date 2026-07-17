@@ -10,23 +10,20 @@ public record ModelIKConfig(List<Chain> chains)
     public static final float DEFAULT_SOFTNESS = 0.05F;
     public static final int DEFAULT_CHAIN_LENGTH = 0;
     public static final boolean DEFAULT_TIP_ROTATION = false;
-    public static final boolean DEFAULT_STRETCH = false;
 
     /**
      * One IK constraint, modeled after Blender: it lives on the {@code tip}
      * bone, reaches {@code target}, spans {@code chainLength} bones up the
      * hierarchy ({@code 0} = up to the root). When {@code pole} is on, the bend is
      * aimed at {@code poleTarget} (a bone the limb keeps pointing its elbow
-     * towards); with no pole target the bend side is oriented automatically; when
-     * off, the bend is left to the raw position solve. {@code poleAngle} (degrees)
-     * then rolls the aimed bend about the limb axis — Blender's pole angle. With
-     * {@code tipRotation} on, the tip bone copies the {@code target} controller's
-     * orientation (Blender's "use tip rotation") instead of keeping its FK pose.
-     * With {@code stretch} on, a chain whose target is pulled past its reach
-     * telescopes towards it — every bone slides out along the limb so the gaps
-     * between them open up and the tip lands on the controller (no bone scaling).
+     * towards) and {@code poleAngle} (degrees) rolls the bend about the
+     * root-to-goal line — Blender's pole angle; with no pole target the bend
+     * side comes from the pose (and the authored rest bend on a straight limb).
+     * With {@code tipRotation} on, the tip bone copies the {@code target}
+     * controller's orientation (Blender's "use tip rotation") instead of
+     * keeping its FK pose.
      */
-    public record Chain(String tip, String target, int chainLength, boolean pole, String poleTarget, float poleAngle, float softness, float weight, boolean enabled, boolean tipRotation, boolean stretch)
+    public record Chain(String tip, String target, int chainLength, boolean pole, String poleTarget, float poleAngle, float softness, float weight, boolean enabled, boolean tipRotation)
     {
         public Chain
         {

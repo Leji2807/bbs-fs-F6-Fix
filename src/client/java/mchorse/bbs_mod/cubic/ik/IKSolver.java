@@ -7,7 +7,11 @@ import org.joml.Vector3f;
 import java.util.List;
 
 /**
- * Single-chain IK modeled after Blender: the positions are solved to reach the
+ * LEGACY position-level IK, serving ONLY the BOBJ path in ModelIKApplier until
+ * BOBJ is ported onto the channel-space core ({@code cubic.ik.solver}); cubic
+ * models no longer come through here. Goes away with that port.
+ *
+ * <p>Single-chain IK: the positions are solved to reach the
  * target (analytic for a two-bone limb, FABRIK for longer chains, constrained
  * CCD when joint limits are involved), then the whole bend plane is rotated
  * about the root-to-tip axis towards the pole target. With no pole the chain

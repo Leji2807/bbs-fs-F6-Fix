@@ -11,16 +11,6 @@ import org.joml.Vector3f;
 
 public interface ICubicRenderer
 {
-    public static void offsetGroup(MatrixStack stack, ModelGroup group)
-    {
-        Vector3f offset = group.offset;
-
-        if (offset != null)
-        {
-            stack.translate(offset.x, offset.y, offset.z);
-        }
-    }
-
     public static void translateGroup(MatrixStack stack, ModelGroup group)
     {
         Vector3f translate = group.current.translate;
@@ -78,7 +68,6 @@ public interface ICubicRenderer
 
     public default void applyGroupTransformations(MatrixStack stack, ModelGroup group)
     {
-        offsetGroup(stack, group);
         translateGroup(stack, group);
         moveToGroupPivot(stack, group);
         rotateGroup(stack, group);
