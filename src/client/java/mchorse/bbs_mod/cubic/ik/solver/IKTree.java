@@ -49,6 +49,17 @@ public final class IKTree
      * {@code joint} (the chain's last directed bone); {@code weight} is the
      * chain's solve priority when goals conflict — every Jacobian row of this
      * effector is scaled by it, so a lighter goal yields to a heavier one.
+     *
+     * <p>With {@link #orientGoal} set, the effector ALSO asks for a world
+     * orientation of its joint — three more Jacobian rows (a joint axis turns
+     * the whole subtree's orientation by itself, so the rows are the bare
+     * channel axes). That is how "tip follows target" becomes the chain's
+     * problem: the goal is the orientation at which the tip bone, keeping its
+     * natural FK local pose, would already face the controller — the chain
+     * turns the forearm so the exact post-solve tip snap has almost nothing
+     * left to do, instead of the wrist absorbing the whole turn.
+     * {@code orientWeight} converts radians of orientation error into the
+     * solve's length units (rows are scaled by weight · orientWeight).
      */
     public static final class Effector
     {
@@ -66,6 +77,12 @@ public final class IKTree
 
         /** Solve priority, 0..1. */
         public float weight = 1F;
+
+        /** Desired world orientation of {@link #joint}; {@code null} = position only. */
+        public Quaternionf orientGoal;
+
+        /** Length units one radian of orientation error is worth; scales the orientation rows. */
+        public float orientWeight = 1F;
 
         public Effector(int joint)
         {

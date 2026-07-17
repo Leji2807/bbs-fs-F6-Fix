@@ -1,5 +1,6 @@
 package mchorse.bbs_mod.cubic.ik.solver;
 
+import mchorse.bbs_mod.utils.joml.Matrices;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -42,6 +43,15 @@ public final class IKTreeSolver
 
     /** Steps smaller than this on every channel mean the solve has stalled (limits, locks, degeneracy). */
     private static final float STALL_STEP = 1.0e-6f;
+
+    /**
+     * Orientation-row scale of the position-finishing phase: the position rows
+     * dominate quadratically (~1/0.05² = 400×), so the reach lands to within a
+     * fraction of a millimetre, while the weak orientation spring keeps the
+     * finish from unwinding the pose the first phase shaped (unrestrained, it
+     * drifted the chain right back).
+     */
+    private static final float ORIENT_FINISH = 0.05F;
 
     /**
      * @param maxIterations DLS iteration cap; ~64 covers long chains comfortably.
@@ -107,18 +117,47 @@ public final class IKTreeSolver
         float lambdaSq = damping * damping;
         int columns = countColumns(tree);
         int iterations = 0;
-        float error = combinedError(tree);
+
+        /* Orientation goals solve in TWO phases: first a compromise pass with the
+         * orientation rows in (the chain shapes itself towards the tip's frame),
+         * then a position-only pass that finishes the reach exactly. In one joint
+         * pass the two tasks trade against each other at the least-squares
+         * minimum and the position never quite lands — but the position is the
+         * hard promise (the exact tip snap covers whatever orientation remains),
+         * so it gets the last word. */
+        boolean hasOrient = false;
+
+        for (IKTree.Effector effector : tree.effectors)
+        {
+            hasOrient |= effector.orientGoal != null;
+        }
+
+        if (hasOrient && columns > 0)
+        {
+            /* The shaping phase runs until BOTH tasks are done (or it stalls) —
+             * exiting on position alone would abandon a half-solved orientation
+             * whenever the goal happens to be easy to reach. */
+            int budget = params.maxIterations() / 2;
+
+            while (iterations < budget && (worstError(tree) > params.tolerance() || worstOrientation(tree) > 0.01F))
+            {
+                iterations++;
+
+                if (!step(tree, lambdaSq, 1F))
+                {
+                    break;
+                }
+            }
+        }
 
         while (iterations < params.maxIterations() && worstError(tree) > params.tolerance() && columns > 0)
         {
             iterations++;
 
-            if (!step(tree, lambdaSq))
+            if (!step(tree, lambdaSq, ORIENT_FINISH))
             {
                 break;
             }
-
-            error = combinedError(tree);
         }
 
         if (single && poles != null)
@@ -134,9 +173,67 @@ public final class IKTreeSolver
             }
         }
 
+        if (single)
+        {
+            relieveTipTwist(tree, 0);
+        }
+
         float worst = worstError(tree);
 
         return new Result(worst <= params.tolerance(), worst, iterations);
+    }
+
+    /**
+     * The forearm-twist relief, exact and last: with the position solved and
+     * the pole holding the bend plane, one free motion remains — turning the
+     * last directed bone about its OWN segment (the axis runs through both its
+     * pivot and the effector, so neither the reach nor the bend plane can
+     * move). The TWIST component of the orientation still missing (swing-twist
+     * split about that axis) is folded onto that bone, so the tip's exact
+     * post-solve snap keeps only the swing — the wrist stops absorbing the
+     * roll the forearm should carry. This is also why the pole no longer
+     * fights the orientation task: the pole owns the plane, this owns the
+     * roll, and the in-solver rows only shape what freedom is left. Skipped
+     * when the bone has locked or pinned channels (folding a world turn into
+     * its angles could trample them) or the geometry degenerates.
+     */
+    private static void relieveTipTwist(IKTree tree, int e)
+    {
+        IKTree.Effector effector = tree.effectors[e];
+
+        if (effector.orientGoal == null)
+        {
+            return;
+        }
+
+        IKJoint last = tree.joints[effector.joint];
+
+        for (int c = 0; c < 3; c++)
+        {
+            if (movableWeight(last, c) <= 0F)
+            {
+                return;
+            }
+        }
+
+        Vector3f axis = new Vector3f(effector.position).sub(last.position);
+
+        if (axis.lengthSquared() < EPS * EPS)
+        {
+            return;
+        }
+
+        axis.normalize();
+
+        Quaternionf missing = new Quaternionf(effector.orientGoal).mul(new Quaternionf(last.worldRotation).conjugate());
+        Quaternionf twist = Matrices.twistAbout(missing, axis);
+
+        if (Math.abs(twist.w) > 1F - 1.0e-7f)
+        {
+            return;
+        }
+
+        tree.rotateJointWorld(effector.joint, twist);
     }
 
     /**
@@ -432,6 +529,23 @@ public final class IKTreeSolver
         return largest;
     }
 
+    /** The largest orientation error (radians) among effectors that carry an orientation goal. */
+    private static float worstOrientation(IKTree tree)
+    {
+        float worst = 0F;
+        Vector3f rotation = new Vector3f();
+
+        for (IKTree.Effector effector : tree.effectors)
+        {
+            if (effector.orientGoal != null)
+            {
+                worst = Math.max(worst, orientationError(tree, effector, rotation).length());
+            }
+        }
+
+        return worst;
+    }
+
     /** The largest plain effector-to-goal distance — the user-facing "did it reach". */
     private static float worstError(IKTree tree)
     {
@@ -445,19 +559,57 @@ public final class IKTreeSolver
         return worst;
     }
 
-    /** The weighted least-squares error the step must not increase. */
-    private static float combinedError(IKTree tree)
+    /** The weighted least-squares error the step must not increase — positions AND orientations. */
+    private static float combinedError(IKTree tree, float orientScale)
     {
         float sum = 0F;
+        Vector3f rotation = new Vector3f();
 
         for (IKTree.Effector effector : tree.effectors)
         {
             float distance = effector.position.distance(effector.goal) * effector.weight;
 
             sum += distance * distance;
+
+            if (orientScale > 0F && effector.orientGoal != null)
+            {
+                orientationError(tree, effector, rotation);
+
+                float turn = rotation.length() * effector.weight * effector.orientWeight * orientScale;
+
+                sum += turn * turn;
+            }
         }
 
         return (float) Math.sqrt(sum);
+    }
+
+    /**
+     * The world rotation still missing from the effector joint's orientation,
+     * as an axis-angle vector (the quaternion log of {@code goal · current⁻¹}):
+     * the small turn that, applied in world, would land the joint on its
+     * orientation goal.
+     */
+    private static Vector3f orientationError(IKTree tree, IKTree.Effector effector, Vector3f dest)
+    {
+        Quaternionf delta = new Quaternionf(effector.orientGoal).mul(new Quaternionf(tree.joints[effector.joint].worldRotation).conjugate());
+
+        if (delta.w < 0F)
+        {
+            delta.set(-delta.x, -delta.y, -delta.z, -delta.w);
+        }
+
+        float sine = (float) Math.sqrt(Math.max(0F, 1F - delta.w * delta.w));
+
+        if (sine < 1.0e-6f)
+        {
+            /* Small turn: log(q) ≈ 2 · (x, y, z). */
+            return dest.set(delta.x * 2F, delta.y * 2F, delta.z * 2F);
+        }
+
+        float angle = 2F * (float) Math.acos(Math.min(1F, delta.w));
+
+        return dest.set(delta.x, delta.y, delta.z).mul(angle / sine);
     }
 
     /** How many channels can move at all — zero means there is nothing to solve with. */
@@ -491,29 +643,54 @@ public final class IKTreeSolver
     }
 
     /** One damped-least-squares iteration; false when the step stalls. */
-    private static boolean step(IKTree tree, float lambdaSq)
+    private static boolean step(IKTree tree, float lambdaSq, float orientScale)
     {
         IKJoint[] joints = tree.joints;
         int n = joints.length;
         int k = tree.effectors.length;
-        int rows = k * 3;
-        float errorBefore = combinedError(tree);
+        float errorBefore = combinedError(tree, orientScale);
 
-        /* Row-weighted error vector b (per effector: weight · (goal − position)). */
+        /* Row layout: 3 position rows per effector, plus 3 orientation rows for
+         * effectors that carry an orientation goal. */
+        int[] rowOffset = new int[k];
+        int rows = 0;
+
+        for (int e = 0; e < k; e++)
+        {
+            rowOffset[e] = rows;
+            rows += orientScale > 0F && tree.effectors[e].orientGoal != null ? 6 : 3;
+        }
+
+        /* Row-weighted error vector b: weight · (goal − position), and for the
+         * orientation rows weight · orientWeight · the missing world turn. */
         float[] b = new float[rows];
+        Vector3f rotation = new Vector3f();
 
         for (int e = 0; e < k; e++)
         {
             IKTree.Effector effector = tree.effectors[e];
+            int at = rowOffset[e];
 
-            b[e * 3] = effector.weight * (effector.goal.x - effector.position.x);
-            b[e * 3 + 1] = effector.weight * (effector.goal.y - effector.position.y);
-            b[e * 3 + 2] = effector.weight * (effector.goal.z - effector.position.z);
+            b[at] = effector.weight * (effector.goal.x - effector.position.x);
+            b[at + 1] = effector.weight * (effector.goal.y - effector.position.y);
+            b[at + 2] = effector.weight * (effector.goal.z - effector.position.z);
+
+            if (orientScale > 0F && effector.orientGoal != null)
+            {
+                orientationError(tree, effector, rotation).mul(effector.weight * effector.orientWeight * orientScale);
+
+                b[at + 3] = rotation.x;
+                b[at + 4] = rotation.y;
+                b[at + 5] = rotation.z;
+            }
         }
 
-        /* Weighted Jacobian columns: per channel a 3k vector — for every effector
-         * the channel moves, colWeight · rowWeight · (axis × (effector − pivot)).
-         * A channel pinned by its limits (min == max) never enters. */
+        /* Weighted Jacobian columns: per channel a rows-long vector — for every
+         * effector the channel moves, position rows carry
+         * colWeight · rowWeight · (axis × (effector − pivot)); orientation rows
+         * carry the bare channel axis (a joint turn rotates the whole subtree's
+         * orientation by itself), scaled the same way. A channel pinned by its
+         * limits (min == max) never enters. */
         float[] columns = new float[n * 3 * rows];
         boolean[] frozen = new boolean[n * 3];
         Vector3f axis = new Vector3f();
@@ -545,14 +722,24 @@ public final class IKTreeSolver
                     }
 
                     IKTree.Effector effector = tree.effectors[e];
+                    int offset = at + rowOffset[e];
 
                     /* cross(v, dest) leaves the axis itself untouched. */
                     lever.set(effector.position).sub(joint.position);
                     axis.cross(lever, lever).mul(w * effector.weight);
 
-                    columns[at + e * 3] = lever.x;
-                    columns[at + e * 3 + 1] = lever.y;
-                    columns[at + e * 3 + 2] = lever.z;
+                    columns[offset] = lever.x;
+                    columns[offset + 1] = lever.y;
+                    columns[offset + 2] = lever.z;
+
+                    if (orientScale > 0F && effector.orientGoal != null)
+                    {
+                        float scale = w * effector.weight * effector.orientWeight * orientScale;
+
+                        columns[offset + 3] = axis.x * scale;
+                        columns[offset + 4] = axis.y * scale;
+                        columns[offset + 5] = axis.z * scale;
+                    }
                 }
             }
         }
@@ -579,7 +766,7 @@ public final class IKTreeSolver
 
         tree.forward();
 
-        if (combinedError(tree) <= errorBefore)
+        if (combinedError(tree, orientScale) <= errorBefore)
         {
             return largest > STALL_STEP;
         }
@@ -614,7 +801,7 @@ public final class IKTreeSolver
                 largest = applyDeltas(tree, deltas, 1F);
                 tree.forward();
 
-                if (combinedError(tree) <= errorBefore)
+                if (combinedError(tree, orientScale) <= errorBefore)
                 {
                     return largest > STALL_STEP;
                 }
@@ -635,7 +822,7 @@ public final class IKTreeSolver
                 largest = applyDeltas(tree, deltas, scale);
                 tree.forward();
 
-                if (combinedError(tree) <= errorBefore)
+                if (combinedError(tree, orientScale) <= errorBefore)
                 {
                     return largest > STALL_STEP;
                 }

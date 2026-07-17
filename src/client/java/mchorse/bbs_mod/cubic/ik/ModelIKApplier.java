@@ -418,6 +418,24 @@ final class ModelIKApplier
 
             effector.goal.set(IKTreeSolver.softGoal(rootPosition, reach, r.target(), r.softness()));
 
+            /* Tip follows target, in-solver half: ask the chain to orient its LAST
+             * directed bone so the tip, keeping its natural FK local pose, would
+             * already face the controller — the chain shares the turn instead of
+             * the wrist absorbing all of it. The exact tip snap after the solve
+             * (writeTree) then has almost nothing left to correct. One radian of
+             * orientation error is worth reach/π length units, so a half turn
+             * weighs about as much as a full-reach position miss. */
+            if (r.tipTarget() != null)
+            {
+                ModelGroup tip = model.getGroup(workIds.get(workIds.size() - 1));
+
+                if (tip != null)
+                {
+                    effector.orientGoal = new Quaternionf(r.tipTarget()).mul(tip.evaluatedRotation().conjugate());
+                    effector.orientWeight = reach / (float) Math.PI;
+                }
+            }
+
             Vector3f polePoint = r.polePoint();
 
             if (r.pole() && polePoint == null)
