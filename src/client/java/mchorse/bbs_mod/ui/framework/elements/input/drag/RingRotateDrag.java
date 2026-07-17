@@ -248,19 +248,6 @@ public class RingRotateDrag extends DragStrategy
         this.lastScreenAngle = current;
         this.accumulatedDeg += MathUtils.toDeg(delta) * this.rotateSign;
 
-        /* Common-pivot selection: hand the session the total world turn about
-         * the ring's axis; it drives every selected bone, the primary included. */
-        SelectionPivotSession session = this.ctx.pivotSession();
-
-        if (session != null)
-        {
-            float sweepDeg = (float) this.snapValue(this.accumulatedDeg);
-
-            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad(sweepDeg), this.axisDir), true);
-
-            return;
-        }
-
         /* Apply the swept turn about the ring's world axis as a parent-frame
          * delta onto the grab pose (gimbal-free, quat- and euler-aware through
          * applyLocalDelta; live-anchored readback keeps >360° winding). */
@@ -351,15 +338,6 @@ public class RingRotateDrag extends DragStrategy
     {
         if (this.refuseConstrainedRotation())
         {
-            return;
-        }
-
-        SelectionPivotSession session = this.ctx.pivotSession();
-
-        if (session != null && this.hasStart)
-        {
-            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), this.axisDir), true);
-
             return;
         }
 

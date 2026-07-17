@@ -41,9 +41,8 @@ public class FilmBoneWorldProvider implements IWorldTransformProvider
         return bone != null && this.getWorldMatrix(bone.a, out);
     }
 
-    /** Same sample for an arbitrary bone of the edited replay's model. */
-    @Override
-    public boolean getWorldMatrix(String bone, Matrix4f out)
+    /** The sample itself, by bone path — split out so the lookup above reads clean. */
+    private boolean getWorldMatrix(String bone, Matrix4f out)
     {
         UIReplaysEditor replayEditor = this.panel.replayEditor;
         Replay replay = replayEditor.getReplay();

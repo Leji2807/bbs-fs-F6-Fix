@@ -17,8 +17,6 @@ import mchorse.bbs_mod.ui.framework.elements.utils.FontRenderer;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.DragContext;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.DragStrategy;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.DragStrategyFactory;
-import mchorse.bbs_mod.ui.framework.elements.input.drag.PivotMode;
-import mchorse.bbs_mod.ui.framework.elements.input.drag.SelectionPivotSession;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformNumericInput;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformOp;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
@@ -105,10 +103,6 @@ public class UIPropTransform extends UITransform
     private DragStrategy strategy;
     private final DragContext bridge = new Bridge();
 
-    /** Common-pivot session driving a multi-bone edit, or {@code null} when the
-     *  edit is single-bone / per-channel (see {@link #createPivotSession()}). */
-    private SelectionPivotSession pivotSession;
-
     private final TransformNumericInput numeric = new TransformNumericInput();
 
     /* Fine-drag (Shift) precision: a virtual cursor that lags the real one,
@@ -143,13 +137,6 @@ public class UIPropTransform extends UITransform
                     quat ? UIKeys.TRANSFORMS_CONTEXT_MODE_EULER : UIKeys.TRANSFORMS_CONTEXT_MODE_QUATERNION,
                     this::toggleRotationMode
                 );
-            }
-
-            /* Pivot mode used to live on the rotation-row icon; that icon now toggles
-             * the rotation mode, so the pivot switch moved here (and stays on its hotkey). */
-            if (this.supportsPivotModes())
-            {
-                menu.action(Icons.CIRCLE, this.pivotLabel(), this::cyclePivotMode);
             }
         });
 
@@ -315,28 +302,6 @@ public class UIPropTransform extends UITransform
         return false;
     }
 
-    /** Whether this editor drives a bone selection that supports the common-pivot
-     *  modes (the pivot switch icon and hotkey only show up there). */
-    protected boolean supportsPivotModes()
-    {
-        return false;
-    }
-
-    private void cyclePivotMode()
-    {
-        BBSSettings.pivotMode.set(PivotMode.current().next().ordinal());
-        UIUtils.playClick();
-    }
-
-    /** The name of the current common-pivot mode, for the context-menu entry. */
-    private IKey pivotLabel()
-    {
-        PivotMode mode = PivotMode.current();
-
-        return mode == PivotMode.MEDIAN ? UIKeys.TRANSFORMS_PIVOT_MEDIAN
-            : (mode == PivotMode.ACTIVE ? UIKeys.TRANSFORMS_PIVOT_ACTIVE : UIKeys.TRANSFORMS_PIVOT_INDIVIDUAL);
-    }
-
     public boolean isMirrorEdit()
     {
         return BBSSettings.poseMirrorEdit.get();
@@ -500,11 +465,6 @@ public class UIPropTransform extends UITransform
         this.keys().register(Keys.TRANSFORMATIONS_Z, () -> this.setEditingAxis(Axis.Z)).active(active).category(category);
         this.keys().register(Keys.TRANSFORMATIONS_SPACE_MENU, this::openSpaceMenu).active(enabled).category(category);
         this.keys().register(Keys.TRANSFORMATIONS_ROTATION_MODE, this::toggleRotationMode).active(enabled).category(category);
-
-        if (this.supportsPivotModes())
-        {
-            this.keys().register(Keys.TRANSFORMATIONS_PIVOT_MODE, this::cyclePivotMode).active(enabled).category(category);
-        }
 
         return this;
     }
@@ -1078,10 +1038,6 @@ public class UIPropTransform extends UITransform
         this.cache.copy(this.transform);
         Gizmo.INSTANCE.trackTransform(this);
 
-        /* A common-pivot multi-bone session only makes sense with a world-space
-         * drag context; the additive fallback has no world delta to feed it. */
-        this.pivotSession = drag == null ? null : this.createPivotSession();
-
         this.strategy = DragStrategyFactory.create(this.bridge, op, axis, axis2, variant, hotkeyMode);
         this.strategy.begin(context.mouseX, context.mouseY);
 
@@ -1094,17 +1050,6 @@ public class UIPropTransform extends UITransform
     private GizmoDrag getHotkeyDrag()
     {
         return this.hotkeyDragSupplier == null ? null : this.hotkeyDragSupplier.get();
-    }
-
-    /**
-     * Build the common-pivot session for the edit that is starting, or
-     * {@code null} to keep the per-channel path. The base editor edits a
-     * single transform, so there is never a selection to pivot; the delta
-     * (multi-bone) editors override this with their selection capture.
-     */
-    protected SelectionPivotSession createPivotSession()
-    {
-        return null;
     }
 
     /**
@@ -1165,16 +1110,6 @@ public class UIPropTransform extends UITransform
     /** Rewind every channel to the values captured when the edit began. */
     private void restore()
     {
-        /* A pivot session moved every bone by its own amount, so the rewind
-         * must go through its per-bone snapshots — the per-channel setters
-         * below would fan the PRIMARY's delta onto the whole selection. */
-        if (this.pivotSession != null)
-        {
-            this.pivotSession.restore();
-
-            return;
-        }
-
         this.setT(null, this.cache.translate.x, this.cache.translate.y, this.cache.translate.z);
         this.setS(null, this.cache.scale.x, this.cache.scale.y, this.cache.scale.z);
 
@@ -1195,7 +1130,6 @@ public class UIPropTransform extends UITransform
         this.hotkeyMode = false;
         this.strategy = null;
         this.drag = null;
-        this.pivotSession = null;
         this.fineHasLast = false;
         this.numeric.clear();
         Gizmo.INSTANCE.clearTrackedTransform(this);
@@ -1820,12 +1754,6 @@ public class UIPropTransform extends UITransform
         public GizmoDrag freshHotkeyDrag()
         {
             return UIPropTransform.this.getHotkeyDrag();
-        }
-
-        @Override
-        public SelectionPivotSession pivotSession()
-        {
-            return UIPropTransform.this.pivotSession;
         }
 
         @Override

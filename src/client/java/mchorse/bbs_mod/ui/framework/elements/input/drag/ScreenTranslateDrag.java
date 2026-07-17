@@ -164,26 +164,16 @@ public class ScreenTranslateDrag extends TranslateDrag
         float step = applyStepModifiers((float) (context.mouseWheel * distance * DEPTH_WHEEL_FACTOR));
 
         Vector3f worldStep = new Vector3f((float) (ray.x * step), (float) (ray.y * step), (float) (ray.z * step));
-        SelectionPivotSession session = this.ctx.pivotSession();
 
-        if (session != null)
-        {
-            /* Common-pivot selection: fold the depth step into the session so
-             * every selected bone slides along the ray together. */
-            session.foldTranslation(worldStep);
-        }
-        else
-        {
-            /* Move along the camera->object ray (preserves screen position), in translate units. */
-            Vector3f translateStep = this.screenInverseJacobian.transform(new Vector3f(worldStep));
-            Vector3f translate = this.ctx.transform().translate;
+        /* Move along the camera->object ray (preserves screen position), in translate units. */
+        Vector3f translateStep = this.screenInverseJacobian.transform(new Vector3f(worldStep));
+        Vector3f translate = this.ctx.transform().translate;
 
-            this.ctx.writeTranslate(
-                translate.x + translateStep.x,
-                translate.y + translateStep.y,
-                translate.z + translateStep.z
-            );
-        }
+        this.ctx.writeTranslate(
+            translate.x + translateStep.x,
+            translate.y + translateStep.y,
+            translate.z + translateStep.z
+        );
 
         /* Slide the drag plane to the new depth and re-anchor so the in-plane drag continues. */
         drag.gizmoOrigin.add(ray.x * step, ray.y * step, ray.z * step);

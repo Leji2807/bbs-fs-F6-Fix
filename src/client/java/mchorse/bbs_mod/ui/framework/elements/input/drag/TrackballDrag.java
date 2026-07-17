@@ -118,20 +118,6 @@ public class TrackballDrag extends SphereDrag
         float pitch = MathUtils.toRad(this.accumY * sensitivity);
         float roll = MathUtils.toRad(this.rollDeg);
 
-        /* Common-pivot selection: the same turn, composed about the world
-         * screen axes, drives every selected bone through the session. */
-        SelectionPivotSession session = this.ctx.pivotSession();
-
-        if (session != null)
-        {
-            session.applyRotation(new Matrix3f()
-                .rotation(roll, this.viewWorldAxis)
-                .rotate(yaw, this.upWorldAxis.x, this.upWorldAxis.y, this.upWorldAxis.z)
-                .rotate(pitch, this.rightWorldAxis.x, this.rightWorldAxis.y, this.rightWorldAxis.z), false);
-
-            return;
-        }
-
         Vector3f source = this.ctx.cache().rotate;
 
         Matrix3f deltaLocal = new Matrix3f()

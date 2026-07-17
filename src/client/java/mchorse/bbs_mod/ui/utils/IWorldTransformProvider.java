@@ -19,14 +19,4 @@ public interface IWorldTransformProvider
     /** Sample the element's absolute world matrix (translation, rotation and scale) for its current
      *  transform values, re-evaluating the scene so live edits to the transform are reflected. */
     boolean getWorldMatrix(Matrix4f out);
-
-    /**
-     * Sample the world matrix of an arbitrary bone of the edited model, with the same re-evaluation
-     * contract as {@link #getWorldMatrix(Matrix4f)}. Providers that can only resolve their currently
-     * edited element keep the default and multi-bone pivot editing stays off for them.
-     */
-    default boolean getWorldMatrix(String bone, Matrix4f out)
-    {
-        return false;
-    }
 }

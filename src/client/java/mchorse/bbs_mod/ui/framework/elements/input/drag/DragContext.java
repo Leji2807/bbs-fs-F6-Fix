@@ -29,11 +29,6 @@ public interface DragContext
     /** A freshly built drag from the host's hotkey supplier, or {@code null}. */
     GizmoDrag freshHotkeyDrag();
 
-    /** The common-pivot multi-bone session of this edit, or {@code null} when
-     *  the edit is single-bone / per-channel. Strategies that have a WORLD
-     *  delta hand it to the session instead of writing channels. */
-    SelectionPivotSession pivotSession();
-
     boolean isLocal();
 
     /** The reference frame this edit operates in (LOCAL is the former {@link #isLocal()}). */

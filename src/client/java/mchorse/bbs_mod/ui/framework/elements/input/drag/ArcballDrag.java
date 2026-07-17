@@ -37,11 +37,6 @@ public class ArcballDrag extends SphereDrag
     /** Arc segments folded in by re-anchors (cursor wraps), parent frame. */
     private final Quaternionf accum = new Quaternionf();
 
-    /** World-space twins of the anchor state, for the common-pivot selection session. */
-    private final Vector3f startWorldDir = new Vector3f();
-    private final Vector3f currentWorldDir = new Vector3f();
-    private final Quaternionf accumWorld = new Quaternionf();
-
     /** World-space radius of the rendered sphere, captured at start. */
     private float radius;
 
@@ -65,7 +60,6 @@ public class ArcballDrag extends SphereDrag
         if (this.anchored)
         {
             this.accum.premul(new Quaternionf().rotationTo(this.startLocal, this.currentLocal));
-            this.accumWorld.premul(new Quaternionf().rotationTo(this.startWorldDir, this.currentWorldDir));
             this.anchored = false;
         }
 
@@ -124,8 +118,6 @@ public class ArcballDrag extends SphereDrag
             return;
         }
 
-        this.startWorldDir.set(grab).normalize();
-        this.currentWorldDir.set(this.startWorldDir);
         this.parentInverse.transform(grab, this.startLocal).normalize();
         this.currentLocal.set(this.startLocal);
         this.anchored = true;
@@ -179,7 +171,6 @@ public class ArcballDrag extends SphereDrag
             return;
         }
 
-        this.currentWorldDir.set(current).normalize();
         this.parentInverse.transform(current, this.currentLocal).normalize();
         this.updateRotation();
     }
@@ -193,23 +184,6 @@ public class ArcballDrag extends SphereDrag
     @Override
     protected void updateRotation()
     {
-        /* Common-pivot selection: the same arc, kept in world space, drives
-         * every selected bone through the session. */
-        SelectionPivotSession session = this.ctx.pivotSession();
-
-        if (session != null)
-        {
-            Quaternionf arcWorld = new Quaternionf()
-                .rotationTo(this.startWorldDir, this.currentWorldDir)
-                .mul(this.accumWorld);
-
-            session.applyRotation(new Matrix3f()
-                .rotation(MathUtils.toRad(this.rollDeg), this.viewWorldAxis)
-                .rotate(arcWorld), false);
-
-            return;
-        }
-
         Vector3f source = this.ctx.cache().rotate;
 
         Quaternionf arc = new Quaternionf()

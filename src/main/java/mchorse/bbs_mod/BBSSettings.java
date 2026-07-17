@@ -64,7 +64,6 @@ public class BBSSettings {
 	public static ValueBoolean defaultLocalTransform;
 	public static ValueInt transformSpace;
 	public static ValueBoolean transformHotkeys3dRay;
-	public static ValueInt pivotMode;
 	public static ValueBoolean poseMirrorEdit;
 	public static ValueBoolean poseAlternateInvert;
 	public static ValueBoolean poseShowDisabledBones;
@@ -509,8 +508,6 @@ public class BBSSettings {
 		transformSpace = builder.getInt("transform_space", defaultLocalTransform.get() ? 0 : 3);
 		transformSpace.invisible();
 		transformHotkeys3dRay = builder.getBoolean("hotkeys_3d_ray", true);
-		pivotMode = builder.getInt("pivot_mode", 0);
-		pivotMode.invisible();
 		poseMirrorEdit = builder.getBoolean("pose_mirror_edit", false);
 		poseMirrorEdit.invisible();
 		poseAlternateInvert = builder.getBoolean("pose_alternate_invert", false);

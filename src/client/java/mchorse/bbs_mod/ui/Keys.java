@@ -132,7 +132,6 @@ public class Keys
      * though it now opens the space list. Renaming it would silently reset everyone's
      * rebound key to the default. */
     public static final KeyCombo TRANSFORMATIONS_SPACE_MENU = new KeyCombo("toggle_local", UIKeys.TRANSFORMS_SPACE_OPEN, GLFW.GLFW_KEY_Q).categoryKey("transformations");
-    public static final KeyCombo TRANSFORMATIONS_PIVOT_MODE = new KeyCombo("pivot_mode", UIKeys.TRANSFORMS_KEYS_PIVOT_MODE, GLFW.GLFW_KEY_PERIOD).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_ROTATION_MODE = new KeyCombo("rotation_mode", UIKeys.TRANSFORMS_KEYS_ROTATION_MODE, GLFW.GLFW_KEY_Q, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_TOGGLE_FIX = new KeyCombo("toggle_fix", UIKeys.TRANSFORMS_KEYS_TOGGLE_FIX, GLFW.GLFW_KEY_Y).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_MIRROR_EDIT = new KeyCombo("mirror_edit", UIKeys.TRANSFORMS_KEYS_MIRROR_EDIT, GLFW.GLFW_KEY_F, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("transformations");

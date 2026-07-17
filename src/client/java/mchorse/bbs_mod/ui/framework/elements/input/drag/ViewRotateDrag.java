@@ -32,9 +32,6 @@ public class ViewRotateDrag extends DragStrategy
     /** View axis expressed in the bone's parent frame, captured at drag start. */
     private final Vector3f viewLocalAxis = new Vector3f();
 
-    /** The same axis in world space, for the common-pivot selection session. */
-    private final Vector3f viewWorldAxis = new Vector3f();
-
     /** Projected gizmo origin in viewport pixels, captured at drag start. */
     private final Vector2f screenCenter = new Vector2f();
 
@@ -118,9 +115,6 @@ public class ViewRotateDrag extends DragStrategy
 
         Vector3f viewAxis = cameraBasis.getColumn(2, new Vector3f()).normalize();
 
-        this.viewWorldAxis.set(viewAxis);
-
-
         /* Express the view axis once in the bone's parent frame (recovered
          * analytically from the bone's world rotation), against the start
          * orientation it will be composed onto; it stays constant for the drag. */
@@ -165,17 +159,6 @@ public class ViewRotateDrag extends DragStrategy
 
         this.accumulatedDeg += MathUtils.toDeg(delta * ROTATE_SIGN);
 
-        /* Common-pivot selection: the total world sweep about the view axis
-         * drives every selected bone through the session. */
-        SelectionPivotSession session = this.ctx.pivotSession();
-
-        if (session != null)
-        {
-            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad(this.accumulatedDeg), this.viewWorldAxis), false);
-
-            return;
-        }
-
         Vector3f base = this.ctx.cache().rotate;
 
         Matrix3f deltaLocal = new Matrix3f().rotation(MathUtils.toRad(this.accumulatedDeg), this.viewLocalAxis);
@@ -190,15 +173,6 @@ public class ViewRotateDrag extends DragStrategy
     {
         if (this.refuseConstrainedRotation())
         {
-            return;
-        }
-
-        SelectionPivotSession session = this.ctx.pivotSession();
-
-        if (session != null && this.hasStart)
-        {
-            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), this.viewWorldAxis), false);
-
             return;
         }
 

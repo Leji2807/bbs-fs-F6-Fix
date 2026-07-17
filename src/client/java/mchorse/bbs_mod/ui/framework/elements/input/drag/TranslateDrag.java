@@ -131,18 +131,6 @@ public class TranslateDrag extends DragStrategy
             this.accumulateAlongAxis(delta, this.axis2, result);
         }
 
-        /* Common-pivot selection: convert the constrained (and snapped) result
-         * back to a world displacement through the primary's Jacobian and let
-         * the session move every selected bone by it. */
-        SelectionPivotSession session = this.ctx.pivotSession();
-
-        if (session != null)
-        {
-            session.applyTranslation(this.ctx.drag().translateJacobian.transform(result, new Vector3f()));
-
-            return;
-        }
-
         this.ctx.writeTranslate(
             this.startTranslate.x + result.x,
             this.startTranslate.y + result.y,
@@ -197,17 +185,6 @@ public class TranslateDrag extends DragStrategy
     @Override
     public void applyNumeric(double value)
     {
-        SelectionPivotSession session = this.ctx.pivotSession();
-
-        if (session != null && this.hasStart)
-        {
-            Vector3f offset = this.numericTranslateOffset(value);
-
-            session.applyTranslation(this.ctx.drag().translateJacobian.transform(offset, new Vector3f()));
-
-            return;
-        }
-
         this.numericTranslate(value);
     }
 

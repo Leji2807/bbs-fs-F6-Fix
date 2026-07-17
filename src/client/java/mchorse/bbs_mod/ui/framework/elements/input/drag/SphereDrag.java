@@ -3,7 +3,6 @@ package mchorse.bbs_mod.ui.framework.elements.input.drag;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.utils.Axis;
-import mchorse.bbs_mod.utils.MathUtils;
 import org.joml.Matrix3f;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
@@ -21,11 +20,6 @@ public abstract class SphereDrag extends DragStrategy
     protected final Vector3f rightLocal = new Vector3f();
     protected final Vector3f upLocal = new Vector3f();
     protected final Vector3f viewLocal = new Vector3f();
-
-    /** The same screen axes in world space, for the common-pivot selection session. */
-    protected final Vector3f rightWorldAxis = new Vector3f();
-    protected final Vector3f upWorldAxis = new Vector3f();
-    protected final Vector3f viewWorldAxis = new Vector3f();
 
     /** Accumulated wheel-driven view-axis roll (degrees). */
     protected float rollDeg;
@@ -63,13 +57,13 @@ public abstract class SphereDrag extends DragStrategy
             return false;
         }
 
-        cameraBasis.getColumn(0, this.rightWorldAxis).normalize();
-        cameraBasis.getColumn(1, this.upWorldAxis).normalize();
-        cameraBasis.getColumn(2, this.viewWorldAxis).normalize();
+        Vector3f right = cameraBasis.getColumn(0, new Vector3f()).normalize();
+        Vector3f up = cameraBasis.getColumn(1, new Vector3f()).normalize();
+        Vector3f view = cameraBasis.getColumn(2, new Vector3f()).normalize();
 
-        parentInverse.transform(this.rightWorldAxis, this.rightLocal);
-        parentInverse.transform(this.upWorldAxis, this.upLocal);
-        parentInverse.transform(this.viewWorldAxis, this.viewLocal);
+        parentInverse.transform(right, this.rightLocal);
+        parentInverse.transform(up, this.upLocal);
+        parentInverse.transform(view, this.viewLocal);
 
         if (this.rightLocal.lengthSquared() < 1.0E-8F || this.upLocal.lengthSquared() < 1.0E-8F)
         {
@@ -126,17 +120,6 @@ public abstract class SphereDrag extends DragStrategy
     {
         if (this.refuseConstrainedRotation())
         {
-            return;
-        }
-
-        SelectionPivotSession session = this.ctx.pivotSession();
-
-        if (session != null && this.hasStart)
-        {
-            Vector3f axis = this.numericAxis == Axis.Y ? this.rightWorldAxis : this.upWorldAxis;
-
-            session.applyRotation(new Matrix3f().rotation(MathUtils.toRad((float) value), axis), false);
-
             return;
         }
 
