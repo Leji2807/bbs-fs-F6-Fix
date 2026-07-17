@@ -199,7 +199,7 @@ public abstract class BaseFilmController
 
         if (UIBaseMenu.shouldRenderAxes() && context.anchorGizmo)
         {
-            renderAnchorGizmo(entities, entity, target, defaultMatrix, cx, cy, cz, transition, context.anchorLocal, context.map, stack);
+            renderAnchorGizmo(entities, entity, target, defaultMatrix, cx, cy, cz, transition, context.anchorLocal, context.space, context.gizmoView, context.map, stack);
         }
 
         if (!relative && context.map == null && opacity > 0F && context.shadowRadius > 0F && form.visible.get())
@@ -343,11 +343,15 @@ public abstract class BaseFilmController
      * Draw the editing gizmo for the form's anchor offset. The anchor is applied
      * as {@code parent.mul(transform)} in {@link #getTotalMatrix}, so the gizmo
      * sits at that resolved matrix {@code full} (already computed as the entity's
-     * render target) and edits {@code form.anchor.transform}. The space toggle
+     * render target) and edits {@code form.anchor.transform}. The placement
      * mirrors {@link #renderAxes}: local keeps the anchor's own orientation,
-     * otherwise the attachment's orientation at the anchor's position is used.
+     * otherwise the attachment's orientation at the anchor's position is used
+     * (this path's origin flavour) — and the result is reoriented into the
+     * active space just the same, so the drawn handles match the frame the drag
+     * works in (GLOBAL/VIEW would otherwise stay on the attachment's axes while
+     * the drag ran in world/screen axes).
      */
-    private static void renderAnchorGizmo(IntObjectMap<IEntity> entities, IEntity entity, Matrix4f full, Matrix4f defaultMatrix, double cx, double cy, double cz, float transition, boolean local, StencilMap stencilMap, MatrixStack stack)
+    private static void renderAnchorGizmo(IntObjectMap<IEntity> entities, IEntity entity, Matrix4f full, Matrix4f defaultMatrix, double cx, double cy, double cz, float transition, boolean local, TransformSpace space, Matrix4f gizmoView, StencilMap stencilMap, MatrixStack stack)
     {
         Form form = entity.getForm();
 
@@ -372,6 +376,10 @@ public abstract class BaseFilmController
 
         stack.push();
         MatrixStackUtils.multiply(stack, matrix);
+
+        /* Same lockstep as renderAxes: reorient before the frame is captured, so
+         * the visual and the pick stencil built from it agree with the drag. */
+        Gizmo.INSTANCE.reorientForSpace(stack, space, gizmoView);
 
         if (stencilMap == null)
         {

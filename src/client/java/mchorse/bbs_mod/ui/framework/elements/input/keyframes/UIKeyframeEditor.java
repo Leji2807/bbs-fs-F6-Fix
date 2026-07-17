@@ -258,8 +258,10 @@ public class UIKeyframeEditor extends UIElement
         return null;
     }
 
-    /** The space of the bone gizmo's active transform (mirrors {@link #getBone()}'s
-     *  dispatch), so the film gizmo can be drawn in LOCAL/GLOBAL/VIEW. */
+    /** The space of the active editable transform (mirrors
+     *  {@code UIReplaysEditorUtils.getEditableTransform}'s dispatch — the bone
+     *  tracks AND the form anchor), so the film gizmo is drawn in the very space
+     *  its drag operates in. */
     public TransformSpace getBoneSpace()
     {
         UIKeyframeFactory editor = this.editor;
@@ -275,6 +277,10 @@ public class UIKeyframeEditor extends UIElement
         else if (editor instanceof UIPoseTransformKeyframeFactory poseTransform)
         {
             return poseTransform.transform.getSpace();
+        }
+        else if (editor instanceof UIAnchorKeyframeFactory anchor)
+        {
+            return anchor.transform.getSpace();
         }
 
         return TransformSpace.LOCAL;
