@@ -21,8 +21,8 @@ import org.joml.Vector3f;
  * <p>The rotation is rebuilt every frame as the FIXED grab pose plus the total
  * sweep — a pure function of the gesture. LOCAL/GLOBAL/VIEW turn about the
  * axis the ring is DRAWN about (in LOCAL that is the bone's own tilted axis —
- * true local, not the euler channel's gimbal axis; the live-anchored readback
- * keeps &gt;360° winding). PARENT deliberately keeps the pre-spaces behaviour:
+ * true local, not the euler channel's gimbal axis; the readback's live winding
+ * keeps &gt;360° sweeps counting). PARENT deliberately keeps the pre-spaces behaviour:
  * the ring bumps the driven channel directly (the channels compose in the
  * parent frame), giving exact single-parameter turns and native winding.
  */
@@ -250,13 +250,14 @@ public class RingRotateDrag extends DragStrategy
 
         /* Apply the swept turn about the ring's world axis as a parent-frame
          * delta onto the grab pose (gimbal-free, quat- and euler-aware through
-         * applyLocalDelta; live-anchored readback keeps >360° winding). */
+         * applyLocalDelta, which keeps the >360° winding this ring is built for
+         * and anchors the euler family at the grab). */
         if (!this.channelPath)
         {
             float sweepDeg = (float) this.snapValue(this.accumulatedDeg);
             Matrix3f deltaLocal = new Matrix3f().rotation(MathUtils.toRad(sweepDeg), this.axisLocalParent);
 
-            RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, this.ctx.cache().rotate, this.ctx.transform().rotate);
+            RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, this.ctx.cache().rotate);
 
             return;
         }

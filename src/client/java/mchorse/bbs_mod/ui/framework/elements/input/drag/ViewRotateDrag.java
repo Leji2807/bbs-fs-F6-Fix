@@ -164,9 +164,7 @@ public class ViewRotateDrag extends DragStrategy
 
         Matrix3f deltaLocal = new Matrix3f().rotation(MathUtils.toRad(this.accumulatedDeg), this.viewLocalAxis);
 
-        /* Grab-anchored branch — free rotation self-recovers through the euler
-         * pole instead of stranding X/Z at ±180 (see applyLocalDelta). */
-        RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, base, base);
+        RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, base);
     }
 
     @Override

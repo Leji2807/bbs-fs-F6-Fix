@@ -1,8 +1,11 @@
 package mchorse.bbs_mod.utils.joml;
 
+import org.joml.Matrix3f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
+
+import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,10 +18,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * at exactly ±90°), which is why the mod owns these numerics. The reference paths come from a real
  * drag log ({@code run/drag-log.txt}) of the trackball bug this math fixed.
  *
- * <p>The reference-anchor taxonomy under test: GRAB-anchored readback (free rotations — trackball,
- * arcball, view) is a pure function of the gesture and self-recovers past the pole; LIVE-anchored
- * readback (the ring) keeps strict continuity and winds beyond 360°. Every decomposition site picks
- * one consciously.
+ * <p>The anchor taxonomy under test: a readback has TWO anchors and they answer independent
+ * questions. The BRANCH (which of the two euler families) strands where a path passes beside the
+ * pole, so it anchors at the GRAB and the write stays a pure function of the gesture. The WINDING
+ * (whole turns on top) can only be known from the previous value, so it always anchors LIVE and a
+ * spin keeps counting past ±180°. They shared one reference until 2026-07-17, which looked like a
+ * forced trade between the two — {@link #trackballWindsPastHalfTurn} is the bug that exposed it.
  */
 public class CompatEulerTest
 {
@@ -101,9 +106,11 @@ public class CompatEulerTest
     }
 
     /**
-     * Ring regression: a LIVE-anchored corridor must wind through 90/180/270/360… up to 1080° with
-     * no NaN at the exact poles (JOML 1.10.5's matrix path NaNs at ±90.00° — the ring snaps onto
-     * 90.00 and used to write NaN into bone channels).
+     * Ring regression, single-anchor flavour: a LIVE-anchored corridor must wind through
+     * 90/180/270/360… up to 1080° with no NaN at the exact poles (JOML 1.10.5's matrix path NaNs at
+     * ±90.00° — the ring snaps onto 90.00 and used to write NaN into bone channels). The ring now
+     * goes through the split-anchor call ({@link #ringCorridorWindsWithGrabBranch}); this keeps
+     * guarding the one-reference primitive, which the IK blends and the migrations still use.
      */
     @Test
     public void ringCorridorWindsLiveAnchored()
@@ -180,6 +187,160 @@ public class CompatEulerTest
         assertTrue(reproErr(euler, log17) < 0.05F, "log #17 quat reproduces (JOML 1.10.5 was 98° off)");
     }
 
+    /* ── The split anchors (branch at the grab, winding live) ─────────────────────────────── */
+
+    /**
+     * Passing one reference for both anchors must stay EXACTLY the pre-split algorithm — every
+     * non-drag caller (IK blending, constraints, the mode toggle, the rotate2 migration) goes
+     * through that flavour and must not shift by a bit. Fuzzed, with half the samples parked on the
+     * pole where the branch pick actually bites.
+     */
+    @Test
+    public void singleAnchorIsUnchangedByTheSplit()
+    {
+        Random rng = new Random(20260717L);
+        float worst = 0F;
+
+        for (int i = 0; i < 50000; i++)
+        {
+            Vector3f angles = randomEuler(rng);
+            Vector3f ref = randomEuler(rng);
+
+            if ((i & 1) == 0) angles.y = rad(90F) + (rng.nextFloat() - 0.5F) * 0.02F;
+
+            Matrix3f m = zyx(angles);
+            Vector3f split = Matrices.toCompatibleEulerZYXRadians(m, ref, ref, new Vector3f());
+            Vector3f single = Matrices.toCompatibleEulerZYXRadians(m, ref, new Vector3f());
+
+            worst = Math.max(worst, split.distance(single));
+        }
+
+        assertTrue(worst == 0F, "same reference twice == the one-reference flavour, bit for bit (max deviation " + worst + ")");
+    }
+
+    /**
+     * The trackball bug Вемпи caught on 2026-07-17 (fixed in c73a4d8f0). Spinning past half a turn
+     * kept turning the bone, but the channel folded — the log read ry +178.00 → −175.01 → −168.52
+     * while the quaternion advanced smoothly and X/Z never moved, i.e. the euler FAMILY was fine and
+     * only the winding folded. Cause: one anchor doing both jobs — the grab caps the value within
+     * half a turn of itself by construction. The winding must count from the live channels.
+     */
+    @Test
+    public void trackballWindsPastHalfTurn()
+    {
+        Vector3f grab = new Vector3f(rad(-9.06F), 0F, rad(-0.11F));
+        Vector3f live = new Vector3f(grab);
+        float previous = Float.NEGATIVE_INFINITY;
+
+        /* half a degree per frame, out to a turn and a half */
+        for (int step = 1; step <= 1080; step++)
+        {
+            Matrix3f target = new Matrix3f().rotation(rad(step * 0.5F), 0F, 1F, 0F).mul(zyx(grab));
+            Vector3f euler = Matrices.toCompatibleEulerZYXRadians(target, grab, live, new Vector3f());
+
+            assertTrue(euler.y >= previous - 1.0E-4F,
+                String.format("Y never folds back: %.2f after %.2f at sweep %.1f°", deg(euler.y), deg(previous), step * 0.5F));
+            assertTrue(reproErr(euler, target) < 0.05F, "every written value reproduces the exact orientation");
+
+            previous = euler.y;
+            live.set(euler);
+        }
+
+        assertTrue(Math.abs(deg(previous) - 540F) < 1F, String.format("a 540° spin reads 540, not folded (%.1f)", deg(previous)));
+
+        /* The same input through the old one-anchor call still folds — this is the regression itself. */
+        Matrix3f at185 = new Matrix3f().rotation(rad(185F), 0F, 1F, 0F).mul(zyx(grab));
+        float folded = deg(Matrices.toCompatibleEulerZYXRadians(at185, grab, new Vector3f()).y);
+        float wound = deg(Matrices.toCompatibleEulerZYXRadians(at185, grab, new Vector3f(grab.x, rad(178F), grab.z), new Vector3f()).y);
+
+        assertTrue(folded < -170F && Math.abs(wound - 185F) < 1F,
+            String.format("grab-wound folds (%.2f, the logged −175.01), live-wound doesn't (%.2f)", folded, wound));
+    }
+
+    /**
+     * The ring's own regression, now that it goes through the split call: a grab-anchored BRANCH
+     * must not cost the >360° winding the ring is built for. Corridor to 1080° through every pole,
+     * exact, no NaN.
+     */
+    @Test
+    public void ringCorridorWindsWithGrabBranch()
+    {
+        Vector3f grab = new Vector3f();
+        Vector3f live = new Vector3f();
+
+        for (int t = 5; t <= 1080; t += 5)
+        {
+            Matrix3f target = new Matrix3f().rotation(rad(t), 0F, 1F, 0F);
+            Vector3f euler = Matrices.toCompatibleEulerZYXRadians(target, grab, live, new Vector3f());
+
+            live.set(euler);
+
+            boolean finite = !Float.isNaN(euler.x) && !Float.isNaN(euler.y) && !Float.isNaN(euler.z);
+
+            assertTrue(finite && Math.abs(deg(euler.y) - t) < 0.02F && Math.abs(deg(euler.x)) < 0.01F && Math.abs(deg(euler.z)) < 0.01F,
+                String.format("grab-branch corridor at θ=%d winds exactly, no NaN: got (%.2f, %.2f, %.2f)", t, deg(euler.x), deg(euler.y), deg(euler.z)));
+        }
+    }
+
+    /**
+     * Why the ring took the grab branch too (2026-07-17): a sweep whose bone sits slightly off the
+     * corridor passes BESIDE the pole — a branch point of the euler map — and a live-anchored branch
+     * flows onto the flipped family and latches there, parking X/Z near ±180 for the rest of the
+     * gesture though the orientation only turned about one axis. The grab anchor re-picks the family
+     * against a fixed pose, so it comes back. Both are the same orientation; only one is a sane
+     * channel value to keyframe.
+     */
+    @Test
+    public void nearPoleStrandRecoversWithGrabBranch()
+    {
+        Vector3f grab = new Vector3f(rad(12F), 0F, rad(6F));
+        Vector3f liveBranch = new Vector3f(grab);
+        Vector3f grabBranch = new Vector3f(grab);
+        Vector3f strandedOuter = new Vector3f();
+        Vector3f recoveredOuter = new Vector3f();
+
+        for (int t = 1; t <= 180; t++)
+        {
+            Matrix3f target = new Matrix3f().rotation(rad(t), 0F, 1F, 0F).mul(zyx(grab));
+
+            /* live branch: the anchor walks with the value (the ring's old behaviour) */
+            Vector3f a = Matrices.toCompatibleEulerZYXRadians(target, liveBranch, liveBranch, new Vector3f());
+            liveBranch.set(a);
+
+            /* grab branch: family re-picked against the fixed grab, winding still live */
+            Vector3f b = Matrices.toCompatibleEulerZYXRadians(target, grab, grabBranch, new Vector3f());
+            grabBranch.set(b);
+
+            assertTrue(reproErr(b, target) < 0.05F, "the grab-branch write reproduces the orientation at every step");
+
+            if (t == 180)
+            {
+                strandedOuter.set(Math.abs(deg(a.x)), 0F, Math.abs(deg(a.z)));
+                recoveredOuter.set(Math.abs(deg(b.x)), 0F, Math.abs(deg(b.z)));
+            }
+        }
+
+        assertTrue(Math.abs(recoveredOuter.x - 12F) < 1F && Math.abs(recoveredOuter.z - 6F) < 1F,
+            String.format("grab branch returns the outer angles to the grab's own (%.1f, %.1f), expect (12, 6)", recoveredOuter.x, recoveredOuter.z));
+        assertTrue(strandedOuter.x > 90F || strandedOuter.z > 90F,
+            String.format("the live branch is what strands them near ±180 (%.1f, %.1f) — if this ever fails, the ring's grab branch is no longer buying anything", strandedOuter.x, strandedOuter.z));
+    }
+
+    private static Vector3f randomEuler(Random rng)
+    {
+        return new Vector3f(
+            (rng.nextFloat() - 0.5F) * 4F * (float) Math.PI,
+            (rng.nextFloat() - 0.5F) * 4F * (float) Math.PI,
+            (rng.nextFloat() - 0.5F) * 4F * (float) Math.PI
+        );
+    }
+
+    /** {@code Rz·Ry·Rx} — the renderer's composition order, same as RotationDragMath.eulerZYX. */
+    private static Matrix3f zyx(Vector3f radians)
+    {
+        return new Matrix3f().rotationZ(radians.z).rotateY(radians.y).rotateX(radians.x);
+    }
+
     private static float deg(float rad)
     {
         return (float) Math.toDegrees(rad);
@@ -188,6 +349,12 @@ public class CompatEulerTest
     private static float rad(float deg)
     {
         return (float) Math.toRadians(deg);
+    }
+
+    /** See {@link #reproErr(Vector3f, Quaternionf)}; against a rotation matrix. */
+    private static float reproErr(Vector3f eulerRad, Matrix3f target)
+    {
+        return reproErr(eulerRad, new Quaternionf().setFromNormalized(target));
     }
 
     /** Degrees of orientation error when re-composing the euler triple ZYX. */

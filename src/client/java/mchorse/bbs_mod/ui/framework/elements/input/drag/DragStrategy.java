@@ -420,7 +420,7 @@ public abstract class DragStrategy
         RotationDragMath.applyLocalDelta(
             this.ctx,
             new Matrix3f().rotation(MathUtils.toRad((float) degrees), localAxis),
-            source, source
+            source
         );
     }
 

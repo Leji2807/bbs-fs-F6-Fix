@@ -126,22 +126,27 @@ public final class RotationDragMath
      * a trackball spin past 180° kept turning the bone but wrote the angle
      * folded back (185° stored as −175°), which is the same orientation but the
      * wrong number to keyframe.</li>
-     * <li>The BRANCH follows {@code branchEuler} — the GRAB euler for the free
-     * rotations, so a near-pole passage self-recovers instead of stranding the
-     * outer angles at ±180 for the rest of the gesture; the LIVE channels for
-     * the ring, whose fixed axis crosses poles cleanly.</li>
+     * <li>The BRANCH follows {@code baseEuler}, the very pose the delta composes
+     * onto: the result belongs in the euler family the gesture STARTED in, so a
+     * passage beside the pole (a branch point of the euler map) self-recovers
+     * instead of flowing onto the flipped family and stranding the outer angles
+     * at ±180 for the rest of the gesture. Anchoring it to the live channels
+     * instead lets that strand latch — the walking reference keeps choosing the
+     * family it just landed on.</li>
      * </ul>
      *
-     * <p>These two used to share one anchor, which forced a choice between
-     * winding and pole-recovery. They are independent questions, so nothing is
-     * traded by answering them separately.
+     * <p>These two used to share one anchor, which looked like a forced choice
+     * between winding and pole-recovery. They are independent questions, so
+     * nothing is traded by answering them separately — and once separated, the
+     * branch has exactly one right answer for every drag, which is why it isn't
+     * a parameter.
      *
-     * @param deltaLocal  the delta rotation in the bone's parent frame (a pure
+     * @param deltaLocal the delta rotation in the bone's parent frame (a pure
      *        rotation matrix); left untouched.
-     * @param baseEuler   the grab euler stack the euler path composes onto.
-     * @param branchEuler the euler family anchor (see above).
+     * @param baseEuler  the grab euler stack the euler path composes onto, and
+     *        thereby the branch anchor.
      */
-    public static void applyLocalDelta(DragContext ctx, Matrix3f deltaLocal, Vector3f baseEuler, Vector3f branchEuler)
+    public static void applyLocalDelta(DragContext ctx, Matrix3f deltaLocal, Vector3f baseEuler)
     {
         if (ctx.transform().rotationMode == Transform.RotationMode.QUATERNION)
         {
@@ -159,12 +164,11 @@ public final class RotationDragMath
         GizmoDrag drag = ctx.drag();
         Vector3f add = drag == null ? new Vector3f() : drag.additiveRotationBase;
         Vector3f effectiveBase = new Vector3f(baseEuler).add(add);
-        Vector3f effectiveBranch = new Vector3f(branchEuler).add(add);
         Vector3f effectiveWinding = new Vector3f(ctx.transform().rotate).add(add);
 
         Vector3f euler = Matrices.toCompatibleEulerZYXRadians(
             new Matrix3f(deltaLocal).mul(eulerZYX(effectiveBase)),
-            effectiveBranch,
+            effectiveBase,
             effectiveWinding,
             new Vector3f()
         ).sub(add);
