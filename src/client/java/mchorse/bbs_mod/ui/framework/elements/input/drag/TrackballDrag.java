@@ -131,4 +131,28 @@ public class TrackballDrag extends SphereDrag
          * RotationDragMath.writeCompatibleEuler). */
         RotationDragMath.applyLocalDelta(this.ctx, deltaLocal, source, source);
     }
+
+    /**
+     * The gesture's OWN sweeps, not the shared euler-channel diff: this drag is
+     * defined in screen axes and its travel is unbounded, while
+     * {@link #freeRotateReadout} reads the bone's channels back through a
+     * compatible-euler anchored at the grab — which by construction lands within
+     * ±180° of it, so the display folded at half a turn and crawled back while
+     * the bone kept spinning. The arcball never showed it: its arc is the angle
+     * between two directions on the ball and can't exceed half a turn in one
+     * grab. Axis naming matches the typed-angle aiming ({@link #numericPrefix}):
+     * X turns about the screen's right axis (vertical travel), Y about its up
+     * axis (horizontal travel), Z about the view axis (the wheel roll).
+     */
+    @Override
+    public String readout()
+    {
+        float sensitivity = BBSSettings.trackballSensitivity.get();
+
+        return String.format("X %+.1f°  Y %+.1f°  Z %+.1f°",
+            this.accumY * sensitivity,
+            this.accumX * sensitivity,
+            this.rollDeg
+        );
+    }
 }
