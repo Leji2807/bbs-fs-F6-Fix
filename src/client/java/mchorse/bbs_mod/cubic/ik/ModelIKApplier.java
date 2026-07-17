@@ -5,9 +5,9 @@ import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.constraints.ModelConstraintsConfig.BoneConstraint;
 import mchorse.bbs_mod.cubic.data.model.Model;
 import mchorse.bbs_mod.cubic.data.model.ModelGroup;
-import mchorse.bbs_mod.cubic.ik.solver.IKChain;
-import mchorse.bbs_mod.cubic.ik.solver.IKChainSolver;
 import mchorse.bbs_mod.cubic.ik.solver.IKJoint;
+import mchorse.bbs_mod.cubic.ik.solver.IKTree;
+import mchorse.bbs_mod.cubic.ik.solver.IKTreeSolver;
 import mchorse.bbs_mod.cubic.model.bobj.BOBJModel;
 import mchorse.bbs_mod.cubic.render.CubicRenderer.PivotFrame;
 import mchorse.bbs_mod.cubic.render.ModelPivotFrames;
@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -29,9 +30,9 @@ final class ModelIKApplier
 {
     /**
      * Per-frame solve dump to {@code run/ik-log.txt} (truncated every frame, so the
-     * file always holds the LAST frame's chains) — the IK counterpart of the drag
+     * file always holds the LAST frame's trees) — the IK counterpart of the drag
      * log, and like it the thing to ask for when a solve is disputed: captured
-     * angles in, goal, iterations, error, angles out. Flip to enable; zero cost off.
+     * angles in, goals, iterations, errors, angles out. Flip to enable; zero cost off.
      */
     private static final boolean LOG_IK = false;
 
@@ -47,6 +48,11 @@ final class ModelIKApplier
     {
     }
 
+    /** A chain's per-frame solve inputs, resolved from config × film overrides × frames. */
+    private record ResolvedChain(ModelIKCache.CompiledChain chain, List<String> workIds, Vector3f target, Quaternionf tipTarget, boolean pole, Vector3f polePoint, float poleAngle, float softness, float weight)
+    {
+    }
+
     public static void apply(IModel model, List<ModelIKCache.CompiledChain> chains, Map<String, ModelIKConfig.JointDoF> jointDoF, Map<String, Vector3f> controllerTargets, Map<String, Vector3f> poleTargets, Map<String, Float> targetWeights, Map<String, Float> poleWeights, Map<String, IKControl> controlOverrides, Map<String, BoneConstraint> boneLimits)
     {
         if (model == null || chains == null || chains.isEmpty())
@@ -54,8 +60,8 @@ final class ModelIKApplier
             return;
         }
 
-        /* Apply ancestor chains (shallower root) first, and re-collect frames per
-         * chain, so a child chain (e.g. an arm) sees the pose its parent chain
+        /* Ancestor groups (shallower root) first, and frames re-collected per
+         * group, so a child chain (e.g. an arm) sees the pose its parent chain
          * (e.g. the body) already produced and rides along with it. */
         List<ModelIKCache.CompiledChain> ordered = new ArrayList<>(chains);
         ordered.sort(Comparator.comparingInt((ModelIKCache.CompiledChain chain) -> rootDepth(model, chain)));
@@ -65,27 +71,119 @@ final class ModelIKApplier
             LOG.setLength(0);
         }
 
-        for (ModelIKCache.CompiledChain chain : ordered)
+        if (model instanceof Model cubic)
         {
-            Set<String> wanted = new HashSet<>();
-            wanted.add(chain.target());
-            wanted.addAll(chain.chainRootToEffector());
-
-            if (chain.poleTarget() != null && !chain.poleTarget().isEmpty())
+            /* OVERLAPPING chains merge into one tree and solve together — shared
+             * bones negotiate between the goals (Blender's tree merge). Disjoint
+             * chains stay independent solves, ancestor-first as before. */
+            for (List<ModelIKCache.CompiledChain> group : groupOverlapping(ordered))
             {
-                wanted.add(chain.poleTarget());
+                Set<String> wanted = new HashSet<>();
+
+                for (ModelIKCache.CompiledChain chain : group)
+                {
+                    wanted.add(chain.target());
+                    wanted.addAll(chain.chainRootToEffector());
+
+                    if (chain.poleTarget() != null && !chain.poleTarget().isEmpty())
+                    {
+                        wanted.add(chain.poleTarget());
+                    }
+                }
+
+                Map<String, PivotFrame> frames = new HashMap<>(wanted.size() * 2);
+
+                ModelPivotFrames.collect(model, wanted, frames, null);
+                applyGroupCubic(cubic, group, frames, jointDoF, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
             }
+        }
+        else if (model instanceof BOBJModel bobj)
+        {
+            for (ModelIKCache.CompiledChain chain : ordered)
+            {
+                Set<String> wanted = new HashSet<>();
+                wanted.add(chain.target());
+                wanted.addAll(chain.chainRootToEffector());
 
-            Map<String, PivotFrame> frames = new HashMap<>(wanted.size() * 2);
-            ModelPivotFrames.collect(model, wanted, frames, null);
+                if (chain.poleTarget() != null && !chain.poleTarget().isEmpty())
+                {
+                    wanted.add(chain.poleTarget());
+                }
 
-            applyChain(model, chain, frames, jointDoF, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides, boneLimits);
+                Map<String, PivotFrame> frames = new HashMap<>(wanted.size() * 2);
+
+                ModelPivotFrames.collect(model, wanted, frames, null);
+
+                ResolvedChain resolved = resolveChain(model, chain, frames, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
+
+                if (resolved != null)
+                {
+                    applyChainBobjLegacy(bobj, resolved, frames, boneLimits);
+                }
+            }
         }
 
         if (LOG_IK)
         {
             flushLog();
         }
+    }
+
+    /**
+     * Buckets the (ancestor-first ordered) chains into groups of transitively
+     * overlapping bone sets. Group order follows the order of each group's
+     * first chain, so ancestor groups still apply first.
+     */
+    private static List<List<ModelIKCache.CompiledChain>> groupOverlapping(List<ModelIKCache.CompiledChain> ordered)
+    {
+        List<List<ModelIKCache.CompiledChain>> groups = new ArrayList<>();
+        List<Set<String>> groupBones = new ArrayList<>();
+
+        for (ModelIKCache.CompiledChain chain : ordered)
+        {
+            List<Integer> touching = new ArrayList<>();
+
+            for (int g = 0; g < groups.size(); g++)
+            {
+                for (String bone : chain.chainRootToEffector())
+                {
+                    if (groupBones.get(g).contains(bone))
+                    {
+                        touching.add(g);
+                        break;
+                    }
+                }
+            }
+
+            if (touching.isEmpty())
+            {
+                List<ModelIKCache.CompiledChain> group = new ArrayList<>();
+
+                group.add(chain);
+                groups.add(group);
+                groupBones.add(new HashSet<>(chain.chainRootToEffector()));
+
+                continue;
+            }
+
+            /* Merge every touched group into the first one, then add the chain. */
+            int first = touching.get(0);
+
+            for (int t = touching.size() - 1; t >= 1; t--)
+            {
+                int g = touching.get(t);
+
+                groups.get(first).addAll(groups.get(g));
+                groupBones.get(first).addAll(groupBones.get(g));
+                groups.remove(g);
+                groupBones.remove(g);
+            }
+
+            groups.get(first).add(chain);
+            groupBones.get(first).addAll(chain.chainRootToEffector());
+        }
+
+        return groups;
     }
 
     /** Writes this frame's accumulated solve dump over the previous frame's. */
@@ -106,6 +204,14 @@ final class ModelIKApplier
     {
         List<String> ids = chain.chainRootToEffector();
         String group = ids.isEmpty() ? chain.tip() : ids.get(0);
+
+        return depthOf(model, group);
+    }
+
+    /** Parent-walk depth of a bone from the model root. */
+    private static int depthOf(IModel model, String bone)
+    {
+        String group = bone;
         int depth = 0;
 
         while (group != null && !group.isEmpty() && depth < 256)
@@ -124,7 +230,14 @@ final class ModelIKApplier
         return depth;
     }
 
-    private static void applyChain(IModel model, ModelIKCache.CompiledChain chain, Map<String, PivotFrame> frames, Map<String, ModelIKConfig.JointDoF> jointDoF, Map<String, Vector3f> controllerTargets, Map<String, Vector3f> poleTargets, Map<String, Float> targetWeights, Map<String, Float> poleWeights, Map<String, IKControl> controlOverrides, Map<String, BoneConstraint> boneLimits)
+    /**
+     * Resolves one chain's solve inputs for this frame: the film's `ik` track
+     * overrides over the config scalars, the (possibly faded) target and pole
+     * positions, the auto-tail work ids and the tail-shifted target. Returns
+     * {@code null} when the chain is off this frame (disabled, weightless, or
+     * its target frame is missing).
+     */
+    private static ResolvedChain resolveChain(IModel model, ModelIKCache.CompiledChain chain, Map<String, PivotFrame> frames, Map<String, Vector3f> controllerTargets, Map<String, Vector3f> poleTargets, Map<String, Float> targetWeights, Map<String, Float> poleWeights, Map<String, IKControl> controlOverrides)
     {
         /* The film's `ik` track may override the chain's static config scalars.
          * IK weight is independent of pose `fix` — freezing a bone pins it to rest
@@ -134,25 +247,24 @@ final class ModelIKApplier
 
         if (control != null && !control.enabled)
         {
-            return;
+            return null;
         }
 
         boolean pole = control != null ? control.pole : chain.pole();
         float softness = control != null ? control.softness : chain.softness();
         float weight = control != null ? control.weight : chain.weight();
-
         float poleAngle = (float) Math.toRadians(control != null ? control.poleAngle : chain.poleAngle());
 
         if (weight <= 0F)
         {
-            return;
+            return null;
         }
 
         PivotFrame targetFrame = frames.get(chain.target());
 
         if (targetFrame == null)
         {
-            return;
+            return null;
         }
 
         List<String> chainIds = chain.chainRootToEffector();
@@ -165,6 +277,11 @@ final class ModelIKApplier
         boolean tipRotation = chain.tipRotation();
         String tailId = tipRotation ? autoTailId(model, chainIds) : null;
         List<String> workIds = tailId == null ? chainIds : chainIds.subList(0, chainIds.size() - 1);
+
+        if (workIds.size() < 2)
+        {
+            return null;
+        }
 
         /* The film's target/pole overrides ride a 0..1 weight that eases them in/out across
          * a "None" keyframe, so fading a target glides from the bone's own frame, not origin. */
@@ -188,156 +305,85 @@ final class ModelIKApplier
 
         Vector3f polePoint = resolvePolePoint(pole, chain.poleTarget(), frames, poleTargets, poleWeights);
 
-        if (model instanceof Model cubic)
-        {
-            applyChainCubic(cubic, workIds, frames, jointDoF, target, pole, polePoint, poleAngle, softness, weight, tipTarget);
-        }
-        else if (model instanceof BOBJModel bobj)
-        {
-            applyChainBobjLegacy(bobj, workIds, frames, target, pole, polePoint, poleAngle, softness, weight, tipTarget, boneLimits);
-        }
+        return new ResolvedChain(chain, workIds, target, tipTarget, pole, polePoint, poleAngle, softness, weight);
     }
 
     /* ------------------------------------------------------------------ */
-    /* Cubic: channel-space damped-least-squares solve                     */
+    /* Cubic: channel-space damped-least-squares solve over a merged tree  */
     /* ------------------------------------------------------------------ */
 
     /**
-     * The cubic solve: capture the chain from the pivot frames into the
-     * channel-space core ({@link IKChain}), seed the bend on a dead-straight
-     * limb from its authored rest bend, soften the goal, run the DLS solve
-     * (with Blender's pole), and write each bone's solved local rotation to
-     * {@link ModelGroup#orient} blended against the FK base by the IK weight.
-     * The euler channels are never touched — they stay the read-only FK truth
-     * (the constraint-stack contract), and the solved angles START from them,
-     * so the twist the animator posed survives into the solve by construction.
+     * The cubic solve for one group of overlapping chains: capture the union of
+     * their directed bones into the channel-space tree ({@link IKTree}), one
+     * effector per chain, soften each goal against its own chain's reach, run
+     * the DLS solve (with Blender's pole per chain), and write each bone's
+     * solved local rotation to {@link ModelGroup#orient} blended against the FK
+     * base by the IK weight. The euler channels are never touched — they stay
+     * the read-only FK truth (the constraint-stack contract), and the solved
+     * angles START from them, so the twist the animator posed survives into
+     * the solve by construction.
      */
-    private static void applyChainCubic(Model model, List<String> workIds, Map<String, PivotFrame> frames, Map<String, ModelIKConfig.JointDoF> jointDoF, Vector3f target, boolean pole, Vector3f polePoint, float poleAngle, float softness, float weight, Quaternionf tipTarget)
+    private static void applyGroupCubic(Model model, List<ModelIKCache.CompiledChain> group, Map<String, PivotFrame> frames, Map<String, ModelIKConfig.JointDoF> jointDoF, Map<String, Vector3f> controllerTargets, Map<String, Vector3f> poleTargets, Map<String, Float> targetWeights, Map<String, Float> poleWeights, Map<String, IKControl> controlOverrides)
     {
-        IKChain chain = captureChain(model, workIds, frames, jointDoF);
+        List<ResolvedChain> resolved = new ArrayList<>(group.size());
 
-        if (chain == null)
+        for (ModelIKCache.CompiledChain chain : group)
+        {
+            ResolvedChain r = resolveChain(model, chain, frames, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
+
+            if (r != null)
+            {
+                resolved.add(r);
+            }
+        }
+
+        if (resolved.isEmpty())
         {
             return;
         }
 
-        /* Pole ON with no pole target bone = the REST-AUTHORED virtual pole: the bend
-         * plane is stabilized towards the side the model was built bent towards (knee
-         * forward, elbow back), lifted by the chain root's current parent frame so it
-         * tracks the shoulder/hip. Without it the bend side is ambiguous and a target
-         * orbiting the character makes the chain SNAP sides at the degenerate
-         * directions (Blender behaves the same — its riggers always add a pole; this
-         * bakes that rule in). A rig with no authored bend (a rope) has no side to
-         * offer and keeps the pure pose-driven behavior. */
-        if (pole && polePoint == null)
+        /* The tree's nodes: the union of every chain's DIRECTED bones (all work
+         * ids but the last — the last is the effector bone, whose own angles
+         * move only what hangs below it), parents-first. */
+        LinkedHashSet<String> nodeSet = new LinkedHashSet<>();
+
+        for (ResolvedChain r : resolved)
         {
-            polePoint = restVirtualPole(model, workIds, chain);
+            nodeSet.addAll(r.workIds().subList(0, r.workIds().size() - 1));
         }
 
-        Vector3f goal = IKChainSolver.softGoal(chain, target, softness);
+        List<String> nodes = new ArrayList<>(nodeSet);
 
-        if (LOG_IK)
+        nodes.sort(Comparator.comparingInt((String bone) -> depthOf(model, bone)));
+
+        IKTree tree = new IKTree(nodes.size(), resolved.size());
+        Map<String, Integer> nodeIndex = new HashMap<>(nodes.size() * 2);
+
+        for (int i = 0; i < nodes.size(); i++)
         {
-            logChainIn(workIds, chain, target, goal, polePoint, weight);
+            nodeIndex.put(nodes.get(i), i);
         }
 
-        IKChainSolver.Result result = IKChainSolver.solve(chain, goal, polePoint, poleAngle, IKChainSolver.Params.DEFAULT);
-
-        if (LOG_IK)
+        for (int i = 0; i < nodes.size(); i++)
         {
-            logChainOut(chain, result);
-        }
-
-        writeOrientations(model, workIds, chain, weight, tipTarget);
-    }
-
-    private static void logChainIn(List<String> workIds, IKChain chain, Vector3f target, Vector3f goal, Vector3f polePoint, float weight)
-    {
-        LOG.append("chain ").append(workIds).append(" weight ").append(weight).append('\n');
-        LOG.append("  target ").append(fmt(target)).append(" goal ").append(fmt(goal));
-        LOG.append(" pole ").append(polePoint == null ? "-" : fmt(polePoint)).append('\n');
-
-        for (int i = 0; i < chain.joints.length; i++)
-        {
-            LOG.append("  in  ").append(workIds.get(i)).append(" angles ").append(fmtDeg(chain.joints[i].angles))
-                .append(" pos ").append(fmt(chain.joints[i].startPosition)).append('\n');
-        }
-    }
-
-    private static void logChainOut(IKChain chain, IKChainSolver.Result result)
-    {
-        LOG.append("  solved reached=").append(result.reached()).append(" err=").append(result.error())
-            .append(" iters=").append(result.iterations()).append(" effector ").append(fmt(chain.effector)).append('\n');
-
-        for (IKJoint joint : chain.joints)
-        {
-            LOG.append("  out angles ").append(fmtDeg(joint.angles)).append('\n');
-        }
-    }
-
-    private static String fmt(Vector3f v)
-    {
-        return String.format("(%+.4f, %+.4f, %+.4f)", v.x, v.y, v.z);
-    }
-
-    private static String fmtDeg(Vector3f radians)
-    {
-        float toDeg = (float) (180.0 / Math.PI);
-
-        return String.format("(%+.2f, %+.2f, %+.2f)", radians.x * toDeg, radians.y * toDeg, radians.z * toDeg);
-    }
-
-    /**
-     * Captures the chain's directed bones (all but the last work id) into solver
-     * joints: world frames straight from the pivot frames, start angles from the
-     * bone's evaluated rotation — the rotation the renderer actually applies —
-     * decomposed continuously against the euler channels, so a quaternion-mode
-     * bone or a composed layer stack enters the solve without a branch flip and
-     * a plain euler bone enters byte-exact. Each joint picks up its per-bone
-     * freedom from the config's "bones" section (locks, degree limits converted
-     * to the solver's radians, stiffness). Returns {@code null} when a frame or
-     * bone is missing (the solve is silently skipped, as before).
-     */
-    private static IKChain captureChain(Model model, List<String> workIds, Map<String, PivotFrame> frames, Map<String, ModelIKConfig.JointDoF> jointDoF)
-    {
-        int directed = workIds.size() - 1;
-
-        if (directed < 1)
-        {
-            return null;
-        }
-
-        PivotFrame rootFrame = frames.get(workIds.get(0));
-        PivotFrame effectorFrame = frames.get(workIds.get(workIds.size() - 1));
-
-        if (rootFrame == null || effectorFrame == null)
-        {
-            return null;
-        }
-
-        IKChain chain = new IKChain(directed);
-
-        chain.rootParentRotation.set(rootFrame.parentRotation());
-        chain.startEffector.set(effectorFrame.position());
-
-        for (int i = 0; i < directed; i++)
-        {
-            ModelGroup bone = model.getGroup(workIds.get(i));
-            PivotFrame frame = frames.get(workIds.get(i));
+            ModelGroup bone = model.getGroup(nodes.get(i));
+            PivotFrame frame = frames.get(nodes.get(i));
 
             if (bone == null || frame == null)
             {
-                return null;
+                return;
             }
 
-            IKJoint joint = chain.joints[i];
+            IKJoint joint = tree.joints[i];
 
             joint.startPosition.set(frame.position());
             joint.startWorldRotation.set(frame.worldRotation());
+            tree.startParentRotation[i].set(frame.parentRotation());
             sourceAngles(bone, joint.startAngles);
             joint.angles.set(joint.startAngles);
+            tree.parentIndex[i] = nearestAncestor(model, nodes.get(i), nodeIndex);
 
-            ModelIKConfig.JointDoF dof = jointDoF == null ? null : jointDoF.get(workIds.get(i));
+            ModelIKConfig.JointDoF dof = jointDoF == null ? null : jointDoF.get(nodes.get(i));
 
             if (dof != null)
             {
@@ -345,7 +391,122 @@ final class ModelIKApplier
             }
         }
 
-        return chain;
+        /* Effectors: one per chain, riding its last directed bone; each goal is
+         * softened against its OWN chain's reach. Poles are per chain too. */
+        IKTreeSolver.Pole[] poles = new IKTreeSolver.Pole[resolved.size()];
+
+        for (int e = 0; e < resolved.size(); e++)
+        {
+            ResolvedChain r = resolved.get(e);
+            List<String> workIds = r.workIds();
+            PivotFrame effectorFrame = frames.get(workIds.get(workIds.size() - 1));
+            Integer lastJoint = nodeIndex.get(workIds.get(workIds.size() - 2));
+            Integer rootJoint = nodeIndex.get(workIds.get(0));
+
+            if (effectorFrame == null || lastJoint == null || rootJoint == null)
+            {
+                return;
+            }
+
+            IKTree.Effector effector = tree.effector(e, lastJoint);
+
+            effector.startPosition.set(effectorFrame.position());
+            effector.weight = r.weight();
+
+            Vector3f rootPosition = tree.joints[rootJoint].startPosition;
+            float reach = chainReach(tree, rootJoint, lastJoint, effector.startPosition);
+
+            effector.goal.set(IKTreeSolver.softGoal(rootPosition, reach, r.target(), r.softness()));
+
+            Vector3f polePoint = r.polePoint();
+
+            if (r.pole() && polePoint == null)
+            {
+                polePoint = restVirtualPole(model, workIds, tree.startParentRotation[rootJoint], rootPosition, reach);
+            }
+
+            poles[e] = polePoint == null ? null : new IKTreeSolver.Pole(rootJoint, polePoint, r.poleAngle());
+        }
+
+        if (LOG_IK)
+        {
+            logTreeIn(nodes, tree);
+        }
+
+        IKTreeSolver.Result result = IKTreeSolver.solve(tree, poles, IKTreeSolver.Params.DEFAULT);
+
+        if (LOG_IK)
+        {
+            logTreeOut(tree, result);
+        }
+
+        writeTree(model, nodes, tree, resolved);
+    }
+
+    /** The captured arc length root joint → last joint → effector point, along the tree. */
+    private static float chainReach(IKTree tree, int rootJoint, int lastJoint, Vector3f effectorStart)
+    {
+        float total = effectorStart.distance(tree.joints[lastJoint].startPosition);
+        int j = lastJoint;
+
+        while (j != rootJoint && tree.parentIndex[j] >= 0)
+        {
+            int parent = tree.parentIndex[j];
+
+            total += tree.joints[j].startPosition.distance(tree.joints[parent].startPosition);
+            j = parent;
+        }
+
+        return total;
+    }
+
+    /** Index of the bone's nearest ancestor among the tree nodes; -1 when none. */
+    private static int nearestAncestor(IModel model, String bone, Map<String, Integer> nodeIndex)
+    {
+        String group = model.getParentGroupKey(bone);
+        int depth = 0;
+
+        while (group != null && !group.isEmpty() && depth < 256)
+        {
+            Integer index = nodeIndex.get(group);
+
+            if (index != null)
+            {
+                return index;
+            }
+
+            String parent = model.getParentGroupKey(group);
+
+            if (parent == null || parent.equals(group))
+            {
+                break;
+            }
+
+            group = parent;
+            depth++;
+        }
+
+        return -1;
+    }
+
+    /**
+     * The bone's FK rotation as ZYX angles in radians — the solve's start value.
+     * Euler bones read their channels directly (cubic channels are degrees);
+     * quaternion-mode bones and bones carrying a composed {@code orient} (layer
+     * stacks) decompose the evaluated rotation compatibly against the channels,
+     * so the start stays continuous with what the animator sees.
+     */
+    private static Vector3f sourceAngles(ModelGroup bone, Vector3f dest)
+    {
+        float toRad = (float) (Math.PI / 180.0);
+        Vector3f channels = dest.set(bone.current.rotate).mul(toRad);
+
+        if (bone.orient == null && bone.current.rotationMode != Transform.RotationMode.QUATERNION)
+        {
+            return channels;
+        }
+
+        return Matrices.toCompatibleEulerZYXRadians(bone.evaluatedRotation(), new Vector3f(channels), dest);
     }
 
     /** Copies the config's per-bone freedom onto a solver joint; limits are authored in degrees. */
@@ -375,36 +536,15 @@ final class ModelIKApplier
     }
 
     /**
-     * The bone's FK rotation as ZYX angles in radians — the solve's start value.
-     * Euler bones read their channels directly (cubic channels are degrees);
-     * quaternion-mode bones and bones carrying a composed {@code orient} (layer
-     * stacks) decompose the evaluated rotation compatibly against the channels,
-     * so the start stays continuous with what the animator sees.
-     */
-    private static Vector3f sourceAngles(ModelGroup bone, Vector3f dest)
-    {
-        float toRad = (float) (Math.PI / 180.0);
-        Vector3f channels = dest.set(bone.current.rotate).mul(toRad);
-
-        if (bone.orient == null && bone.current.rotationMode != Transform.RotationMode.QUATERNION)
-        {
-            return channels;
-        }
-
-        return Matrices.toCompatibleEulerZYXRadians(bone.evaluatedRotation(), new Vector3f(channels), dest);
-    }
-
-    /**
-     * The rest-authored virtual pole point: the direction the chain's first
+     * The rest-authored virtual pole point for a chain: the direction its first
      * interior pivot sticks out from the rest root-to-effector line — where the
      * model's own elbow/knee points — lifted into the world by the chain root's
-     * current parent frame (the same lift {@link #restBendNormal} uses) and
-     * placed a chain-length away from the root. {@code null} when the chain is
-     * too short or authored dead straight (no side to prefer).
+     * current parent frame and placed a reach away from the root. {@code null}
+     * when the chain is too short or authored dead straight (no side to prefer).
      */
-    private static Vector3f restVirtualPole(Model model, List<String> workIds, IKChain chain)
+    private static Vector3f restVirtualPole(Model model, List<String> workIds, Quaternionf rootParentRotation, Vector3f rootPosition, float reach)
     {
-        if (chain.joints.length < 2)
+        if (workIds.size() < 3)
         {
             return null;
         }
@@ -434,54 +574,152 @@ final class ModelIKApplier
             return null;
         }
 
-        chain.rootParentRotation.transform(side);
+        rootParentRotation.transform(side);
 
-        return new Vector3f(chain.joints[0].startPosition).fma(chain.totalLength(), side);
+        return new Vector3f(rootPosition).fma(reach, side);
     }
 
     /**
-     * Writes the solved chain onto the bones: each directed bone's local rotation
-     * is composed from its solved channel angles and written raw to
+     * Writes the solved tree onto the bones: each node's local rotation is
+     * composed from its solved channel angles and written raw to
      * {@link ModelGroup#orient}, blended against the FK base (the bone's
-     * evaluated rotation) by the IK weight. The parent world frame advances by
-     * the APPLIED (blended) rotation — the frame the renderer establishes — so
-     * the tip's target orientation lands in the right frame at any weight.
+     * evaluated rotation) by the strongest weight of the chains running through
+     * it. The blended world frames advance the same rigid way the solve did —
+     * the frames the renderer establishes — so each chain's tip target lands in
+     * the right frame at any weight.
      */
-    private static void writeOrientations(Model model, List<String> workIds, IKChain chain, float weight, Quaternionf tipTarget)
+    private static void writeTree(Model model, List<String> nodes, IKTree tree, List<ResolvedChain> resolved)
     {
-        Quaternionf parentWorld = new Quaternionf(chain.rootParentRotation);
+        int n = nodes.size();
+        float[] nodeWeight = new float[n];
 
-        for (int i = 0; i < chain.joints.length; i++)
+        for (int e = 0; e < resolved.size(); e++)
         {
-            ModelGroup bone = model.getGroup(workIds.get(i));
+            float weight = resolved.get(e).weight();
+
+            for (int i = 0; i < n; i++)
+            {
+                if (tree.moves(e, i))
+                {
+                    nodeWeight[i] = Math.max(nodeWeight[i], weight);
+                }
+            }
+        }
+
+        Quaternionf[] blendedWorld = new Quaternionf[n];
+
+        for (int i = 0; i < n; i++)
+        {
+            ModelGroup bone = model.getGroup(nodes.get(i));
 
             if (bone == null)
             {
                 return;
             }
 
-            Quaternionf solvedLocal = Matrices.toLocalRotationZYXRadians(chain.joints[i].angles);
-            Quaternionf applied = weight >= 1F - EPS ? solvedLocal : bone.evaluatedRotation().slerp(solvedLocal, weight);
+            Quaternionf solvedLocal = Matrices.toLocalRotationZYXRadians(tree.joints[i].angles);
+            Quaternionf applied = nodeWeight[i] >= 1F - EPS ? solvedLocal : bone.evaluatedRotation().slerp(solvedLocal, nodeWeight[i]);
 
             bone.orient = applied;
-            parentWorld.mul(applied);
-        }
 
-        /* Tip follows target: the effector (last id, not a solver joint) copies the
-         * controller's world orientation. parentWorld is now the tip's parent frame. */
-        if (tipTarget != null)
-        {
-            ModelGroup tip = model.getGroup(workIds.get(workIds.size() - 1));
+            /* Blended world walk, rigid-model style: the parent frame is the captured
+             * one carried by how far the nearest captured ancestor's BLENDED world
+             * rotation moved — the frame the renderer will actually establish. */
+            int parent = tree.parentIndex[i];
+            Quaternionf blendedParent;
 
-            if (tip == null)
+            if (parent < 0)
             {
-                return;
+                blendedParent = new Quaternionf(tree.startParentRotation[i]);
+            }
+            else
+            {
+                Quaternionf delta = new Quaternionf(blendedWorld[parent]).mul(new Quaternionf(tree.joints[parent].startWorldRotation).conjugate());
+
+                blendedParent = delta.mul(tree.startParentRotation[i]);
             }
 
-            Quaternionf tipLocal = new Quaternionf(parentWorld).conjugate().mul(tipTarget);
-
-            tip.orient = weight >= 1F - EPS ? tipLocal : tip.evaluatedRotation().slerp(tipLocal, weight);
+            blendedWorld[i] = blendedParent.mul(applied, new Quaternionf());
         }
+
+        /* Tip follows target: each chain's effector bone (not a solver node of its
+         * own chain) copies the controller's world orientation, in its parent's
+         * BLENDED frame. Written after the nodes, so on the rare rig where a tip
+         * doubles as another chain's directed bone, the tip orientation wins. */
+        for (int e = 0; e < resolved.size(); e++)
+        {
+            ResolvedChain r = resolved.get(e);
+
+            if (r.tipTarget() == null)
+            {
+                continue;
+            }
+
+            List<String> workIds = r.workIds();
+            ModelGroup tip = model.getGroup(workIds.get(workIds.size() - 1));
+            Integer lastJoint = null;
+
+            for (int i = 0; i < n; i++)
+            {
+                if (nodes.get(i).equals(workIds.get(workIds.size() - 2)))
+                {
+                    lastJoint = i;
+                    break;
+                }
+            }
+
+            if (tip == null || lastJoint == null)
+            {
+                continue;
+            }
+
+            Quaternionf tipLocal = new Quaternionf(blendedWorld[lastJoint]).conjugate().mul(r.tipTarget());
+
+            tip.orient = r.weight() >= 1F - EPS ? tipLocal : tip.evaluatedRotation().slerp(tipLocal, r.weight());
+        }
+    }
+
+    private static void logTreeIn(List<String> nodes, IKTree tree)
+    {
+        LOG.append("tree ").append(nodes).append('\n');
+
+        for (int e = 0; e < tree.effectors.length; e++)
+        {
+            IKTree.Effector effector = tree.effectors[e];
+
+            LOG.append("  goal[").append(e).append("] ").append(fmt(effector.goal))
+                .append(" weight ").append(effector.weight)
+                .append(" rides ").append(nodes.get(effector.joint)).append('\n');
+        }
+
+        for (int i = 0; i < tree.joints.length; i++)
+        {
+            LOG.append("  in  ").append(nodes.get(i)).append(" angles ").append(fmtDeg(tree.joints[i].angles))
+                .append(" pos ").append(fmt(tree.joints[i].startPosition)).append('\n');
+        }
+    }
+
+    private static void logTreeOut(IKTree tree, IKTreeSolver.Result result)
+    {
+        LOG.append("  solved reached=").append(result.reached()).append(" err=").append(result.error())
+            .append(" iters=").append(result.iterations()).append('\n');
+
+        for (IKJoint joint : tree.joints)
+        {
+            LOG.append("  out angles ").append(fmtDeg(joint.angles)).append('\n');
+        }
+    }
+
+    private static String fmt(Vector3f v)
+    {
+        return String.format("(%+.4f, %+.4f, %+.4f)", v.x, v.y, v.z);
+    }
+
+    private static String fmtDeg(Vector3f radians)
+    {
+        float toDeg = (float) (180.0 / Math.PI);
+
+        return String.format("(%+.2f, %+.2f, %+.2f)", radians.x * toDeg, radians.y * toDeg, radians.z * toDeg);
     }
 
     /**
@@ -667,8 +905,9 @@ final class ModelIKApplier
     /* serves only BOBJ models and goes away with that port.               */
     /* ------------------------------------------------------------------ */
 
-    private static void applyChainBobjLegacy(BOBJModel model, List<String> workIds, Map<String, PivotFrame> frames, Vector3f target, boolean pole, Vector3f polePoint, float poleAngle, float softness, float weight, Quaternionf tipTarget, Map<String, BoneConstraint> boneLimits)
+    private static void applyChainBobjLegacy(BOBJModel model, ResolvedChain resolved, Map<String, PivotFrame> frames, Map<String, BoneConstraint> boneLimits)
     {
+        List<String> workIds = resolved.workIds();
         List<Vector3f> currentPositions = new ArrayList<>(workIds.size());
         Quaternionf rootParentRotation = null;
 
@@ -698,7 +937,7 @@ final class ModelIKApplier
         Vector3f restHinge = restBendNormal(model, workIds, rootParentRotation);
 
         Vector3f bendNormal = new Vector3f();
-        List<Vector3f> solved = IKSolver.solve(currentPositions, target, pole, polePoint, poleAngle, softness, LEGACY_MAX_ITERATIONS, LEGACY_TOLERANCE, limits, limits == null ? null : rootParentRotation, restHinge, bendNormal);
+        List<Vector3f> solved = IKSolver.solve(currentPositions, resolved.target(), resolved.pole(), resolved.polePoint(), resolved.poleAngle(), resolved.softness(), LEGACY_MAX_ITERATIONS, LEGACY_TOLERANCE, limits, limits == null ? null : rootParentRotation, restHinge, bendNormal);
 
         /* The bend-plane normal the solve settled on (zero when undefined). Passed to the
          * orientation pass as the roll-reference seed so a fully straight chain keeps a
@@ -707,12 +946,12 @@ final class ModelIKApplier
 
         if (workIds.size() >= 3)
         {
-            buildChainOrientationsBobj(model, workIds, solved, rootParentRotation, weight, tipTarget, bendSeed);
+            buildChainOrientationsBobj(model, workIds, solved, rootParentRotation, resolved.weight(), resolved.tipTarget(), bendSeed);
         }
         else
         {
             Vector3f[] solvedArray = solved.toArray(new Vector3f[solved.size()]);
-            ModelRotationBlender.applyWeightedRotations(model, rootParentRotation, workIds, solvedArray, weight);
+            ModelRotationBlender.applyWeightedRotations(model, rootParentRotation, workIds, solvedArray, resolved.weight());
         }
     }
 
@@ -873,7 +1112,7 @@ final class ModelIKApplier
 
     /**
      * Builds per-bone rotation limits for the legacy BOBJ solve from the
-     * constraints config (the cubic path's limits move to the IK config's
+     * constraints config (the cubic path's limits live in the IK config's
      * per-bone DoF instead). Returns {@code null} when no bone in the chain is
      * constrained (fast path).
      */
