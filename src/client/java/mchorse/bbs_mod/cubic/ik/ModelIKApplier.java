@@ -27,6 +27,16 @@ import java.util.Set;
 
 final class ModelIKApplier
 {
+    /**
+     * Per-frame solve dump to {@code run/ik-log.txt} (truncated every frame, so the
+     * file always holds the LAST frame's chains) — the IK counterpart of the drag
+     * log, and like it the thing to ask for when a solve is disputed: captured
+     * angles in, goal, iterations, error, angles out. Flip to enable; zero cost off.
+     */
+    private static final boolean LOG_IK = false;
+
+    private static final StringBuilder LOG = new StringBuilder();
+
     private static final float EPS = 1.0e-6f;
 
     /** How straight the live chain must be for the rest-bend seed to kick in, radians. */
@@ -56,6 +66,11 @@ final class ModelIKApplier
         List<ModelIKCache.CompiledChain> ordered = new ArrayList<>(chains);
         ordered.sort(Comparator.comparingInt((ModelIKCache.CompiledChain chain) -> rootDepth(model, chain)));
 
+        if (LOG_IK)
+        {
+            LOG.setLength(0);
+        }
+
         for (ModelIKCache.CompiledChain chain : ordered)
         {
             Set<String> wanted = new HashSet<>();
@@ -71,6 +86,24 @@ final class ModelIKApplier
             ModelPivotFrames.collect(model, wanted, frames, null);
 
             applyChain(model, chain, frames, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides, boneLimits);
+        }
+
+        if (LOG_IK)
+        {
+            flushLog();
+        }
+    }
+
+    /** Writes this frame's accumulated solve dump over the previous frame's. */
+    private static void flushLog()
+    {
+        try (java.io.PrintWriter writer = new java.io.PrintWriter("run/ik-log.txt"))
+        {
+            writer.print(LOG);
+        }
+        catch (java.io.IOException e)
+        {
+            e.printStackTrace();
         }
     }
 
@@ -198,8 +231,55 @@ final class ModelIKApplier
 
         Vector3f goal = IKChainSolver.softGoal(chain, target, softness);
 
-        IKChainSolver.solve(chain, goal, polePoint, poleAngle, IKChainSolver.Params.DEFAULT);
+        if (LOG_IK)
+        {
+            logChainIn(workIds, chain, target, goal, polePoint, weight);
+        }
+
+        IKChainSolver.Result result = IKChainSolver.solve(chain, goal, polePoint, poleAngle, IKChainSolver.Params.DEFAULT);
+
+        if (LOG_IK)
+        {
+            logChainOut(chain, result);
+        }
+
         writeOrientations(model, workIds, chain, weight, tipTarget);
+    }
+
+    private static void logChainIn(List<String> workIds, IKChain chain, Vector3f target, Vector3f goal, Vector3f polePoint, float weight)
+    {
+        LOG.append("chain ").append(workIds).append(" weight ").append(weight).append('\n');
+        LOG.append("  target ").append(fmt(target)).append(" goal ").append(fmt(goal));
+        LOG.append(" pole ").append(polePoint == null ? "-" : fmt(polePoint)).append('\n');
+
+        for (int i = 0; i < chain.joints.length; i++)
+        {
+            LOG.append("  in  ").append(workIds.get(i)).append(" angles ").append(fmtDeg(chain.joints[i].angles))
+                .append(" pos ").append(fmt(chain.joints[i].startPosition)).append('\n');
+        }
+    }
+
+    private static void logChainOut(IKChain chain, IKChainSolver.Result result)
+    {
+        LOG.append("  solved reached=").append(result.reached()).append(" err=").append(result.error())
+            .append(" iters=").append(result.iterations()).append(" effector ").append(fmt(chain.effector)).append('\n');
+
+        for (IKJoint joint : chain.joints)
+        {
+            LOG.append("  out angles ").append(fmtDeg(joint.angles)).append('\n');
+        }
+    }
+
+    private static String fmt(Vector3f v)
+    {
+        return String.format("(%+.4f, %+.4f, %+.4f)", v.x, v.y, v.z);
+    }
+
+    private static String fmtDeg(Vector3f radians)
+    {
+        float toDeg = (float) (180.0 / Math.PI);
+
+        return String.format("(%+.2f, %+.2f, %+.2f)", radians.x * toDeg, radians.y * toDeg, radians.z * toDeg);
     }
 
     /**
