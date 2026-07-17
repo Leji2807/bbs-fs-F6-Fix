@@ -846,6 +846,7 @@
 	"bbs.ui.forms.editors.model.ik.weight": "Влияние",
 	"bbs.ui.forms.editors.model.ik.tip_rotation": "Кончик следует за целью",
 	"bbs.ui.forms.editors.model.ik.cycle": " (ЦИКЛ!)",
+	"bbs.ui.forms.editors.model.ik.pole_cycle": " (на цепи → авто-полюс)",
 	"bbs.ui.forms.editors.model.ik.joint": "Сустав (выбранная кость)",
 	"bbs.ui.forms.editors.model.ik.joint.lock": "Замок %s",
 	"bbs.ui.forms.editors.model.ik.joint.limit": "Лимит %s",

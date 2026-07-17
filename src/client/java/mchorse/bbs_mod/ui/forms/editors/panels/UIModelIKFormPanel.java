@@ -512,8 +512,11 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         boolean poleOn = data != null && data.pole;
         boolean canEdit = !this.selectedBone.isEmpty() && this.bones.isEnabled() && active;
 
-        /* Loud cycle validation: a target (or pole) the chain itself drives closes a
-         * feedback loop, so such a chain does not compile — the labels say so. */
+        /* Cycle validation, but the two cases differ. A TARGET the chain itself drives
+         * closes a feedback loop and the chain does NOT compile — loud "(CYCLE!)".
+         * A POLE on a chain bone is not fatal: the compiler quietly drops it and the
+         * chain solves with the rest-side auto pole instead, so it gets a softer
+         * "on chain → auto pole" hint, not the does-not-compile marker. */
         boolean cyclicTarget = data != null && this.isCyclic(data, targetLabel);
         boolean cyclicPole = data != null && this.isCyclic(data, data.poleTarget);
 
@@ -524,7 +527,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.target.label = UIKeys.FORMS_EDITORS_MODEL_IK_TARGET.format(this.formatBone(targetLabel) + (cyclicTarget ? UIKeys.FORMS_EDITORS_MODEL_IK_CYCLE.get() : ""));
             this.chainLength.setValue(data == null ? ModelIKConfig.DEFAULT_CHAIN_LENGTH : data.chainLength);
             this.pole.setValue(poleOn);
-            this.poleTarget.label = UIKeys.FORMS_EDITORS_MODEL_IK_POLE_TARGET.format(this.formatBone(data == null ? "" : data.poleTarget) + (cyclicPole ? UIKeys.FORMS_EDITORS_MODEL_IK_CYCLE.get() : ""));
+            this.poleTarget.label = UIKeys.FORMS_EDITORS_MODEL_IK_POLE_TARGET.format(this.formatBone(data == null ? "" : data.poleTarget) + (cyclicPole ? UIKeys.FORMS_EDITORS_MODEL_IK_POLE_CYCLE.get() : ""));
             this.poleAngle.setValue(data == null ? ModelIKConfig.DEFAULT_POLE_ANGLE : data.poleAngle);
             this.softness.setValue(data == null ? ModelIKConfig.DEFAULT_SOFTNESS : data.softness);
             this.weight.setValue(data == null ? ModelIKConfig.DEFAULT_WEIGHT : data.weight);

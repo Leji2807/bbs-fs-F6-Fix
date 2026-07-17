@@ -850,6 +850,7 @@
 	"bbs.ui.forms.editors.model.ik.weight": "Influence",
 	"bbs.ui.forms.editors.model.ik.tip_rotation": "Tip follows target",
 	"bbs.ui.forms.editors.model.ik.cycle": " (CYCLE!)",
+	"bbs.ui.forms.editors.model.ik.pole_cycle": " (on chain → auto pole)",
 	"bbs.ui.forms.editors.model.ik.joint": "Joint (selected bone)",
 	"bbs.ui.forms.editors.model.ik.joint.lock": "Lock %s",
 	"bbs.ui.forms.editors.model.ik.joint.limit": "Limit %s",

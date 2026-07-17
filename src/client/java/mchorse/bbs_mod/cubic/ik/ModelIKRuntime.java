@@ -123,9 +123,14 @@ public final class ModelIKRuntime
                 continue;
             }
 
-            Float override = form.ikTargetWeights == null ? null : form.ikTargetWeights.get(chain.target());
+            /* A chain the film disabled or zeroed for this tick — its per-tick `ik`
+             * track override — no longer owns any rotation, so its bones become
+             * FK-editable again. That override lives in ikControlOverrides keyed by
+             * the tip (the same one resolveChain reads), NOT in ikTargetWeights,
+             * which is only the target's position-fade weight and never reaches 0. */
+            IKControl override = form.ikControlOverrides == null ? null : form.ikControlOverrides.get(chain.tip());
 
-            if (override != null && override <= 0F)
+            if (override != null && (!override.enabled || override.weight <= 0F))
             {
                 continue;
             }

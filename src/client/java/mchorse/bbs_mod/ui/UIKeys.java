@@ -488,6 +488,7 @@ public class UIKeys
     public static final IKey FORMS_EDITORS_MODEL_IK_WEIGHT = L10n.lang("bbs.ui.forms.editors.model.ik.weight");
     public static final IKey FORMS_EDITORS_MODEL_IK_TIP_ROTATION = L10n.lang("bbs.ui.forms.editors.model.ik.tip_rotation");
     public static final IKey FORMS_EDITORS_MODEL_IK_CYCLE = L10n.lang("bbs.ui.forms.editors.model.ik.cycle");
+    public static final IKey FORMS_EDITORS_MODEL_IK_POLE_CYCLE = L10n.lang("bbs.ui.forms.editors.model.ik.pole_cycle");
     public static final IKey FORMS_EDITORS_MODEL_IK_JOINT = L10n.lang("bbs.ui.forms.editors.model.ik.joint");
     public static final IKey FORMS_EDITORS_MODEL_IK_JOINT_LOCK = L10n.lang("bbs.ui.forms.editors.model.ik.joint.lock");
     public static final IKey FORMS_EDITORS_MODEL_IK_JOINT_LIMIT = L10n.lang("bbs.ui.forms.editors.model.ik.joint.limit");

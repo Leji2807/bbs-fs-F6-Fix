@@ -664,7 +664,17 @@ final class ModelIKApplier
             restRoot = root.initial.translate;
             restElbow = elbow.initial.translate;
             restEffector = effector.initial.translate;
-            lift = new Quaternionf(rootParentRotation);
+
+            /* The rest bend direction lives in the authored pivots — absolute model
+             * coordinates (each cubic pivot is placed in model space). To carry it
+             * into the current pose it must ride the DELTA of the root's parent frame
+             * from its REST orientation, exactly as the BOBJ branch subtracts the
+             * bind frame below: lifting by the raw current parent frame would
+             * double-count any rest rotation the chain's ancestors carry, tilting
+             * the auto-pole even when the model sits in its rest pose. */
+            Quaternionf restParent = cubicRestParentRotation(cubic, workIds.get(0));
+
+            lift = new Quaternionf(rootParentRotation).mul(restParent.conjugate());
         }
         else if (model instanceof BOBJModel bobj)
         {
@@ -703,6 +713,7 @@ final class ModelIKApplier
         axis.normalize();
 
         Vector3f side = perpendicularTo(new Vector3f(restElbow).sub(restRoot), axis);
+        // (axis and side are in absolute model rest space; `lift` folds them into the current pose.)
 
         if (side == null)
         {
@@ -712,6 +723,45 @@ final class ModelIKApplier
         lift.transform(side);
 
         return new Vector3f(rootPosition).fma(reach, side);
+    }
+
+    /**
+     * The rest-pose world rotation of the chain root's PARENT — the product of
+     * every ancestor's authored rest rotation ({@code initial.rotate}, degrees,
+     * ZYX), in the same unmirrored model space {@link ModelPivotFrames} captures.
+     * Identity when the root sits at the model top or its ancestors carry no rest
+     * rotation (the common case, where the auto-pole lift is unchanged). This is
+     * the cubic counterpart of BOBJ's bind parent frame.
+     */
+    private static Quaternionf cubicRestParentRotation(Model cubic, String rootId)
+    {
+        Quaternionf rest = new Quaternionf();
+        String id = cubic.getParentGroupKey(rootId);
+        int guard = 0;
+
+        while (id != null && !id.isEmpty() && guard++ < 256)
+        {
+            ModelGroup bone = cubic.getGroup(id);
+
+            if (bone == null)
+            {
+                break;
+            }
+
+            /* World order is root-most first; walking up, each ancestor pre-multiplies. */
+            rest = Matrices.toLocalRotationZYXDegrees(bone.initial.rotate).mul(rest);
+
+            String parent = cubic.getParentGroupKey(id);
+
+            if (parent == null || parent.equals(id))
+            {
+                break;
+            }
+
+            id = parent;
+        }
+
+        return rest;
     }
 
     /**
