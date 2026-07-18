@@ -40,14 +40,25 @@ import java.util.Set;
 final class ModelIKApplier
 {
     /**
-     * Per-frame solve dump to {@code run/ik-log.txt} (truncated every frame, so the
-     * file always holds the LAST frame's trees) — the IK counterpart of the drag
-     * log, and like it the thing to ask for when a solve is disputed: captured
-     * angles in, goals, iterations, errors, angles out. Flip to enable; zero cost off.
+     * Per-frame solve dump to {@code run/ik-log.txt} — the IK counterpart of the
+     * drag log, and like it the thing to ask for when a solve is disputed:
+     * captured angles in, goals, iterations, errors, angles out. Flip to enable;
+     * zero cost off.
+     *
+     * <p>Frames ACCUMULATE, numbered, up to {@link #LOG_FRAMES}: a jitter only
+     * shows as a discontinuity BETWEEN consecutive frames, so a single kept
+     * frame cannot show it. The cap keeps a forgotten flag from growing the file
+     * without bound — roughly half a minute of play, after which logging stops
+     * and says so.
      */
-    private static final boolean LOG_IK = false;
+    private static final boolean LOG_IK = true;
+
+    /** How many frames the accumulating log keeps before it stops writing. */
+    private static final int LOG_FRAMES = 2000;
 
     private static final StringBuilder LOG = new StringBuilder();
+
+    private static int logFrame;
 
     private static final float EPS = 1.0e-6f;
 
@@ -73,9 +84,9 @@ final class ModelIKApplier
         List<ModelIKCache.CompiledChain> ordered = new ArrayList<>(chains);
         ordered.sort(Comparator.comparingInt((ModelIKCache.CompiledChain chain) -> rootDepth(model, chain)));
 
-        if (LOG_IK)
+        if (LOG_IK && logFrame <= LOG_FRAMES)
         {
-            LOG.setLength(0);
+            LOG.append("--- frame ").append(logFrame).append(" ---\n");
         }
 
         /* OVERLAPPING chains merge into one tree and solve together — shared
@@ -165,10 +176,27 @@ final class ModelIKApplier
         return groups;
     }
 
-    /** Writes this frame's accumulated solve dump over the previous frame's. */
+    /**
+     * Appends this frame's solve dump, so consecutive frames can be compared —
+     * which is the only way a jitter is visible. Stops after {@link #LOG_FRAMES}
+     * and leaves a line saying so, so a full log is never mistaken for a short
+     * session.
+     */
     private static void flushLog()
     {
-        try (java.io.PrintWriter writer = new java.io.PrintWriter("run/ik-log.txt"))
+        if (logFrame > LOG_FRAMES)
+        {
+            return;
+        }
+
+        boolean last = logFrame == LOG_FRAMES;
+
+        if (last)
+        {
+            LOG.append("--- log full at ").append(LOG_FRAMES).append(" frames, logging stops here ---\n");
+        }
+
+        try (java.io.PrintWriter writer = new java.io.PrintWriter(new java.io.FileWriter("run/ik-log.txt", logFrame > 0)))
         {
             writer.print(LOG);
         }
@@ -176,6 +204,9 @@ final class ModelIKApplier
         {
             e.printStackTrace();
         }
+
+        LOG.setLength(0);
+        logFrame++;
     }
 
     /** Depth of the chain's root bone from the model root, for ancestor-first ordering. */
