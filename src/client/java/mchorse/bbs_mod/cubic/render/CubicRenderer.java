@@ -69,16 +69,37 @@ public class CubicRenderer
         return false;
     }
 
-    public static record PivotFrame(Vector3f position, Quaternionf parentRotation, Quaternionf worldRotation)
+    /**
+     * @param scale the accumulated scale the bone's frame sits under (its ancestors' bone scales).
+     * Rotations are captured normalized, so it drops out of everything the solve does — but a
+     * TRANSLATION written back into that frame (the IK stretch offset) is scaled by the renderer,
+     * so it has to be divided out to land the bone where the solve put it.
+     */
+    public static record PivotFrame(Vector3f position, Quaternionf parentRotation, Quaternionf worldRotation, Vector3f scale)
     {
     }
 
     public static void collectPivotFrames(Model model, Set<String> wanted, Map<String, PivotFrame> out)
     {
-        collectPivotFrames(model, wanted, out, null);
+        collectPivotFrames(model, wanted, out, null, false);
     }
 
     public static void collectPivotFrames(Model model, Set<String> wanted, Map<String, PivotFrame> out, Matrix4f baseTransform)
+    {
+        collectPivotFrames(model, wanted, out, baseTransform, false);
+    }
+
+    /**
+     * @param applyStretch when true, each bone's transient {@link ModelGroup#offset} — the IK
+     * stretch — is folded into its frame exactly as {@link ICubicRenderer#applyGroupTransformations}
+     * folds it, offset first in the parent frame, so a chain collected AFTER an ancestor chain has
+     * stretched reads the ancestor at the spot the renderer will draw it. Off (the default) reads
+     * the un-stretched pose, which is what the debug overlay and a chain's OWN solve want: a chain
+     * writes its offsets only when its own solve runs, so even with this on a chain can only ever
+     * inherit ANCESTOR stretch, never its own. The offset is a pure translation, so it moves
+     * {@code position} only — {@code parentRotation}/{@code worldRotation} are untouched.
+     */
+    public static void collectPivotFrames(Model model, Set<String> wanted, Map<String, PivotFrame> out, Matrix4f baseTransform, boolean applyStretch)
     {
         if (model == null || wanted == null || wanted.isEmpty() || out == null)
         {
@@ -106,13 +127,18 @@ public class CubicRenderer
 
         for (ModelGroup group : model.topGroups)
         {
-            collectPivotFramesRec(stack, group, wanted, out);
+            collectPivotFramesRec(stack, group, wanted, out, applyStretch);
         }
     }
 
-    private static void collectPivotFramesRec(MatrixStack stack, ModelGroup group, Set<String> wanted, Map<String, PivotFrame> out)
+    private static void collectPivotFramesRec(MatrixStack stack, ModelGroup group, Set<String> wanted, Map<String, PivotFrame> out, boolean applyStretch)
     {
         stack.push();
+
+        if (applyStretch)
+        {
+            ICubicRenderer.offsetGroup(stack, group);
+        }
 
         ICubicRenderer.translateGroup(stack, group);
         ICubicRenderer.moveToGroupPivot(stack, group);
@@ -120,6 +146,7 @@ public class CubicRenderer
         boolean store = wanted.contains(group.id);
         Vector3f pos;
         Quaternionf parentRot;
+        Vector3f scale;
 
         if (store)
         {
@@ -128,11 +155,13 @@ public class CubicRenderer
             Matrix4f mat = stack.peek().getPositionMatrix();
             pos = mat.getTranslation(new Vector3f());
             parentRot = mat.getUnnormalizedRotation(new Quaternionf());
+            scale = mat.getScale(new Vector3f());
         }
         else
         {
             pos = null;
             parentRot = null;
+            scale = null;
         }
 
         ICubicRenderer.rotateGroup(stack, group);
@@ -141,7 +170,7 @@ public class CubicRenderer
         {
             Matrix4f mat = stack.peek().getPositionMatrix();
             Quaternionf worldRot = mat.getUnnormalizedRotation(new Quaternionf());
-            out.put(group.id, new PivotFrame(pos, parentRot, worldRot));
+            out.put(group.id, new PivotFrame(pos, parentRot, worldRot, scale));
         }
 
         ICubicRenderer.scaleGroup(stack, group);
@@ -149,7 +178,7 @@ public class CubicRenderer
 
         for (ModelGroup child : group.children)
         {
-            collectPivotFramesRec(stack, child, wanted, out);
+            collectPivotFramesRec(stack, child, wanted, out, applyStretch);
         }
 
         stack.pop();

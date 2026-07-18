@@ -45,6 +45,14 @@ public class ModelGroup implements IMapSerializable
      * never null. */
     public Quaternionf orient;
 
+    /* Transient translation for this bone, applied in the render matrix BEFORE its own translate — in the
+     * bone's parent world frame, so it shifts this bone and everything below it without touching the pose.
+     * The IK stretch writes it: a bone that lengthened pushes its children out along the limb by the extra
+     * length, which is how a cubic chain reaches past its rest length (its cubes do not deform, so the
+     * joints between them open — welds seal that seam). Part of the constraint stack's write set alongside
+     * orient, never a channel; null when the bone has no shift this frame. */
+    public Vector3f offset;
+
     public ModelGroup(String id)
     {
         this.id = id;
@@ -56,6 +64,7 @@ public class ModelGroup implements IMapSerializable
         this.color.set(1F, 1F, 1F);
         this.current.copy(this.initial);
         this.orient = null;
+        this.offset = null;
     }
 
     /**

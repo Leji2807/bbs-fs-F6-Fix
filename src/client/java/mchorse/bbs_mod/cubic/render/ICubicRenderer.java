@@ -11,6 +11,21 @@ import org.joml.Vector3f;
 
 public interface ICubicRenderer
 {
+    /**
+     * The bone's transient constraint-stack shift (today: the IK stretch),
+     * applied in its PARENT's frame ahead of everything the bone itself does,
+     * so it carries the bone and its whole subtree without disturbing the pose.
+     */
+    public static void offsetGroup(MatrixStack stack, ModelGroup group)
+    {
+        Vector3f offset = group.offset;
+
+        if (offset != null)
+        {
+            stack.translate(offset.x, offset.y, offset.z);
+        }
+    }
+
     public static void translateGroup(MatrixStack stack, ModelGroup group)
     {
         Vector3f translate = group.current.translate;
@@ -68,6 +83,7 @@ public interface ICubicRenderer
 
     public default void applyGroupTransformations(MatrixStack stack, ModelGroup group)
     {
+        offsetGroup(stack, group);
         translateGroup(stack, group);
         moveToGroupPivot(stack, group);
         rotateGroup(stack, group);

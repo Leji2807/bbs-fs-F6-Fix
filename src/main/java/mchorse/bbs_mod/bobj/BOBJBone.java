@@ -51,6 +51,16 @@ public class BOBJBone
      */
     public Quaternionf orient;
 
+    /**
+     * Transient CUMULATIVE world translation the IK stretch gives this bone, applied to the SKINNING
+     * matrix only, so the deformed mesh follows a chain that reached past its rest length — vertices
+     * weighted across bones blend the neighbouring shifts into a smooth stretch instead of a seam.
+     * Deliberately kept off {@link #mat}/{@link #originMat}: the skeleton frames that the solve and the
+     * debug overlay read stay nominal, and the shift each bone carries is already its full cumulative
+     * one. Null when the bone has no shift this frame.
+     */
+    public Vector3f offset;
+
     public BOBJBone(int index, String name, String parent, Matrix4f boneMat)
     {
         this.index = index;
@@ -70,6 +80,14 @@ public class BOBJBone
 
         this.mat.set(mat);
         mat.mul(this.invBoneMat);
+
+        /* Stretch rides the skinning matrix alone — pre-multiplied, so the deformed vertices land
+         * `offset` further along in world. mat/originMat stay nominal, so child bones and pivot frames
+         * are unaffected; the offset is already this bone's full cumulative shift. */
+        if (this.offset != null)
+        {
+            mat.translateLocal(this.offset);
+        }
 
         return mat;
     }
@@ -153,5 +171,6 @@ public class BOBJBone
     {
         this.transform.identity();
         this.orient = null;
+        this.offset = null;
     }
 }
