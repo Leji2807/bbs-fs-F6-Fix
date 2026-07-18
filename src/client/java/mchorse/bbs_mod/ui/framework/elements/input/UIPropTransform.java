@@ -1,6 +1,7 @@
 package mchorse.bbs_mod.ui.framework.elements.input;
 
 import mchorse.bbs_mod.BBSSettings;
+import mchorse.bbs_mod.cubic.ik.ModelIKRuntime;
 import mchorse.bbs_mod.graphics.window.Window;
 import mchorse.bbs_mod.l10n.keys.IKey;
 import mchorse.bbs_mod.settings.values.IValueListener;
@@ -1038,6 +1039,10 @@ public class UIPropTransform extends UITransform
         this.hotkeyMode = hotkeyMode;
         this.drag = drag;
 
+        /* Scope the IK solve dump to this gesture — the log then holds exactly
+         * the drag being investigated (see ModelIKRuntime#logGesture). */
+        ModelIKRuntime.logGesture(true);
+
         this.cache.copy(this.transform);
         Gizmo.INSTANCE.trackTransform(this);
 
@@ -1128,6 +1133,8 @@ public class UIPropTransform extends UITransform
 
     private void disable()
     {
+        ModelIKRuntime.logGesture(false);
+
         this.editing = false;
         this.axis2 = null;
         this.hotkeyMode = false;

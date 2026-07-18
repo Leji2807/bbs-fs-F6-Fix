@@ -47,9 +47,12 @@ final class ModelIKApplier
      *
      * <p>Frames ACCUMULATE, numbered, up to {@link #LOG_FRAMES}: a jitter only
      * shows as a discontinuity BETWEEN consecutive frames, so a single kept
-     * frame cannot show it. The cap keeps a forgotten flag from growing the file
-     * without bound — roughly half a minute of play, after which logging stops
-     * and says so.
+     * frame cannot show it.
+     *
+     * <p>Scoped to ONE GESTURE — see {@link #setLogging}: the file is truncated
+     * when a transform drag begins and stops growing when it ends, so it holds
+     * exactly the drag being complained about and stays small enough to read
+     * whole. Same discipline as the drag log.
      */
     private static final boolean LOG_IK = true;
 
@@ -67,6 +70,30 @@ final class ModelIKApplier
     private static final StringBuilder LOG = new StringBuilder();
 
     private static int logFrame;
+
+    /** Whether a gesture is currently being logged; see {@link #setLogging}. */
+    private static boolean logging;
+
+    /**
+     * Opens or closes a logging window around one transform gesture. Opening
+     * restarts the frame numbering and truncates the file on the first write, so
+     * each drag replaces the previous one's dump rather than appending to it.
+     */
+    static void setLogging(boolean active)
+    {
+        if (!LOG_IK || active == logging)
+        {
+            return;
+        }
+
+        logging = active;
+
+        if (active)
+        {
+            logFrame = 0;
+            LOG.setLength(0);
+        }
+    }
 
     private static final float EPS = 1.0e-6f;
 
@@ -92,7 +119,7 @@ final class ModelIKApplier
         List<ModelIKCache.CompiledChain> ordered = new ArrayList<>(chains);
         ordered.sort(Comparator.comparingInt((ModelIKCache.CompiledChain chain) -> rootDepth(model, chain)));
 
-        if (LOG_IK && logFrame <= LOG_FRAMES)
+        if (LOG_IK && logging && logFrame <= LOG_FRAMES)
         {
             LOG.append("--- frame ").append(logFrame).append(" ---\n");
         }
@@ -121,7 +148,7 @@ final class ModelIKApplier
             applyGroup(model, group, frames, jointDoF, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
         }
 
-        if (LOG_IK)
+        if (LOG_IK && logging)
         {
             flushLog();
         }
@@ -468,14 +495,14 @@ final class ModelIKApplier
             poles[e] = polePoint == null ? null : new IKTreeSolver.Pole(rootJoint, polePoint, r.poleAngle());
         }
 
-        if (LOG_IK)
+        if (LOG_IK && logging)
         {
             logTreeIn(nodes, tree);
         }
 
         IKTreeSolver.Result result = IKTreeSolver.solve(tree, poles, IKTreeSolver.Params.DEFAULT);
 
-        if (LOG_IK)
+        if (LOG_IK && logging)
         {
             logTreeOut(tree, result);
         }

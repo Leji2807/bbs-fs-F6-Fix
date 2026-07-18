@@ -88,6 +88,17 @@ public final class ModelIKRuntime
     }
 
     /**
+     * Opens the IK solve dump for the duration of one transform gesture, so the
+     * log holds exactly the drag being investigated — the transform editor calls
+     * this when a drag begins and ends. A no-op unless the applier's debug flag
+     * is compiled on, so the call sites cost nothing in a normal build.
+     */
+    public static void logGesture(boolean active)
+    {
+        ModelIKApplier.setLogging(active);
+    }
+
+    /**
      * Whether the bone's ROTATION is owned by an enabled IK chain: the render
      * follows the solved orientation there, so an FK rotation gesture has no
      * honest response to offer — the gizmo refuses those and dims its rings.
