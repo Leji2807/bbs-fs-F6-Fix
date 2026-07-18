@@ -45,6 +45,22 @@ public final class IKTreeSolver
     private static final float STALL_STEP = 1.0e-6f;
 
     /**
+     * Relative error improvement per iteration below which the solve is done
+     * making progress, and further iterations only burn time.
+     *
+     * <p>Needed because the tolerance is ABSOLUTE while rigs are not: a small
+     * chain can converge to an error a hair above it and then grind the full
+     * iteration budget every single frame, shaving fractions of a percent that
+     * will never cross the line. Checked only after {@link #MIN_ITERATIONS}, so
+     * the early iterations — where progress is naturally uneven — are never cut
+     * short.
+     */
+    private static final float MIN_PROGRESS = 1.0e-3f;
+
+    /** Iterations that always run before {@link #MIN_PROGRESS} may stop the solve. */
+    private static final int MIN_ITERATIONS = 8;
+
+    /**
      * Orientation-row scale of the position-finishing phase: the position rows
      * dominate quadratically (~1/0.05² = 400×), so the reach lands to within a
      * fraction of a millimetre, while the weak orientation spring keeps the
@@ -165,6 +181,8 @@ public final class IKTreeSolver
             }
         }
 
+        float previousError = worstError(tree);
+
         while (iterations < params.maxIterations() && worstError(tree) > params.tolerance() && columns > 0)
         {
             iterations++;
@@ -173,6 +191,15 @@ public final class IKTreeSolver
             {
                 break;
             }
+
+            float error = worstError(tree);
+
+            if (iterations >= MIN_ITERATIONS && previousError - error < previousError * MIN_PROGRESS)
+            {
+                break;
+            }
+
+            previousError = error;
         }
 
         float poleTwistDeg = 0F;
