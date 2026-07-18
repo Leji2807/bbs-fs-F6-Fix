@@ -496,8 +496,6 @@ public class UIKeys
     public static final IKey FORMS_EDITORS_MODEL_IK_JOINT_MIN = L10n.lang("bbs.ui.forms.editors.model.ik.joint.min");
     public static final IKey FORMS_EDITORS_MODEL_IK_JOINT_MAX = L10n.lang("bbs.ui.forms.editors.model.ik.joint.max");
     public static final IKey FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS = L10n.lang("bbs.ui.forms.editors.model.ik.joint.stiffness");
-    public static final IKey FORMS_EDITORS_MODEL_IK_JOINT_STRETCH = L10n.lang("bbs.ui.forms.editors.model.ik.joint.stretch");
-    public static final IKey FORMS_EDITORS_MODEL_IK_JOINT_STRETCH_MAX = L10n.lang("bbs.ui.forms.editors.model.ik.joint.stretch_max");
     public static final IKey FORMS_EDITORS_MODEL_IK_CONTEXT_COPY = L10n.lang("bbs.ui.forms.editors.model.ik.context.copy");
     public static final IKey FORMS_EDITORS_MODEL_IK_CONTEXT_PASTE = L10n.lang("bbs.ui.forms.editors.model.ik.context.paste");
     public static final IKey FORMS_EDITORS_MODEL_IK_CONTEXT_RESET = L10n.lang("bbs.ui.forms.editors.model.ik.context.reset");

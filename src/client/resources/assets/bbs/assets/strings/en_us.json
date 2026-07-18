@@ -858,8 +858,6 @@
 	"bbs.ui.forms.editors.model.ik.joint.min": "Minimum (degrees)",
 	"bbs.ui.forms.editors.model.ik.joint.max": "Maximum (degrees)",
 	"bbs.ui.forms.editors.model.ik.joint.stiffness": "Stiffness (X, Y, Z)",
-    "bbs.ui.forms.editors.model.ik.joint.stretch": "Stretch",
-    "bbs.ui.forms.editors.model.ik.joint.stretch_max": "Max stretch (%)",
 	"bbs.ui.forms.editors.model.ik.context.copy": "Copy IK",
 	"bbs.ui.forms.editors.model.ik.context.paste": "Paste IK",
 	"bbs.ui.forms.editors.model.ik.context.reset": "Reset IK",

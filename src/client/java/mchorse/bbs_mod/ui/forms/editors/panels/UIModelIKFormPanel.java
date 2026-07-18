@@ -64,8 +64,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     public UITrackpad stiffnessY;
     public UITrackpad stiffnessZ;
     public UIToggle stretch;
-    public UITrackpad jointStretch;
-    public UITrackpad jointStretchMax;
 
     private String selectedBone = "";
     private Map<String, IKData> ikData = new HashMap<>();
@@ -100,8 +98,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         public float minZ = ModelIKConfig.JointDoF.DEFAULT_MIN;
         public float maxZ = ModelIKConfig.JointDoF.DEFAULT_MAX;
         public float stiffnessX, stiffnessY, stiffnessZ;
-        public float stretch = ModelIKConfig.JointDoF.DEFAULT_STRETCH;
-        public float stretchMax = ModelIKConfig.JointDoF.DEFAULT_STRETCH_MAX;
 
         public static JointData from(ModelIKConfig.JointDoF dof)
         {
@@ -122,8 +118,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             data.stiffnessX = dof.stiffnessX();
             data.stiffnessY = dof.stiffnessY();
             data.stiffnessZ = dof.stiffnessZ();
-            data.stretch = dof.stretch();
-            data.stretchMax = dof.stretchMax();
 
             return data;
         }
@@ -134,8 +128,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
                 this.limitX, this.minX, this.maxX,
                 this.limitY, this.minY, this.maxY,
                 this.limitZ, this.minZ, this.maxZ,
-                this.stiffnessX, this.stiffnessY, this.stiffnessZ,
-                this.stretch, this.stretchMax);
+                this.stiffnessX, this.stiffnessY, this.stiffnessZ);
         }
     }
 
@@ -329,16 +322,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.stiffnessY = this.jointStiffness((d, v) -> d.stiffnessY = v);
         this.stiffnessZ = this.jointStiffness((d, v) -> d.stiffnessZ = v);
 
-        this.jointStretch = this.jointPad((d, v) -> d.stretch = v);
-        this.jointStretch.limit(0D, 1D).increment(0.1D).values(0.1D, 0.05D, 0.2D);
-        this.jointStretch.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STRETCH);
-
-        /* Authored as a percentage of the bone's length — "how much longer may
-         * it get" reads far better than the 0..1 fraction the solver works in. */
-        this.jointStretchMax = this.jointPad((d, v) -> d.stretchMax = v / 100F);
-        this.jointStretchMax.limit(0D, 500D).increment(10D).values(5D, 1D, 25D);
-        this.jointStretchMax.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STRETCH_MAX);
-
         UISection joint = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT);
 
         joint.fields.add(
@@ -347,9 +330,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.limitY.marginTop(UIConstants.SECTION_GAP), UI.row(this.limitMinY, this.limitMaxY),
             this.limitZ.marginTop(UIConstants.SECTION_GAP), UI.row(this.limitMinZ, this.limitMaxZ),
             UI.label(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS).marginTop(UIConstants.SECTION_GAP),
-            UI.row(this.stiffnessX, this.stiffnessY, this.stiffnessZ),
-            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STRETCH, this.jointStretch).marginTop(UIConstants.SECTION_GAP),
-            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STRETCH_MAX, this.jointStretchMax)
+            UI.row(this.stiffnessX, this.stiffnessY, this.stiffnessZ)
         );
 
         UIIcon debugSettings = new UIIcon(Icons.GEAR, (b) -> this.getContext().replaceContextMenu(new UIDebugOverlayContextMenu(BBSSettings.ikDebug)));
@@ -493,8 +474,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.stiffnessX.setEnabled(enabled);
         this.stiffnessY.setEnabled(enabled);
         this.stiffnessZ.setEnabled(enabled);
-        this.jointStretch.setEnabled(enabled);
-        this.jointStretchMax.setEnabled(enabled);
     }
 
     @Override
@@ -588,8 +567,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.stiffnessX.setValue(joint == null ? 0D : joint.stiffnessX);
             this.stiffnessY.setValue(joint == null ? 0D : joint.stiffnessY);
             this.stiffnessZ.setValue(joint == null ? 0D : joint.stiffnessZ);
-            this.jointStretch.setValue(joint == null ? ModelIKConfig.JointDoF.DEFAULT_STRETCH : joint.stretch);
-            this.jointStretchMax.setValue((joint == null ? ModelIKConfig.JointDoF.DEFAULT_STRETCH_MAX : joint.stretchMax) * 100F);
         }
         finally
         {

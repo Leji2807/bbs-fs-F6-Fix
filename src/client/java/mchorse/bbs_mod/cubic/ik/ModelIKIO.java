@@ -37,7 +37,6 @@ public final class ModelIKIO
     private static final String KEY_MIN = "min";
     private static final String KEY_MAX = "max";
     private static final String KEY_STIFFNESS = "stiffness";
-    private static final String KEY_STRETCH_MAX = "stretch_max";
 
     private static final boolean DEFAULT_ENABLED = true;
     private static final boolean DEFAULT_POLE = true;
@@ -216,8 +215,6 @@ public final class ModelIKIO
         float minX = ModelIKConfig.JointDoF.DEFAULT_MIN, minY = minX, minZ = minX;
         float maxX = ModelIKConfig.JointDoF.DEFAULT_MAX, maxY = maxX, maxZ = maxX;
         float stiffnessX = 0F, stiffnessY = 0F, stiffnessZ = 0F;
-        float stretch = ModelIKConfig.JointDoF.DEFAULT_STRETCH;
-        float stretchMax = ModelIKConfig.JointDoF.DEFAULT_STRETCH_MAX;
 
         if (map.has(KEY_LOCK, BaseType.TYPE_LIST))
         {
@@ -264,19 +261,11 @@ public final class ModelIKIO
             stiffnessZ = getFloat(list, 2, 0F);
         }
 
-        /* Scalars, not lists: stretch is one number per bone, and both keys are
-         * absent from anything written before stretching existed — so old rigs
-         * read as "stretches like every other bone", which is what a chain that
-         * has stretching switched off does anyway. */
-        stretch = (float) map.getDouble(KEY_STRETCH, stretch);
-        stretchMax = (float) map.getDouble(KEY_STRETCH_MAX, stretchMax);
-
         return new ModelIKConfig.JointDoF(lockX, lockY, lockZ,
             limitX, minX, maxX,
             limitY, minY, maxY,
             limitZ, minZ, maxZ,
-            stiffnessX, stiffnessY, stiffnessZ,
-            stretch, stretchMax);
+            stiffnessX, stiffnessY, stiffnessZ);
     }
 
     private static MapType jointToData(ModelIKConfig.JointDoF joint)
@@ -325,16 +314,6 @@ public final class ModelIKIO
             stiffness.addFloat(joint.stiffnessY());
             stiffness.addFloat(joint.stiffnessZ());
             map.put(KEY_STIFFNESS, stiffness);
-        }
-
-        if (joint.stretch() != ModelIKConfig.JointDoF.DEFAULT_STRETCH)
-        {
-            map.putDouble(KEY_STRETCH, joint.stretch());
-        }
-
-        if (joint.stretchMax() != ModelIKConfig.JointDoF.DEFAULT_STRETCH_MAX)
-        {
-            map.putDouble(KEY_STRETCH_MAX, joint.stretchMax());
         }
 
         return map;

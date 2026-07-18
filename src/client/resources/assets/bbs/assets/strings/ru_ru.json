@@ -854,8 +854,6 @@
 	"bbs.ui.forms.editors.model.ik.joint.min": "Минимум (градусы)",
 	"bbs.ui.forms.editors.model.ik.joint.max": "Максимум (градусы)",
 	"bbs.ui.forms.editors.model.ik.joint.stiffness": "Жёсткость (X, Y, Z)",
-    "bbs.ui.forms.editors.model.ik.joint.stretch": "Растяжение",
-    "bbs.ui.forms.editors.model.ik.joint.stretch_max": "Макс. растяжение (%)",
 	"bbs.ui.forms.editors.model.ik.context.copy": "Скопировать IK",
 	"bbs.ui.forms.editors.model.ik.context.paste": "Вставить IK",
 	"bbs.ui.forms.editors.model.ik.context.reset": "Сбросить IK",

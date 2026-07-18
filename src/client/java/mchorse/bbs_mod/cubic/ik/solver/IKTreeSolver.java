@@ -5,27 +5,19 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 /**
- * Damped-least-squares IK over channel angles — and, where a bone allows it,
- * its stretch — for a whole {@link IKTree}: ONE solver for any chain length and
- * any number of merged chains, modeled on Blender's behavior, implemented from
- * the standard DLS literature (Buss).
+ * Damped-least-squares IK over channel angles for a whole {@link IKTree} —
+ * ONE solver for any chain length and any number of merged chains, modeled on
+ * Blender's behavior, implemented from the standard DLS literature (Buss).
  *
  * <p>Each iteration builds the Jacobian of every effector position over every
- * unlocked variable (a rotation column carries, per effector it moves,
+ * unlocked channel (a column carries, per effector it moves,
  * {@code axis × (effector − pivot)} — axes straight from the ZYX gimbal
- * frames, see {@link IKTree#channelAxis}; a stretch column carries the outgoing
- * segment itself, see {@link IKTree#stretchAxis}), solves the damped normal
- * equations {@code (J·W²·Jᵀ + λ²I)·y = error} — a 3k×3k symmetric
- * positive-definite system (k = effectors, 6k with orientation goals), by
- * Cholesky — steps the variables by {@code W²·Jᵀ·y}, clamps them into their
- * limits, and re-poses the tree. Shared bones NEGOTIATE between goals through
- * the shared columns; effector weights scale their rows, so a lighter goal
- * yields where goals conflict.
- *
- * <p>Stretch needs no special case anywhere else: because it is just another
- * damped variable, a chain reaching within its natural length leaves it near
- * zero (the damping prefers the smallest step that works) and only spends it
- * when rotating alone cannot close the gap.
+ * frames, see {@link IKTree#channelAxis}), solves the damped normal equations
+ * {@code (J·W²·Jᵀ + λ²I)·y = error} — a 3k×3k symmetric positive-definite
+ * system (k = effectors), by Cholesky — steps the angles by {@code W²·Jᵀ·y},
+ * clamps them into their per-axis limits, and re-poses the tree. Shared bones
+ * NEGOTIATE between goals through the shared columns; effector weights scale
+ * their rows, so a lighter goal yields where goals conflict.
  *
  * <p>The step is MONOTONE in the combined weighted error: a step that made it
  * worse is retried with the limit-cut channels frozen (active set — a clamped
@@ -620,14 +612,14 @@ public final class IKTreeSolver
         return dest.set(delta.x, delta.y, delta.z).mul(angle / sine);
     }
 
-    /** How many variables can move at all — zero means there is nothing to solve with. */
+    /** How many channels can move at all — zero means there is nothing to solve with. */
     private static int countColumns(IKTree tree)
     {
         int columns = 0;
 
         for (IKJoint joint : tree.joints)
         {
-            for (int c = 0; c < IKJoint.VARIABLES; c++)
+            for (int c = 0; c < 3; c++)
             {
                 if (movableWeight(joint, c) > 0F)
                 {
@@ -639,19 +631,9 @@ public final class IKTreeSolver
         return columns;
     }
 
-    /**
-     * How much this variable may move at all: 0 when locked, weightless, or
-     * pinned by min == max limits. For {@link IKJoint#STRETCH} that is its
-     * willingness, gated by a non-zero maximum — a bone allowed to stretch by
-     * nothing is the stretch analogue of a pinned channel.
-     */
+    /** How much this channel may move at all: 0 when locked, weightless, or pinned by min == max limits. */
     private static float movableWeight(IKJoint joint, int axis)
     {
-        if (axis == IKJoint.STRETCH)
-        {
-            return joint.stretchMax > 0F ? joint.stretchWeight : 0F;
-        }
-
         if (joint.locked[axis] || (joint.limited[axis] && joint.limitMin[axis] >= joint.limitMax[axis]))
         {
             return 0F;
@@ -703,17 +685,14 @@ public final class IKTreeSolver
             }
         }
 
-        /* Weighted Jacobian columns: per variable a rows-long vector — for every
-         * effector the variable moves, position rows carry
+        /* Weighted Jacobian columns: per channel a rows-long vector — for every
+         * effector the channel moves, position rows carry
          * colWeight · rowWeight · (axis × (effector − pivot)); orientation rows
          * carry the bare channel axis (a joint turn rotates the whole subtree's
-         * orientation by itself), scaled the same way. The STRETCH variable is
-         * a translation: its position rows carry the outgoing segment itself
-         * (no lever, no cross product) and its orientation rows stay zero,
-         * because lengthening a bone slides the subtree without turning it. A
-         * variable pinned by its limits (min == max) never enters. */
-        float[] columns = new float[n * IKJoint.VARIABLES * rows];
-        boolean[] frozen = new boolean[n * IKJoint.VARIABLES];
+         * orientation by itself), scaled the same way. A channel pinned by its
+         * limits (min == max) never enters. */
+        float[] columns = new float[n * 3 * rows];
+        boolean[] frozen = new boolean[n * 3];
         Vector3f axis = new Vector3f();
         Vector3f lever = new Vector3f();
 
@@ -721,24 +700,19 @@ public final class IKTreeSolver
         {
             IKJoint joint = joints[i];
 
-            for (int c = 0; c < IKJoint.VARIABLES; c++)
+            for (int c = 0; c < 3; c++)
             {
                 float w = movableWeight(joint, c);
 
                 if (w <= 0F)
                 {
-                    frozen[i * IKJoint.VARIABLES + c] = true;
+                    frozen[i * 3 + c] = true;
                     continue;
                 }
 
-                boolean stretching = c == IKJoint.STRETCH;
+                tree.channelAxis(i, c, axis);
 
-                if (!stretching)
-                {
-                    tree.channelAxis(i, c, axis);
-                }
-
-                int at = (i * IKJoint.VARIABLES + c) * rows;
+                int at = (i * 3 + c) * rows;
 
                 for (int e = 0; e < k; e++)
                 {
@@ -750,22 +724,15 @@ public final class IKTreeSolver
                     IKTree.Effector effector = tree.effectors[e];
                     int offset = at + rowOffset[e];
 
-                    if (stretching)
-                    {
-                        tree.stretchAxis(e, i, lever).mul(w * effector.weight);
-                    }
-                    else
-                    {
-                        /* cross(v, dest) leaves the axis itself untouched. */
-                        lever.set(effector.position).sub(joint.position);
-                        axis.cross(lever, lever).mul(w * effector.weight);
-                    }
+                    /* cross(v, dest) leaves the axis itself untouched. */
+                    lever.set(effector.position).sub(joint.position);
+                    axis.cross(lever, lever).mul(w * effector.weight);
 
                     columns[offset] = lever.x;
                     columns[offset + 1] = lever.y;
                     columns[offset + 2] = lever.z;
 
-                    if (!stretching && orientScale > 0F && effector.orientGoal != null)
+                    if (orientScale > 0F && effector.orientGoal != null)
                     {
                         float scale = w * effector.weight * effector.orientWeight * orientScale;
 
@@ -777,13 +744,13 @@ public final class IKTreeSolver
             }
         }
 
-        float[] saved = new float[n * IKJoint.VARIABLES];
+        float[] saved = new float[n * 3];
 
         for (int i = 0; i < n; i++)
         {
-            for (int c = 0; c < IKJoint.VARIABLES; c++)
+            for (int c = 0; c < 3; c++)
             {
-                saved[i * IKJoint.VARIABLES + c] = joints[i].variable(c);
+                saved[i * 3 + c] = IKJoint.get(joints[i].angles, c);
             }
         }
 
@@ -805,17 +772,17 @@ public final class IKTreeSolver
         }
 
         /* Phase 2 (active set): when the limit clamp CUT part of that step, what
-         * was applied is no longer a descent direction — freeze the cut variables
+         * was applied is no longer a descent direction — freeze the cut channels
          * and re-solve over what can actually move. */
         boolean cut = false;
 
         for (int i = 0; i < n; i++)
         {
-            for (int c = 0; c < IKJoint.VARIABLES; c++)
+            for (int c = 0; c < 3; c++)
             {
-                int at = i * IKJoint.VARIABLES + c;
+                int at = i * 3 + c;
 
-                if (!frozen[at] && deltas[at] != 0F && Math.abs(joints[i].variable(c) - (saved[at] + deltas[at])) > 1.0e-7f)
+                if (!frozen[at] && deltas[at] != 0F && Math.abs(IKJoint.get(joints[i].angles, c) - (saved[at] + deltas[at])) > 1.0e-7f)
                 {
                     frozen[at] = true;
                     cut = true;
@@ -823,7 +790,7 @@ public final class IKTreeSolver
             }
         }
 
-        restoreVariables(tree, saved);
+        restoreAngles(tree, saved);
 
         if (cut)
         {
@@ -839,7 +806,7 @@ public final class IKTreeSolver
                     return largest > STALL_STEP;
                 }
 
-                restoreVariables(tree, saved);
+                restoreAngles(tree, saved);
             }
         }
 
@@ -860,7 +827,7 @@ public final class IKTreeSolver
                     return largest > STALL_STEP;
                 }
 
-                restoreVariables(tree, saved);
+                restoreAngles(tree, saved);
                 scale *= 0.5F;
             }
         }
@@ -872,7 +839,7 @@ public final class IKTreeSolver
 
     /**
      * Solves the damped normal equations over the unfrozen columns and returns
-     * the per-variable deltas {@code W·Jᵀ·y} (the second W of {@code W²·Ĵᵀ·y} —
+     * the per-channel deltas {@code W·Jᵀ·y} (the second W of {@code W²·Ĵᵀ·y} —
      * the first is inside the stored columns), the whole vector scaled down
      * when its largest entry exceeds {@link #MAX_STEP} (direction preserved);
      * {@code null} when the system is singular.
@@ -891,7 +858,7 @@ public final class IKTreeSolver
             a[r * rows + r] = lambdaSq;
         }
 
-        for (int at = 0; at < n * IKJoint.VARIABLES; at++)
+        for (int at = 0; at < n * 3; at++)
         {
             if (frozen[at])
             {
@@ -923,16 +890,16 @@ public final class IKTreeSolver
             return null;
         }
 
-        float[] deltas = new float[n * IKJoint.VARIABLES];
+        float[] deltas = new float[n * 3];
         float largest = 0F;
 
         for (int i = 0; i < n; i++)
         {
             IKJoint joint = joints[i];
 
-            for (int c = 0; c < IKJoint.VARIABLES; c++)
+            for (int c = 0; c < 3; c++)
             {
-                int at = i * IKJoint.VARIABLES + c;
+                int at = i * 3 + c;
 
                 if (frozen[at])
                 {
@@ -953,16 +920,14 @@ public final class IKTreeSolver
             }
         }
 
-        /* Cap by scaling the WHOLE vector, never per variable: a per-variable
-         * clamp saturates every delta at a large |y| and the step degenerates
-         * into a vector of signs — no longer a descent direction. Stretch shares
-         * the cap: it is dimensionless, so a 0.35 elongation step is the same
-         * order of effector motion as a 0.35 radian one. */
+        /* Cap by scaling the WHOLE vector, never per channel: a per-channel clamp
+         * saturates every delta at a large |y| and the step degenerates into a
+         * vector of signs — no longer a descent direction. */
         if (largest > MAX_STEP)
         {
             float scale = MAX_STEP / largest;
 
-            for (int at = 0; at < n * IKJoint.VARIABLES; at++)
+            for (int at = 0; at < n * 3; at++)
             {
                 deltas[at] *= scale;
             }
@@ -1037,7 +1002,7 @@ public final class IKTreeSolver
         return y;
     }
 
-    /** Applies {@code scale}-sized deltas onto the current variables; returns the largest applied delta. */
+    /** Applies {@code scale}-sized deltas onto the current angles; returns the largest applied delta. */
     private static float applyDeltas(IKTree tree, float[] deltas, float scale)
     {
         float largest = 0F;
@@ -1046,14 +1011,14 @@ public final class IKTreeSolver
         {
             IKJoint joint = tree.joints[i];
 
-            for (int c = 0; c < IKJoint.VARIABLES; c++)
+            for (int c = 0; c < 3; c++)
             {
-                float delta = deltas[i * IKJoint.VARIABLES + c] * scale;
+                float delta = deltas[i * 3 + c] * scale;
 
                 if (delta != 0F)
                 {
                     largest = Math.max(largest, Math.abs(delta));
-                    joint.variable(c, joint.variable(c) + delta);
+                    IKJoint.set(joint.angles, c, IKJoint.get(joint.angles, c) + delta);
                 }
             }
 
@@ -1063,15 +1028,15 @@ public final class IKTreeSolver
         return largest;
     }
 
-    private static void restoreVariables(IKTree tree, float[] saved)
+    private static void restoreAngles(IKTree tree, float[] saved)
     {
         for (int i = 0; i < tree.joints.length; i++)
         {
             IKJoint joint = tree.joints[i];
 
-            for (int c = 0; c < IKJoint.VARIABLES; c++)
+            for (int c = 0; c < 3; c++)
             {
-                joint.variable(c, saved[i * IKJoint.VARIABLES + c]);
+                IKJoint.set(joint.angles, c, saved[i * 3 + c]);
             }
         }
     }

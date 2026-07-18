@@ -26,9 +26,17 @@ public class CubicMatrixRenderer implements ICubicRenderer
         }
     }
 
+    /**
+     * The default sequence, split open only to snapshot the origin frame between
+     * the translate and the pivot move. It must stay in lockstep with {@link
+     * ICubicRenderer#applyGroupTransformations} — the offset leads there too, so
+     * anything riding these matrices (gizmos, body parts, anchors, trackers,
+     * shadows) follows a stretched bone instead of its un-stretched pose.
+     */
     @Override
     public void applyGroupTransformations(MatrixStack stack, ModelGroup group)
     {
+        ICubicRenderer.offsetGroup(stack, group);
         ICubicRenderer.translateGroup(stack, group);
 
         this.origins.get(group.index).set(stack.peek().getPositionMatrix());

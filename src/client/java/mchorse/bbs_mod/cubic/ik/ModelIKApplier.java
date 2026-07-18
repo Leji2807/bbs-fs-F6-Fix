@@ -98,11 +98,7 @@ final class ModelIKApplier
 
             Map<String, PivotFrame> frames = new HashMap<>(wanted.size() * 2);
 
-            /* With stretch folded in: an ancestor group that lengthened its bones
-             * has already written its offsets, and this group hangs off the spot
-             * the renderer will actually draw. A group can never see its OWN
-             * stretch this way — it writes offsets only when its solve runs. */
-            ModelPivotFrames.collect(model, wanted, frames, null, true);
+            ModelPivotFrames.collect(model, wanted, frames, null);
             applyGroup(model, group, frames, jointDoF, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
         }
 
@@ -339,19 +335,6 @@ final class ModelIKApplier
 
         nodes.sort(Comparator.comparingInt((String bone) -> depthOf(model, bone)));
 
-        /* A bone may stretch when at least ONE chain running through it has
-         * stretching on — the same "one set of joints per bone, shared by every
-         * chain" rule the rotation DoF follows. */
-        Set<String> stretching = new HashSet<>();
-
-        for (ResolvedChain r : resolved)
-        {
-            if (r.chain().stretch())
-            {
-                stretching.addAll(r.workIds());
-            }
-        }
-
         IKTree tree = new IKTree(nodes.size(), resolved.size());
         Map<String, Integer> nodeIndex = new HashMap<>(nodes.size() * 2);
 
@@ -385,7 +368,10 @@ final class ModelIKApplier
 
             ModelIKConfig.JointDoF dof = jointDoF == null ? null : jointDoF.get(nodes.get(i));
 
-            applyDoF(joint, dof == null ? ModelIKConfig.JointDoF.FREE : dof, stretching.contains(nodes.get(i)));
+            if (dof != null)
+            {
+                applyDoF(joint, dof);
+            }
         }
 
         /* Effectors: one per chain, riding its last directed bone; each goal is
@@ -411,15 +397,9 @@ final class ModelIKApplier
             effector.weight = r.weight();
 
             Vector3f rootPosition = tree.joints[rootJoint].startPosition;
-            float reach = chainReach(tree, rootJoint, lastJoint, effector.startPosition, false);
+            float reach = chainReach(tree, rootJoint, lastJoint, effector.startPosition);
 
-            /* The soft goal eases against the reach the chain can ACTUALLY get to,
-             * stretch included: easing onto the natural reach sphere would hide the
-             * very shortfall stretching exists to cover, and the chain would never
-             * learn its target sits further out. */
-            float softReach = chainReach(tree, rootJoint, lastJoint, effector.startPosition, true);
-
-            effector.goal.set(IKTreeSolver.softGoal(rootPosition, softReach, r.target(), r.softness()));
+            effector.goal.set(IKTreeSolver.softGoal(rootPosition, reach, r.target(), r.softness()));
 
             /* Tip follows target, in-solver half: ask the chain to orient its LAST
              * directed bone so the tip, keeping its natural FK local pose, would
@@ -464,23 +444,17 @@ final class ModelIKApplier
         writeTree(model, nodes, tree, resolved, frames);
     }
 
-    /**
-     * The captured arc length root joint → last joint → effector point, along
-     * the tree. With {@code stretched} on, every segment counts at the longest
-     * its owner may grow it — the chain's true maximum reach.
-     */
-    private static float chainReach(IKTree tree, int rootJoint, int lastJoint, Vector3f effectorStart, boolean stretched)
+    /** The captured arc length root joint → last joint → effector point, along the tree. */
+    private static float chainReach(IKTree tree, int rootJoint, int lastJoint, Vector3f effectorStart)
     {
-        float total = effectorStart.distance(tree.joints[lastJoint].startPosition)
-            * (stretched ? tree.joints[lastJoint].maxStretchScale() : 1F);
+        float total = effectorStart.distance(tree.joints[lastJoint].startPosition);
         int j = lastJoint;
 
         while (j != rootJoint && tree.parentIndex[j] >= 0)
         {
             int parent = tree.parentIndex[j];
 
-            total += tree.joints[j].startPosition.distance(tree.joints[parent].startPosition)
-                * (stretched ? tree.joints[parent].maxStretchScale() : 1F);
+            total += tree.joints[j].startPosition.distance(tree.joints[parent].startPosition);
             j = parent;
         }
 
@@ -626,94 +600,10 @@ final class ModelIKApplier
         return false;
     }
 
-    /**
-     * Hands one bone the shift its ANCESTOR's stretch gives it and returns that
-     * bone's cumulative world shift, for its own children to build on.
-     *
-     * <p>The extra length is the captured segment scaled by how far the ancestor
-     * stretched, faded by the same weight its rotation is faded by, so stretch
-     * and bend come and go together. The two model flavours want it in different
-     * frames:
-     *
-     * <ul>
-     * <li>CUBIC takes the LOCAL step in its parent's frame — the renderer
-     * pre-translates there and the matrix stack carries the shift to every
-     * descendant on its own, so only the increment is written. The solve's
-     * rotation delta cancels out of the local form ({@code blendedParent =
-     * delta · startParent}), leaving the captured segment in the captured parent
-     * frame; dividing by that frame's scale undoes the scaling the renderer will
-     * apply, so a scaled bone stretches by the length the solver actually
-     * chose.</li>
-     * <li>BOBJ takes the CUMULATIVE WORLD shift — its skinning matrix is not a
-     * hierarchy, so each bone carries its whole shift, and vertices weighted
-     * across bones blend neighbouring shifts into a smooth stretch.</li>
-     * </ul>
-     */
-    private static Vector3f writeStretch(IModel model, String bone, PivotFrame frame, Vector3f startPosition, IKJoint ancestor, Quaternionf startParentRotation, Quaternionf delta, Vector3f parentShift, float weight)
-    {
-        float amount = ancestor.stretch * weight;
-
-        if (amount <= EPS)
-        {
-            return new Vector3f(parentShift);
-        }
-
-        Vector3f segment = new Vector3f(startPosition).sub(ancestor.startPosition).mul(amount);
-
-        if (model instanceof BOBJModel bobj)
-        {
-            Vector3f world = new Vector3f(parentShift).add(delta.transform(new Vector3f(segment)));
-            BOBJBone bobjBone = bobj.getArmature().bones.get(bone);
-
-            if (bobjBone != null)
-            {
-                bobjBone.offset = new Vector3f(world);
-            }
-
-            return world;
-        }
-
-        if (model instanceof Model cubic)
-        {
-            ModelGroup group = cubic.getGroup(bone);
-
-            if (group != null)
-            {
-                Vector3f local = new Quaternionf(startParentRotation).conjugate().transform(new Vector3f(segment));
-                Vector3f scale = frame == null ? null : frame.scale();
-
-                if (scale != null)
-                {
-                    local.set(divide(local.x, scale.x), divide(local.y, scale.y), divide(local.z, scale.z));
-                }
-
-                group.offset = local;
-            }
-        }
-
-        /* Cubic descendants inherit through the matrix stack, so the cumulative
-         * world shift is only bookkeeping for the next segment. */
-        return new Vector3f(parentShift).add(delta.transform(new Vector3f(segment)));
-    }
-
-    private static float divide(float value, float by)
-    {
-        return Math.abs(by) < EPS ? value : value / by;
-    }
-
-    /**
-     * Copies the config's per-bone freedom onto a solver joint; limits are
-     * authored in degrees. {@code stretchEnabled} is the chain-level switch: a
-     * bone only carries its stretch freedom when a chain running through it has
-     * stretching on, so the per-bone numbers can sit in the config harmlessly
-     * (and keep their defaults) for every rig that never asked to stretch.
-     */
-    private static void applyDoF(IKJoint joint, ModelIKConfig.JointDoF dof, boolean stretchEnabled)
+    /** Copies the config's per-bone freedom onto a solver joint; limits are authored in degrees. */
+    private static void applyDoF(IKJoint joint, ModelIKConfig.JointDoF dof)
     {
         float toRad = (float) (Math.PI / 180.0);
-
-        joint.stretchWeight = stretchEnabled ? dof.stretch() : 0F;
-        joint.stretchMax = stretchEnabled ? dof.stretchMax() : 0F;
 
         joint.locked[0] = dof.lockX();
         joint.locked[1] = dof.lockY();
@@ -882,14 +772,6 @@ final class ModelIKApplier
      * blended world frames advance the same rigid way the solve did — the
      * frames the renderer establishes — so each chain's tip target lands in
      * the right frame at any weight.
-     *
-     * <p>Stretch is written the same way, as a translation: a bone that
-     * lengthened pushes everything below it out along its segment, so each node
-     * gets the shift its ANCESTOR's stretch gives it, and the shift accumulates
-     * down the tree. Cubic bones take it in their parent's frame (the renderer
-     * pre-translates there, and children inherit through the matrix stack);
-     * BOBJ bones take the cumulative WORLD shift into the skinning matrix,
-     * where neighbouring bones' shifts blend across the weighted vertices.
      */
     private static void writeTree(IModel model, List<String> nodes, IKTree tree, List<ResolvedChain> resolved, Map<String, PivotFrame> frames)
     {
@@ -910,7 +792,7 @@ final class ModelIKApplier
         }
 
         Quaternionf[] blendedWorld = new Quaternionf[n];
-        Vector3f[] shift = new Vector3f[n];
+        Quaternionf[] blendedParentOf = new Quaternionf[n];
 
         for (int i = 0; i < n; i++)
         {
@@ -938,45 +820,35 @@ final class ModelIKApplier
             if (parent < 0)
             {
                 blendedParent = new Quaternionf(tree.startParentRotation[i]);
-
-                /* A forest root starts from whatever an ANCESTOR chain already
-                 * stretched it by. Cubic reads that from its frames (collected
-                 * with stretch folded in) and inherits the rest through the
-                 * matrix stack; BOBJ keeps stretch off its skeleton frames by
-                 * design, so the inherited shift has to be picked up here. */
-                shift[i] = inheritedStretch(model, nodes.get(i));
             }
             else
             {
                 Quaternionf delta = new Quaternionf(blendedWorld[parent]).mul(new Quaternionf(tree.joints[parent].startWorldRotation).conjugate());
 
-                shift[i] = writeStretch(model, nodes.get(i), frames.get(nodes.get(i)),
-                    tree.joints[i].startPosition, tree.joints[parent], tree.startParentRotation[i],
-                    delta, shift[parent], nodeWeight[parent]);
-
                 blendedParent = delta.mul(tree.startParentRotation[i]);
             }
 
+            blendedParentOf[i] = new Quaternionf(blendedParent);
             blendedWorld[i] = blendedParent.mul(applied, new Quaternionf());
         }
 
-        /* The effector bone closes both jobs. It is not a solver node of its own
-         * chain, but it hangs off the last directed bone, so it inherits that
-         * bone's stretch — and THAT segment is the one carrying the tip onto the
-         * controller, so it must be written whether or not the tip also follows
-         * the target's orientation.
-         *
-         * Tip follows target: the effector copies the controller's world
-         * orientation in its parent's BLENDED frame. The tip's captured parent
-         * frame carries everything between the last directed bone and the tip's
-         * own rotation (for BOBJ its rest relBoneMat), so it is advanced by the
-         * last bone's blended delta — for a cubic bone that reduces to the last
-         * bone's blended world exactly. Written after the nodes, so on the rare
-         * rig where a tip doubles as another chain's directed bone, the tip
-         * orientation wins. */
+        /* Tip follows target: each chain's effector bone (not a solver node of its
+         * own chain) copies the controller's world orientation, in its parent's
+         * BLENDED frame. The tip's captured parent frame carries everything between
+         * the last directed bone and the tip's own rotation (for BOBJ its rest
+         * relBoneMat), so it is advanced by the last bone's blended delta — for a
+         * cubic bone that reduces to the last bone's blended world exactly. Written
+         * after the nodes, so on the rare rig where a tip doubles as another
+         * chain's directed bone, the tip orientation wins. */
         for (int e = 0; e < resolved.size(); e++)
         {
             ResolvedChain r = resolved.get(e);
+
+            if (r.tipTarget() == null)
+            {
+                continue;
+            }
+
             List<String> workIds = r.workIds();
             String tipId = workIds.get(workIds.size() - 1);
             PivotFrame tipFrame = frames.get(tipId);
@@ -997,16 +869,7 @@ final class ModelIKApplier
             }
 
             Quaternionf lastDelta = new Quaternionf(blendedWorld[lastJoint]).mul(new Quaternionf(tree.joints[lastJoint].startWorldRotation).conjugate());
-
-            writeStretch(model, tipId, tipFrame, tipFrame.position(), tree.joints[lastJoint],
-                tipFrame.parentRotation(), lastDelta, shift[lastJoint], nodeWeight[lastJoint]);
-
-            if (r.tipTarget() == null)
-            {
-                continue;
-            }
-
-            Quaternionf tipParent = new Quaternionf(lastDelta).mul(new Quaternionf(tipFrame.parentRotation()));
+            Quaternionf tipParent = lastDelta.mul(new Quaternionf(tipFrame.parentRotation()));
             Quaternionf tipLocal = tipParent.conjugate().mul(r.tipTarget());
             Quaternionf evaluated = evaluatedRotation(model, tipId);
 
@@ -1018,71 +881,211 @@ final class ModelIKApplier
             writeOrient(model, tipId, r.weight() >= 1F - EPS ? tipLocal : evaluated.slerp(tipLocal, r.weight()));
         }
 
-        propagateStretch(model);
+        for (ResolvedChain r : resolved)
+        {
+            if (r.chain().stretch())
+            {
+                stretchToTarget(model, nodes, tree, r, frames, blendedParentOf, blendedWorld);
+            }
+        }
     }
 
     /**
-     * The shift an ancestor chain already gave this bone. Only BOBJ needs it:
-     * its stretch lives on the skinning matrix, deliberately off the skeleton
-     * frames a later chain captures, so a chain nested under a stretched one
-     * would otherwise start from zero and undo its ancestor's reach.
+     * Telescopes a chain that came up short onto its controller: whatever gap the
+     * rotation solve could not close is split among the chain's bones in
+     * proportion to their lengths and written as per-bone translations, so every
+     * joint slides out along the limb and the tip lands on the target. No bone is
+     * scaled — cubes keep their proportions and their texels, and the joints that
+     * open up are sealed by the model's welds.
+     *
+     * <p>A post-process on purpose: the solve itself stays a pure rotation
+     * problem, exactly as it is without stretching, so nothing about a chain's
+     * bend, pole or limits changes when the box is ticked — the chain simply
+     * stops falling short. The gap is faded by the chain's weight, so stretch
+     * comes and goes with the rest of the IK.
+     *
+     * <p>The share is distributed only up to the last bone carrying GEOMETRY: a
+     * chain ending in a bare end-marker (the auto-tail convention) would
+     * otherwise open its last seam BEFORE the marker and leave the last visible
+     * bone short of the controller.
      */
-    private static Vector3f inheritedStretch(IModel model, String bone)
+    private static void stretchToTarget(IModel model, List<String> nodes, IKTree tree, ResolvedChain r, Map<String, PivotFrame> frames, Quaternionf[] blendedParentOf, Quaternionf[] blendedWorld)
     {
-        if (model instanceof BOBJModel bobj)
+        List<String> workIds = r.workIds();
+        int lastJoint = indexOf(nodes, workIds.get(workIds.size() - 2));
+        int effectorIndex = -1;
+
+        for (int e = 0; e < tree.effectors.length; e++)
         {
-            Map<String, BOBJBone> bones = bobj.getArmature().bones;
-            BOBJBone current = bones.get(bone);
-            int depth = 0;
-
-            while (current != null && depth < 256)
+            if (tree.effectors[e].joint == lastJoint)
             {
-                current = current.parent == null ? null : bones.get(current.parent);
-
-                if (current != null && current.offset != null)
-                {
-                    return new Vector3f(current.offset);
-                }
-
-                depth++;
+                effectorIndex = e;
+                break;
             }
         }
 
-        return new Vector3f();
-    }
-
-    /**
-     * Carries the stretch shift down to bones BELOW the chains — a hand past a
-     * stretched forearm, the fingers past it. Cubic gets this for free (the
-     * matrix stack pre-translates the whole subtree), but a BOBJ skinning
-     * matrix is per bone and knows no hierarchy, so every descendant has to be
-     * handed its ancestor's shift explicitly or the mesh would tear at the last
-     * solved bone.
-     */
-    private static void propagateStretch(IModel model)
-    {
-        if (!(model instanceof BOBJModel bobj))
+        if (effectorIndex < 0 || lastJoint < 0)
         {
             return;
         }
 
-        Map<String, BOBJBone> bones = bobj.getArmature().bones;
+        /* The effector bone is not a solver node, so its parent frame is not in
+         * the blended walk: it is its CAPTURED parent frame carried by how far
+         * the last directed bone turned — the same advance the tip snap makes.
+         * Using the captured frame raw would send its share of the gap off in
+         * the pre-solve direction, which on a chain that turned a long way is a
+         * visible miss. */
+        Quaternionf tipParent = null;
+        PivotFrame tipFrame = frames.get(workIds.get(workIds.size() - 1));
 
-        /* Parents first, so one pass carries a shift arbitrarily deep. */
-        for (BOBJBone bone : bobj.getArmature().orderedBones)
+        if (tipFrame != null)
         {
-            if (bone == null || bone.offset != null || bone.parent == null)
-            {
-                continue;
-            }
+            tipParent = new Quaternionf(blendedWorld[lastJoint])
+                .mul(new Quaternionf(tree.joints[lastJoint].startWorldRotation).conjugate())
+                .mul(tipFrame.parentRotation());
+        }
 
-            BOBJBone parent = bones.get(bone.parent);
+        Vector3f gap = new Vector3f(r.target()).sub(tree.effectors[effectorIndex].position).mul(r.weight());
 
-            if (parent != null && parent.offset != null)
+        if (gap.lengthSquared() < EPS * EPS)
+        {
+            return;
+        }
+
+        int reach = lastGeometryIndex(model, workIds);
+
+        if (reach < 1)
+        {
+            return;
+        }
+
+        /* Solved positions along the chain: the nodes from the tree, the effector
+         * point for the last id. */
+        Vector3f[] solved = new Vector3f[workIds.size()];
+
+        for (int i = 0; i < workIds.size(); i++)
+        {
+            int node = indexOf(nodes, workIds.get(i));
+
+            solved[i] = node >= 0 ? tree.joints[node].position
+                : i == workIds.size() - 1 ? tree.effectors[effectorIndex].position : null;
+
+            if (solved[i] == null)
             {
-                bone.offset = new Vector3f(parent.offset);
+                return;
             }
         }
+
+        float total = 0F;
+
+        for (int i = 0; i < reach; i++)
+        {
+            total += solved[i].distance(solved[i + 1]);
+        }
+
+        if (total < EPS)
+        {
+            return;
+        }
+
+        Vector3f cumulative = new Vector3f();
+
+        for (int i = 1; i <= reach && i < workIds.size(); i++)
+        {
+            Vector3f share = new Vector3f(gap).mul(solved[i - 1].distance(solved[i]) / total);
+
+            String bone = workIds.get(i);
+            int node = indexOf(nodes, bone);
+            Quaternionf parentFrame = node >= 0 && blendedParentOf[node] != null ? blendedParentOf[node] : tipParent;
+
+            cumulative.add(share);
+            writeStretchOffset(model, bone, frames.get(bone), parentFrame, share, cumulative);
+        }
+    }
+
+    /**
+     * Writes one bone's share of the telescope. Cubic takes the LOCAL step in its
+     * parent's frame — the renderer pre-translates there and the matrix stack
+     * carries it to the whole subtree, so each bone writes only its own share.
+     * Dividing by the frame's scale undoes the scaling the renderer would
+     * otherwise apply on top. BOBJ takes the CUMULATIVE world shift into the
+     * skinning matrix instead: it is not a hierarchy, and vertices weighted
+     * across bones blend neighbouring shifts into a smooth stretch.
+     */
+    private static void writeStretchOffset(IModel model, String bone, PivotFrame frame, Quaternionf parentFrame, Vector3f share, Vector3f cumulative)
+    {
+        if (model instanceof BOBJModel bobj)
+        {
+            BOBJBone bobjBone = bobj.getArmature().bones.get(bone);
+
+            if (bobjBone != null)
+            {
+                bobjBone.offset = new Vector3f(cumulative);
+            }
+
+            return;
+        }
+
+        if (model instanceof Model cubic && parentFrame != null)
+        {
+            ModelGroup group = cubic.getGroup(bone);
+
+            if (group != null)
+            {
+                Vector3f local = new Quaternionf(parentFrame).conjugate().transform(new Vector3f(share));
+                Vector3f scale = frame == null ? null : frame.scale();
+
+                if (scale != null)
+                {
+                    local.set(divide(local.x, scale.x), divide(local.y, scale.y), divide(local.z, scale.z));
+                }
+
+                group.offset = local;
+            }
+        }
+    }
+
+    private static float divide(float value, float by)
+    {
+        return Math.abs(by) < EPS ? value : value / by;
+    }
+
+    private static int indexOf(List<String> nodes, String bone)
+    {
+        for (int i = 0; i < nodes.size(); i++)
+        {
+            if (nodes.get(i).equals(bone))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /**
+     * The deepest chain bone that carries geometry — the bone whose far end
+     * should land on the controller when stretching. Trailing bones with no
+     * cubes or meshes are bare reach markers (the auto-tail convention); they
+     * ride the last real bone's shift instead of opening a seam of their own.
+     * Falls back to the last bone when nothing in the chain has geometry.
+     */
+    private static int lastGeometryIndex(IModel model, List<String> chainIds)
+    {
+        if (model instanceof Model cubic)
+        {
+            for (int i = chainIds.size() - 1; i >= 0; i--)
+            {
+                ModelGroup bone = cubic.getGroup(chainIds.get(i));
+
+                if (bone != null && (!bone.cubes.isEmpty() || !bone.meshes.isEmpty()))
+                {
+                    return i;
+                }
+            }
+        }
+
+        return chainIds.size() - 1;
     }
 
     private static void logTreeIn(List<String> nodes, IKTree tree)
