@@ -1271,11 +1271,18 @@ final class ModelIKApplier
             Vector3f root = tree.joints[pole.rootJoint()].position;
             Vector3f axis = new Vector3f(effector.goal).sub(root);
             Vector3f toPole = new Vector3f(pole.polePoint()).sub(root);
-            Vector3f toEffector = new Vector3f(effector.position).sub(root);
+
+            /* BEND is the honest "is this chain straight" number: how far the joint
+             * after the root sticks out of the root→goal line. Near zero means the
+             * chain has no side to prefer, whatever the rest pose looks like. The
+             * old "chain-off-axis" measured that the effector sits on its goal —
+             * which is always true, so it said nothing. */
+            Vector3f elbow = new Vector3f(tree.joints[Math.min(1, tree.joints.length - 1)].position).sub(root);
 
             LOG.append("  pole ").append(fmt(pole.polePoint()))
                 .append(" angle-off-axis ").append(String.format("%.2f", angleBetween(toPole, axis)))
-                .append(" deg, chain-off-axis ").append(String.format("%.2f", angleBetween(toEffector, axis)))
+                .append(" deg, chain BEND ").append(String.format("%.2f", angleBetween(elbow, axis)))
+                .append(" deg, pole twist applied ").append(String.format("%.2f", result.poleTwistDeg()))
                 .append(" deg\n");
         }
 

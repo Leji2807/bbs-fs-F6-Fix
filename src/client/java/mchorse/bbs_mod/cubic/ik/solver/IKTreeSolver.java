@@ -77,12 +77,14 @@ public final class IKTreeSolver
      * @param alignDeg how far the goal pre-alignment rigidly turned the root (0 = it did not run).
      * @param broke whether the straight-chain nudge fired.
      * @param stalled whether the iterations gave up before reaching tolerance.
+     * @param poleTwistDeg how far the POST-iteration pole twist turned the root — near 180
+     * means the iterations picked the mirror solution and the pole flipped the whole chain back.
      *
      * <p>The last three exist for the log: each is a THRESHOLD the solve crosses,
      * and a pose that snaps once and then moves smoothly again is the signature
      * of one of them switching on or off between frames.
      */
-    public record Result(boolean reached, float error, int iterations, float alignDeg, boolean broke, boolean stalled)
+    public record Result(boolean reached, float error, int iterations, float alignDeg, boolean broke, boolean stalled, float poleTwistDeg)
     {
     }
 
@@ -173,6 +175,8 @@ public final class IKTreeSolver
             }
         }
 
+        float poleTwistDeg = 0F;
+
         if (single && poles != null)
         {
             /* Exact bend-plane snap; root and goal sit on the twist line, so the
@@ -181,7 +185,7 @@ public final class IKTreeSolver
             {
                 if (pole != null && pole.polePoint() != null)
                 {
-                    applyPole(tree, pole);
+                    poleTwistDeg = Math.max(poleTwistDeg, Math.abs(applyPole(tree, pole)));
                 }
             }
         }
@@ -194,7 +198,7 @@ public final class IKTreeSolver
         float worst = worstError(tree);
         boolean reached = worst <= params.tolerance();
 
-        return new Result(reached, worst, iterations, alignDeg, broke, !reached && iterations >= params.maxIterations());
+        return new Result(reached, worst, iterations, alignDeg, broke, !reached && iterations >= params.maxIterations(), poleTwistDeg);
     }
 
     /**
@@ -364,20 +368,20 @@ public final class IKTreeSolver
      * On a merged tree the twist turns the whole branch under the chain's
      * root, other chains included — which is why it is pre-only there.
      */
-    public static void applyPole(IKTree tree, Pole pole)
+    public static float applyPole(IKTree tree, Pole pole)
     {
         int e = effectorUnder(tree, pole.rootJoint());
 
         if (e < 0)
         {
-            return;
+            return 0F;
         }
 
         int elbowIndex = childTowards(tree, pole.rootJoint(), tree.effectors[e].joint);
 
         if (elbowIndex < 0)
         {
-            return;
+            return 0F;
         }
 
         IKJoint root = tree.joints[pole.rootJoint()];
@@ -386,7 +390,7 @@ public final class IKTreeSolver
 
         if (axis.lengthSquared() < EPS * EPS)
         {
-            return;
+            return 0F;
         }
 
         axis.normalize();
@@ -396,17 +400,19 @@ public final class IKTreeSolver
 
         if (bend == null || poleDir == null)
         {
-            return;
+            return 0F;
         }
 
         float twist = (float) Math.atan2(new Vector3f(bend).cross(poleDir).dot(axis), bend.dot(poleDir)) + pole.poleAngle();
 
         if (Math.abs(twist) < EPS)
         {
-            return;
+            return 0F;
         }
 
         tree.rotateJointWorld(pole.rootJoint(), new Quaternionf().rotationAxis(twist, axis.x, axis.y, axis.z));
+
+        return (float) Math.toDegrees(twist);
     }
 
     /**
