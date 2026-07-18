@@ -63,6 +63,9 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     public UITrackpad stiffnessX;
     public UITrackpad stiffnessY;
     public UITrackpad stiffnessZ;
+    public UIToggle stretch;
+    public UITrackpad jointStretch;
+    public UITrackpad jointStretchMax;
 
     private String selectedBone = "";
     private Map<String, IKData> ikData = new HashMap<>();
@@ -278,6 +281,18 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.commitChanges();
         });
 
+        this.stretch = new UIToggle(UIKeys.FORMS_EDITORS_MODEL_IK_STRETCH, (b) ->
+        {
+            if (this.syncingUI || this.selectedBone.isEmpty())
+            {
+                return;
+            }
+
+            IKData data = this.getOrCreateData(this.selectedBone);
+            data.stretch = b.getValue();
+            this.commitChanges();
+        });
+
         UISection settings = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_SETTINGS);
 
         settings.fields.add(
@@ -289,7 +304,8 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_POLE_ANGLE, this.poleAngle).marginTop(UIConstants.SECTION_GAP),
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_SOFTNESS, this.softness).marginTop(UIConstants.SECTION_GAP),
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_WEIGHT, this.weight).marginTop(UIConstants.SECTION_GAP),
-            this.tipRotation
+            this.tipRotation,
+            this.stretch
         );
 
         /* The selected bone's JOINT freedom — per axis: lock, limit (degrees), stiffness.
@@ -313,6 +329,16 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.stiffnessY = this.jointStiffness((d, v) -> d.stiffnessY = v);
         this.stiffnessZ = this.jointStiffness((d, v) -> d.stiffnessZ = v);
 
+        this.jointStretch = this.jointPad((d, v) -> d.stretch = v);
+        this.jointStretch.limit(0D, 1D).increment(0.1D).values(0.1D, 0.05D, 0.2D);
+        this.jointStretch.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STRETCH);
+
+        /* Authored as a percentage of the bone's length — "how much longer may
+         * it get" reads far better than the 0..1 fraction the solver works in. */
+        this.jointStretchMax = this.jointPad((d, v) -> d.stretchMax = v / 100F);
+        this.jointStretchMax.limit(0D, 500D).increment(10D).values(5D, 1D, 25D);
+        this.jointStretchMax.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STRETCH_MAX);
+
         UISection joint = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT);
 
         joint.fields.add(
@@ -321,7 +347,9 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.limitY.marginTop(UIConstants.SECTION_GAP), UI.row(this.limitMinY, this.limitMaxY),
             this.limitZ.marginTop(UIConstants.SECTION_GAP), UI.row(this.limitMinZ, this.limitMaxZ),
             UI.label(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS).marginTop(UIConstants.SECTION_GAP),
-            UI.row(this.stiffnessX, this.stiffnessY, this.stiffnessZ)
+            UI.row(this.stiffnessX, this.stiffnessY, this.stiffnessZ),
+            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STRETCH, this.jointStretch).marginTop(UIConstants.SECTION_GAP),
+            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STRETCH_MAX, this.jointStretchMax)
         );
 
         UIIcon debugSettings = new UIIcon(Icons.GEAR, (b) -> this.getContext().replaceContextMenu(new UIDebugOverlayContextMenu(BBSSettings.ikDebug)));
@@ -444,6 +472,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.softness.setEnabled(enabled);
         this.weight.setEnabled(enabled);
         this.tipRotation.setEnabled(enabled);
+        this.stretch.setEnabled(enabled);
         this.setJointEnabled(enabled);
     }
 
@@ -464,6 +493,8 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.stiffnessX.setEnabled(enabled);
         this.stiffnessY.setEnabled(enabled);
         this.stiffnessZ.setEnabled(enabled);
+        this.jointStretch.setEnabled(enabled);
+        this.jointStretchMax.setEnabled(enabled);
     }
 
     @Override
@@ -538,6 +569,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.softness.setValue(data == null ? ModelIKConfig.DEFAULT_SOFTNESS : data.softness);
             this.weight.setValue(data == null ? ModelIKConfig.DEFAULT_WEIGHT : data.weight);
             this.tipRotation.setValue(data != null && data.tipRotation);
+            this.stretch.setValue(data != null && data.stretch);
             this.enabled.setEnabled(this.bones.isEnabled() && !this.selectedBone.isEmpty());
             this.enabled.setValue(active);
 
@@ -556,6 +588,8 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.stiffnessX.setValue(joint == null ? 0D : joint.stiffnessX);
             this.stiffnessY.setValue(joint == null ? 0D : joint.stiffnessY);
             this.stiffnessZ.setValue(joint == null ? 0D : joint.stiffnessZ);
+            this.jointStretch.setValue(joint == null ? ModelIKConfig.JointDoF.DEFAULT_STRETCH : joint.stretch);
+            this.jointStretchMax.setValue((joint == null ? ModelIKConfig.JointDoF.DEFAULT_STRETCH_MAX : joint.stretchMax) * 100F);
         }
         finally
         {
@@ -582,6 +616,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.softness.setEnabled(canEdit);
         this.weight.setEnabled(canEdit);
         this.tipRotation.setEnabled(canEdit);
+        this.stretch.setEnabled(canEdit);
     }
 
     private IKData getOrCreateData(String bone)
