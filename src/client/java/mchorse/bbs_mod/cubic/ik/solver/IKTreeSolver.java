@@ -72,8 +72,17 @@ public final class IKTreeSolver
     {
     }
 
-    /** @param error final LARGEST effector-to-goal distance, world units. */
-    public record Result(boolean reached, float error, int iterations)
+    /**
+     * @param error final LARGEST effector-to-goal distance, world units.
+     * @param alignDeg how far the goal pre-alignment rigidly turned the root (0 = it did not run).
+     * @param broke whether the straight-chain nudge fired.
+     * @param stalled whether the iterations gave up before reaching tolerance.
+     *
+     * <p>The last three exist for the log: each is a THRESHOLD the solve crosses,
+     * and a pose that snaps once and then moves smoothly again is the signature
+     * of one of them switching on or off between frames.
+     */
+    public record Result(boolean reached, float error, int iterations, float alignDeg, boolean broke, boolean stalled)
     {
     }
 
@@ -92,9 +101,11 @@ public final class IKTreeSolver
 
         boolean single = tree.effectors.length == 1;
 
+        float alignDeg = 0F;
+
         if (single)
         {
-            alignToGoal(tree, 0);
+            alignDeg = alignToGoal(tree, 0);
         }
 
         if (poles != null)
@@ -108,9 +119,11 @@ public final class IKTreeSolver
             }
         }
 
+        boolean broke = false;
+
         if (single)
         {
-            breakExtension(tree, 0, firstPole(poles));
+            broke = breakExtension(tree, 0, firstPole(poles));
         }
 
         float damping = params.dampingRatio() * largestReach(tree);
@@ -179,8 +192,9 @@ public final class IKTreeSolver
         }
 
         float worst = worstError(tree);
+        boolean reached = worst <= params.tolerance();
 
-        return new Result(worst <= params.tolerance(), worst, iterations);
+        return new Result(reached, worst, iterations, alignDeg, broke, !reached && iterations >= params.maxIterations());
     }
 
     /**
@@ -290,7 +304,7 @@ public final class IKTreeSolver
      * straight-chain degeneracy. Skipped when the root has locked or limited
      * axes — a rigid re-aim would trample what those protect.
      */
-    public static void alignToGoal(IKTree tree, int e)
+    public static float alignToGoal(IKTree tree, int e)
     {
         int rootIndex = tree.rootOf(e);
         IKJoint root = tree.joints[rootIndex];
@@ -299,7 +313,7 @@ public final class IKTreeSolver
         {
             if (root.locked[c] || root.limited[c] || root.weight(c) <= 0F)
             {
-                return;
+                return 0F;
             }
         }
 
@@ -309,7 +323,7 @@ public final class IKTreeSolver
 
         if (effectorDir.lengthSquared() < EPS * EPS || goalDir.lengthSquared() < EPS * EPS)
         {
-            return;
+            return 0F;
         }
 
         effectorDir.normalize();
@@ -320,7 +334,7 @@ public final class IKTreeSolver
 
         if (excess <= 0F)
         {
-            return;
+            return 0F;
         }
 
         Vector3f axis = new Vector3f(effectorDir).cross(goalDir);
@@ -337,6 +351,8 @@ public final class IKTreeSolver
         }
 
         tree.rotateJointWorld(rootIndex, new Quaternionf().rotationAxis(excess, axis.x, axis.y, axis.z));
+
+        return (float) Math.toDegrees(excess);
     }
 
     /**
@@ -403,7 +419,7 @@ public final class IKTreeSolver
      * channel — locks, limits and stiffness are respected. A goal at or past
      * full reach leaves the chain straight, as it should be.
      */
-    public static void breakExtension(IKTree tree, int e, Pole pole)
+    public static boolean breakExtension(IKTree tree, int e, Pole pole)
     {
         IKTree.Effector effector = tree.effectors[e];
         int rootIndex = tree.rootOf(e);
@@ -413,27 +429,27 @@ public final class IKTreeSolver
 
         if (reach < EPS || goalDistance >= reach * 0.999F)
         {
-            return;
+            return false;
         }
 
         /* Straightness: the effector of a straight chain sits a full arc length out. */
         if (root.distance(effector.position) < reach * 0.999F)
         {
-            return;
+            return false;
         }
 
         int elbowIndex = childTowards(tree, rootIndex, effector.joint);
 
         if (elbowIndex < 0)
         {
-            return;
+            return false;
         }
 
         Vector3f goalDir = new Vector3f(effector.goal).sub(root);
 
         if (goalDir.lengthSquared() < EPS * EPS)
         {
-            return;
+            return false;
         }
 
         goalDir.normalize();
@@ -473,12 +489,14 @@ public final class IKTreeSolver
 
         if (best < 0 || Math.abs(bestScore) < EPS)
         {
-            return;
+            return false;
         }
 
         IKJoint.set(elbow.angles, best, IKJoint.get(elbow.angles, best) + Math.signum(bestScore) * 0.02F);
         elbow.clampLimits();
         tree.forward();
+
+        return true;
     }
 
     /* ------------------------------------------------------------------ */

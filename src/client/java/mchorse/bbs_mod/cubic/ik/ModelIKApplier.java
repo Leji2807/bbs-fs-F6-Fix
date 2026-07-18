@@ -77,6 +77,9 @@ final class ModelIKApplier
 
     private static int logFrame;
 
+    /** Writes done this gesture — the first one truncates, the rest append. */
+    private static int logWrites;
+
     /** Total solves seen this gesture, dumped or not — the denominator of the summary. */
     private static int logSolves;
 
@@ -106,6 +109,7 @@ final class ModelIKApplier
         if (active)
         {
             logFrame = 0;
+            logWrites = 0;
             logSolves = 0;
             logRepeats = 0;
             LOG.setLength(0);
@@ -254,7 +258,7 @@ final class ModelIKApplier
             LOG.append("--- log full at ").append(LOG_FRAMES).append(" frames, logging stops here ---\n");
         }
 
-        try (java.io.FileWriter writer = new java.io.FileWriter(LOG_FILE, logFrame > 0))
+        try (java.io.FileWriter writer = new java.io.FileWriter(LOG_FILE, logWrites > 0))
         {
             writer.write(LOG.toString());
         }
@@ -264,7 +268,7 @@ final class ModelIKApplier
         }
 
         LOG.setLength(0);
-        logFrame++;
+        logWrites++;
     }
 
     /** Depth of the chain's root bone from the model root, for ancestor-first ordering. */
