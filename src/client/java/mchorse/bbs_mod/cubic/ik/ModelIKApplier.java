@@ -56,8 +56,14 @@ final class ModelIKApplier
      */
     private static final boolean LOG_IK = true;
 
-    /** How many frames the accumulating log keeps before it stops writing. */
-    private static final int LOG_FRAMES = 2000;
+    /** How many INTERESTING solves the log keeps before it stops writing. */
+    private static final int LOG_FRAMES = 200;
+
+    /** A pose change this large (degrees) counts as a jump worth dumping. */
+    private static final float LOG_JUMP_DEG = 5F;
+
+    /** How many times the expected turn a pose change must exceed to count as a snap. */
+    private static final float LOG_DISPROPORTION = 5F;
 
     /**
      * File in the game folder, like the drag log's — the game RUNS in {@code
@@ -70,6 +76,15 @@ final class ModelIKApplier
     private static final StringBuilder LOG = new StringBuilder();
 
     private static int logFrame;
+
+    /** Total solves seen this gesture, dumped or not — the denominator of the summary. */
+    private static int logSolves;
+
+    /** Solves that repeated the same frame's input and still moved — see {@link #logSolve}. */
+    private static int logRepeats;
+
+    private static final Map<String, float[]> LOG_ANGLES = new HashMap<>();
+    private static final Map<String, Vector3f> LOG_GOALS = new HashMap<>();
 
     /** Whether a gesture is currently being logged; see {@link #setLogging}. */
     private static boolean logging;
@@ -91,8 +106,21 @@ final class ModelIKApplier
         if (active)
         {
             logFrame = 0;
+            logSolves = 0;
+            logRepeats = 0;
             LOG.setLength(0);
+            LOG_ANGLES.clear();
+            LOG_GOALS.clear();
+
+            return;
         }
+
+        /* Closing line, always written: without it an empty log is ambiguous —
+         * nothing suspicious happened, or the logging never ran at all. */
+        LOG.append("--- gesture end: ").append(logSolves).append(" solves, ")
+            .append(logFrame).append(" dumped, ").append(logRepeats)
+            .append(" repeated-input solves moved ---").append('\n');
+        flushLog();
     }
 
     private static final float EPS = 1.0e-6f;
@@ -119,11 +147,6 @@ final class ModelIKApplier
         List<ModelIKCache.CompiledChain> ordered = new ArrayList<>(chains);
         ordered.sort(Comparator.comparingInt((ModelIKCache.CompiledChain chain) -> rootDepth(model, chain)));
 
-        if (LOG_IK && logging && logFrame <= LOG_FRAMES)
-        {
-            LOG.append("--- frame ").append(logFrame).append(" ---\n");
-        }
-
         /* OVERLAPPING chains merge into one tree and solve together — shared
          * bones negotiate between the goals (Blender's tree merge). Disjoint
          * chains stay independent solves. */
@@ -148,7 +171,7 @@ final class ModelIKApplier
             applyGroup(model, group, frames, jointDoF, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
         }
 
-        if (LOG_IK && logging)
+        if (LOG_IK && logging && LOG.length() > 0)
         {
             flushLog();
         }
@@ -495,16 +518,11 @@ final class ModelIKApplier
             poles[e] = polePoint == null ? null : new IKTreeSolver.Pole(rootJoint, polePoint, r.poleAngle());
         }
 
-        if (LOG_IK && logging)
-        {
-            logTreeIn(nodes, tree);
-        }
-
         IKTreeSolver.Result result = IKTreeSolver.solve(tree, poles, IKTreeSolver.Params.DEFAULT);
 
         if (LOG_IK && logging)
         {
-            logTreeOut(tree, result);
+            logSolve(nodes, tree, result);
         }
 
         writeTree(model, nodes, tree, resolved, frames);
@@ -1154,34 +1172,94 @@ final class ModelIKApplier
         return chainIds.size() - 1;
     }
 
-    private static void logTreeIn(List<String> nodes, IKTree tree)
+    /**
+     * Dumps one solve, but ONLY when it is worth reading: the goal barely moved
+     * yet the pose jumped (the jitter signature), or the chain failed to reach.
+     * A steady drag at 60 fps through several render passes produces thousands
+     * of identical frames a second — logging all of them buries the two or three
+     * that matter. Everything else is counted and reported in one line at the
+     * end of the gesture.
+     */
+    private static void logSolve(List<String> nodes, IKTree tree, IKTreeSolver.Result result)
     {
-        LOG.append("tree ").append(nodes).append('\n');
+        String key = nodes.toString();
+        float[] previous = LOG_ANGLES.get(key);
+        Vector3f previousGoal = LOG_GOALS.get(key);
+        IKTree.Effector effector = tree.effectors[0];
+        float reach = tree.reach(0);
+        float goalMoved = previousGoal == null ? Float.MAX_VALUE : previousGoal.distance(effector.goal);
+        float jump = 0F;
 
-        for (int e = 0; e < tree.effectors.length; e++)
+        if (previous != null && previous.length == tree.joints.length * 3)
         {
-            IKTree.Effector effector = tree.effectors[e];
+            for (int i = 0; i < tree.joints.length; i++)
+            {
+                Vector3f angles = tree.joints[i].angles;
 
-            LOG.append("  goal[").append(e).append("] ").append(fmt(effector.goal))
-                .append(" weight ").append(effector.weight)
-                .append(" rides ").append(nodes.get(effector.joint)).append('\n');
+                jump = Math.max(jump, Math.abs(angles.x - previous[i * 3]));
+                jump = Math.max(jump, Math.abs(angles.y - previous[i * 3 + 1]));
+                jump = Math.max(jump, Math.abs(angles.z - previous[i * 3 + 2]));
+            }
         }
+
+        float[] snapshot = new float[tree.joints.length * 3];
 
         for (int i = 0; i < tree.joints.length; i++)
         {
-            LOG.append("  in  ").append(nodes.get(i)).append(" angles ").append(fmtDeg(tree.joints[i].angles))
-                .append(" pos ").append(fmt(tree.joints[i].startPosition)).append('\n');
+            Vector3f angles = tree.joints[i].angles;
+
+            snapshot[i * 3] = angles.x;
+            snapshot[i * 3 + 1] = angles.y;
+            snapshot[i * 3 + 2] = angles.z;
         }
-    }
 
-    private static void logTreeOut(IKTree tree, IKTreeSolver.Result result)
-    {
-        LOG.append("  solved reached=").append(result.reached()).append(" err=").append(result.error())
-            .append(" iters=").append(result.iterations()).append('\n');
+        LOG_ANGLES.put(key, snapshot);
+        LOG_GOALS.put(key, new Vector3f(effector.goal));
+        logSolves++;
 
-        for (IKJoint joint : tree.joints)
+        /* Is the pose change PROPORTIONATE to how far the target moved? A chain of
+         * length `reach` whose goal moved `d` should turn on the order of d/reach
+         * radians. Several times that is the chain snapping to another solution —
+         * which is what a jitter is, and what a plain "the target barely moved"
+         * test misses whenever the target is moving steadily. */
+        float jumpDeg = jump * 180F / (float) Math.PI;
+        float expectedDeg = reach > EPS ? goalMoved / reach * 180F / (float) Math.PI : 0F;
+        boolean repeat = goalMoved < EPS;
+        boolean disproportionate = jumpDeg > LOG_JUMP_DEG && jumpDeg > expectedDeg * LOG_DISPROPORTION;
+        boolean interesting = !result.reached() || (!repeat && disproportionate);
+
+        /* A solve repeated on identical input within one frame should return an
+         * identical pose; when it does not, the second pass is reading the first
+         * one's result as its FK start. Worth seeing, but only a few times. */
+        if (repeat && jumpDeg > LOG_JUMP_DEG)
         {
-            LOG.append("  out angles ").append(fmtDeg(joint.angles)).append('\n');
+            logRepeats++;
+            interesting = logRepeats <= 3;
+        }
+
+        if (!interesting || logFrame >= LOG_FRAMES)
+        {
+            return;
+        }
+
+        logFrame++;
+
+        LOG.append(!result.reached() ? "MISSED " : repeat ? "REPEAT " : "JUMP ")
+            .append("solve #").append(logSolves)
+            .append(" tree ").append(nodes)
+            .append(" goal ").append(fmt(effector.goal))
+            .append(" moved ").append(String.format("%.4f", goalMoved))
+            .append(" (reach ").append(String.format("%.3f", reach)).append(")")
+            .append(" worst angle jump ").append(String.format("%.2f", jumpDeg))
+            .append(" deg (expected ").append(String.format("%.2f", expectedDeg)).append(")")
+            .append(" err ").append(result.error())
+            .append(" iters ").append(result.iterations()).append('\n');
+
+        for (int i = 0; i < tree.joints.length; i++)
+        {
+            LOG.append("  ").append(nodes.get(i))
+                .append(" in ").append(fmtDeg(tree.joints[i].startAngles))
+                .append(" out ").append(fmtDeg(tree.joints[i].angles)).append('\n');
         }
     }
 
