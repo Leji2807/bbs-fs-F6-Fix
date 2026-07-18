@@ -56,6 +56,14 @@ final class ModelIKApplier
     /** How many frames the accumulating log keeps before it stops writing. */
     private static final int LOG_FRAMES = 2000;
 
+    /**
+     * File in the game folder, like the drag log's — the game RUNS in {@code
+     * run/}, so the name must be bare. It read {@code "run/ik-log.txt"} from the
+     * day it was written, which resolved to a non-existent {@code run/run/} and
+     * threw every frame: the flag had never actually produced a log.
+     */
+    private static final String LOG_FILE = "ik-log.txt";
+
     private static final StringBuilder LOG = new StringBuilder();
 
     private static int logFrame;
@@ -196,9 +204,9 @@ final class ModelIKApplier
             LOG.append("--- log full at ").append(LOG_FRAMES).append(" frames, logging stops here ---\n");
         }
 
-        try (java.io.PrintWriter writer = new java.io.PrintWriter(new java.io.FileWriter("run/ik-log.txt", logFrame > 0)))
+        try (java.io.FileWriter writer = new java.io.FileWriter(LOG_FILE, logFrame > 0))
         {
-            writer.print(LOG);
+            writer.write(LOG.toString());
         }
         catch (java.io.IOException e)
         {
