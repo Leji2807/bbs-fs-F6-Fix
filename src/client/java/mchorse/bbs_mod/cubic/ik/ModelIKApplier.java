@@ -83,7 +83,7 @@ final class ModelIKApplier
     /** Solves that repeated the same frame's input and still moved — see {@link #logSolve}. */
     private static int logRepeats;
 
-    private static final Map<String, float[]> LOG_ANGLES = new HashMap<>();
+    private static final Map<String, float[]> LOG_ORIENTS = new HashMap<>();
     private static final Map<String, Vector3f> LOG_GOALS = new HashMap<>();
 
     /** Whether a gesture is currently being logged; see {@link #setLogging}. */
@@ -109,7 +109,7 @@ final class ModelIKApplier
             logSolves = 0;
             logRepeats = 0;
             LOG.setLength(0);
-            LOG_ANGLES.clear();
+            LOG_ORIENTS.clear();
             LOG_GOALS.clear();
 
             return;
@@ -522,7 +522,7 @@ final class ModelIKApplier
 
         if (LOG_IK && logging)
         {
-            logSolve(nodes, tree, result);
+            logSolve(nodes, tree, poles, result);
         }
 
         writeTree(model, nodes, tree, resolved, frames);
@@ -1180,40 +1180,41 @@ final class ModelIKApplier
      * that matter. Everything else is counted and reported in one line at the
      * end of the gesture.
      */
-    private static void logSolve(List<String> nodes, IKTree tree, IKTreeSolver.Result result)
+    private static void logSolve(List<String> nodes, IKTree tree, IKTreeSolver.Pole[] poles, IKTreeSolver.Result result)
     {
         String key = nodes.toString();
-        float[] previous = LOG_ANGLES.get(key);
+        float[] previous = LOG_ORIENTS.get(key);
         Vector3f previousGoal = LOG_GOALS.get(key);
         IKTree.Effector effector = tree.effectors[0];
         float reach = tree.reach(0);
         float goalMoved = previousGoal == null ? Float.MAX_VALUE : previousGoal.distance(effector.goal);
         float jump = 0F;
 
-        if (previous != null && previous.length == tree.joints.length * 3)
-        {
-            for (int i = 0; i < tree.joints.length; i++)
-            {
-                Vector3f angles = tree.joints[i].angles;
-
-                jump = Math.max(jump, Math.abs(angles.x - previous[i * 3]));
-                jump = Math.max(jump, Math.abs(angles.y - previous[i * 3 + 1]));
-                jump = Math.max(jump, Math.abs(angles.z - previous[i * 3 + 2]));
-            }
-        }
-
-        float[] snapshot = new float[tree.joints.length * 3];
+        /* Compared as ORIENTATIONS, not as angle triples: a bone sitting at
+         * y=+187 one frame and y=-173 the next has not moved at all, and a
+         * component-wise difference would report a 360-degree "jump" that never
+         * happened. The quaternion angle is the honest one. */
+        float[] snapshot = new float[tree.joints.length * 4];
 
         for (int i = 0; i < tree.joints.length; i++)
         {
-            Vector3f angles = tree.joints[i].angles;
+            Quaternionf world = tree.joints[i].worldRotation;
 
-            snapshot[i * 3] = angles.x;
-            snapshot[i * 3 + 1] = angles.y;
-            snapshot[i * 3 + 2] = angles.z;
+            snapshot[i * 4] = world.x;
+            snapshot[i * 4 + 1] = world.y;
+            snapshot[i * 4 + 2] = world.z;
+            snapshot[i * 4 + 3] = world.w;
+
+            if (previous != null && previous.length == snapshot.length)
+            {
+                float dot = Math.abs(world.x * previous[i * 4] + world.y * previous[i * 4 + 1]
+                    + world.z * previous[i * 4 + 2] + world.w * previous[i * 4 + 3]);
+
+                jump = Math.max(jump, 2F * (float) Math.acos(Math.min(1F, dot)));
+            }
         }
 
-        LOG_ANGLES.put(key, snapshot);
+        LOG_ORIENTS.put(key, snapshot);
         LOG_GOALS.put(key, new Vector3f(effector.goal));
         logSolves++;
 
@@ -1255,12 +1256,46 @@ final class ModelIKApplier
             .append(" err ").append(result.error())
             .append(" iters ").append(result.iterations()).append('\n');
 
+        /* The pole twists the ROOT about the root-to-goal line by an angle read
+         * off the chain's own bend direction — so when the chain is near
+         * straight, or the pole sits near that line, the angle is computed from
+         * noise. These two numbers say how degenerate each of those is: small
+         * values here explain a root that swings wildly between frames. */
+        if (poles != null && poles.length > 0 && poles[0] != null && poles[0].polePoint() != null)
+        {
+            IKTreeSolver.Pole pole = poles[0];
+            Vector3f root = tree.joints[pole.rootJoint()].position;
+            Vector3f axis = new Vector3f(effector.goal).sub(root);
+            Vector3f toPole = new Vector3f(pole.polePoint()).sub(root);
+            Vector3f toEffector = new Vector3f(effector.position).sub(root);
+
+            LOG.append("  pole ").append(fmt(pole.polePoint()))
+                .append(" angle-off-axis ").append(String.format("%.2f", angleBetween(toPole, axis)))
+                .append(" deg, chain-off-axis ").append(String.format("%.2f", angleBetween(toEffector, axis)))
+                .append(" deg\n");
+        }
+
         for (int i = 0; i < tree.joints.length; i++)
         {
             LOG.append("  ").append(nodes.get(i))
                 .append(" in ").append(fmtDeg(tree.joints[i].startAngles))
                 .append(" out ").append(fmtDeg(tree.joints[i].angles)).append('\n');
         }
+    }
+
+    /** Angle between two vectors in degrees; 0 when either degenerates. */
+    private static float angleBetween(Vector3f a, Vector3f b)
+    {
+        float lengths = a.length() * b.length();
+
+        if (lengths < EPS)
+        {
+            return 0F;
+        }
+
+        float cos = Math.max(-1F, Math.min(1F, a.dot(b) / lengths));
+
+        return (float) Math.toDegrees(Math.acos(cos));
     }
 
     private static String fmt(Vector3f v)
