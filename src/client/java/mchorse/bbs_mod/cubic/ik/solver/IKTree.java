@@ -4,6 +4,8 @@ import mchorse.bbs_mod.utils.joml.Matrices;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
+import java.util.Arrays;
+
 /**
  * An IK tree in world (model) space: the union of one or more OVERLAPPING
  * chains solved together, Blender-style — joints (bones with channel angles),
@@ -21,7 +23,7 @@ import org.joml.Vector3f;
  * ΔW(a)        = worldRot[a] · startWorldRot[a]⁻¹
  * parentRot[i] = ΔW(anc(i)) · startParentRot[i]
  * worldRot[i]  = parentRot[i] · Rz·Ry·Rx(angles[i])
- * p[i]         = p[anc(i)] + ΔW(anc(i)) · (startPos[i] − startPos[anc(i)])
+ * p[i]         = p[anc(i)] + ΔW(anc(i)) · (startPos[i] − startPos[anc(i)]) · (1 + stretch[anc(i)])
  * </pre>
  *
  * A joint with no captured ancestor is a ROOT of the forest: its pivot and
@@ -29,6 +31,12 @@ import org.joml.Vector3f;
  * directed joint the same rigid way. Exact for any ancestor/link scale (scale
  * lives inside the captured segments — see the chain-era derivation, verified
  * against the real renderer to float precision).
+ *
+ * <p>{@link IKJoint#stretch} scales a joint's OUTGOING segments — the ones
+ * that carry its children and, for the chain's last directed bone, its
+ * effector — because that is the segment the bone's geometry occupies. A bone
+ * that stretches therefore pushes everything below it further out, exactly as
+ * lengthening a Blender bone does, while its own pivot stays put.
  */
 public final class IKTree
 {
@@ -93,6 +101,15 @@ public final class IKTree
     /** [effector][joint]: whether the joint's turn moves that effector (tree ancestry). */
     private final boolean[][] moves;
 
+    /**
+     * [effector][joint]: the next joint DOWN the path towards that effector, or
+     * {@code -1} for the effector's own joint (whose outgoing segment ends at
+     * the effector point itself). Only meaningful where {@link #moves} is set.
+     * This is what tells a stretching joint which of its outgoing segments
+     * carries a given effector.
+     */
+    private final int[][] next;
+
     public IKTree(int jointCount, int effectorCount)
     {
         this.joints = new IKJoint[jointCount];
@@ -100,12 +117,18 @@ public final class IKTree
         this.startParentRotation = new Quaternionf[jointCount];
         this.effectors = new Effector[effectorCount];
         this.moves = new boolean[effectorCount][jointCount];
+        this.next = new int[effectorCount][jointCount];
 
         for (int i = 0; i < jointCount; i++)
         {
             this.joints[i] = new IKJoint();
             this.parentIndex[i] = -1;
             this.startParentRotation[i] = new Quaternionf();
+        }
+
+        for (int e = 0; e < effectorCount; e++)
+        {
+            Arrays.fill(this.next[e], -1);
         }
     }
 
@@ -119,6 +142,13 @@ public final class IKTree
         for (int j = joint; j >= 0; j = this.parentIndex[j])
         {
             this.moves[e][j] = true;
+
+            int parent = this.parentIndex[j];
+
+            if (parent >= 0)
+            {
+                this.next[e][parent] = j;
+            }
         }
 
         return effector;
@@ -142,6 +172,32 @@ public final class IKTree
             int parent = this.parentIndex[j];
 
             total += this.joints[j].startPosition.distance(this.joints[parent].startPosition);
+            j = parent;
+        }
+
+        return total;
+    }
+
+    /**
+     * The effector's reach with every bone stretched to its limit — how far the
+     * chain can get at all. The soft-goal preprocessor works against THIS, not
+     * the natural {@link #reach(int)}: easing the goal onto the natural reach
+     * sphere would hide the very shortfall stretching exists to cover, and a
+     * stretchable chain would never learn that its target sits further out.
+     */
+    public float stretchedReach(int e)
+    {
+        Effector effector = this.effectors[e];
+        IKJoint last = this.joints[effector.joint];
+        float total = effector.startPosition.distance(last.startPosition) * last.maxStretchScale();
+        int j = effector.joint;
+
+        while (this.parentIndex[j] >= 0)
+        {
+            int parent = this.parentIndex[j];
+            IKJoint owner = this.joints[parent];
+
+            total += this.joints[j].startPosition.distance(owner.startPosition) * owner.maxStretchScale();
             j = parent;
         }
 
@@ -187,7 +243,7 @@ public final class IKTree
 
                 Vector3f segment = new Vector3f(joint.startPosition).sub(ancestor.startPosition);
 
-                delta.transform(segment);
+                delta.transform(segment).mul(1F + ancestor.stretch);
                 joint.position.set(ancestor.position).add(segment);
             }
 
@@ -199,7 +255,7 @@ public final class IKTree
             IKJoint last = this.joints[effector.joint];
             Vector3f segment = new Vector3f(effector.startPosition).sub(last.startPosition);
 
-            delta(last).transform(segment);
+            delta(last).transform(segment).mul(1F + last.stretch);
             effector.position.set(last.position).add(segment);
         }
     }
@@ -231,6 +287,30 @@ public final class IKTree
         }
 
         return joint.parentRotation.transform(dest.set(0F, 0F, 1F));
+    }
+
+    /**
+     * The Jacobian column of joint {@code jointIndex}'s STRETCH variable for
+     * effector {@code e}: the world vector of the outgoing segment that carries
+     * that effector, at its NATURAL (unstretched) length.
+     *
+     * <p>Exact, not an approximation: the forward model places everything below
+     * the joint at {@code p + (1 + stretch) · segment}, so the derivative of any
+     * descendant position — the effector included — with respect to
+     * {@code stretch} is that very segment. Dividing the current segment by
+     * {@code 1 + stretch} recovers it. Orientation is untouched by a stretch, so
+     * its orientation rows are zero.
+     */
+    public Vector3f stretchAxis(int e, int jointIndex, Vector3f dest)
+    {
+        IKJoint joint = this.joints[jointIndex];
+        int child = this.next[e][jointIndex];
+        Vector3f target = child < 0 ? this.effectors[e].position : this.joints[child].position;
+        float scale = 1F + joint.stretch;
+
+        dest.set(target).sub(joint.position);
+
+        return scale > 1.0e-6f ? dest.div(scale) : dest;
     }
 
     /**
