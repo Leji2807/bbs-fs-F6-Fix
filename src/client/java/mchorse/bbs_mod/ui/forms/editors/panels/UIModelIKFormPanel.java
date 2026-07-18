@@ -82,6 +82,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         public float weight = ModelIKConfig.DEFAULT_WEIGHT;
         public boolean enabled = true;
         public boolean tipRotation = ModelIKConfig.DEFAULT_TIP_ROTATION;
+        public boolean stretch = ModelIKConfig.DEFAULT_STRETCH;
     }
 
     /** Mutable UI shadow of {@link ModelIKConfig.JointDoF} — the selected bone's joint freedom. */
@@ -96,6 +97,8 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         public float minZ = ModelIKConfig.JointDoF.DEFAULT_MIN;
         public float maxZ = ModelIKConfig.JointDoF.DEFAULT_MAX;
         public float stiffnessX, stiffnessY, stiffnessZ;
+        public float stretch = ModelIKConfig.JointDoF.DEFAULT_STRETCH;
+        public float stretchMax = ModelIKConfig.JointDoF.DEFAULT_STRETCH_MAX;
 
         public static JointData from(ModelIKConfig.JointDoF dof)
         {
@@ -116,6 +119,8 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             data.stiffnessX = dof.stiffnessX();
             data.stiffnessY = dof.stiffnessY();
             data.stiffnessZ = dof.stiffnessZ();
+            data.stretch = dof.stretch();
+            data.stretchMax = dof.stretchMax();
 
             return data;
         }
@@ -126,7 +131,8 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
                 this.limitX, this.minX, this.maxX,
                 this.limitY, this.minY, this.maxY,
                 this.limitZ, this.minZ, this.maxZ,
-                this.stiffnessX, this.stiffnessY, this.stiffnessZ);
+                this.stiffnessX, this.stiffnessY, this.stiffnessZ,
+                this.stretch, this.stretchMax);
         }
     }
 
@@ -647,6 +653,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
                 data.weight = chain.weight();
                 data.enabled = chain.enabled();
                 data.tipRotation = chain.tipRotation();
+                data.stretch = chain.stretch();
                 this.ikData.put(chain.tip(), data);
             }
         }
@@ -695,7 +702,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
                 continue;
             }
 
-            out.add(new ModelIKConfig.Chain(tip, data.target, data.chainLength, data.pole, data.poleTarget, data.poleAngle, data.softness, data.weight, data.enabled, data.tipRotation));
+            out.add(new ModelIKConfig.Chain(tip, data.target, data.chainLength, data.pole, data.poleTarget, data.poleAngle, data.softness, data.weight, data.enabled, data.tipRotation, data.stretch));
         }
 
         Map<String, ModelIKConfig.JointDoF> joints = new HashMap<>();
