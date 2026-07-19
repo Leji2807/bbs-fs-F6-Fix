@@ -673,7 +673,14 @@ public final class IKTreeSolver
             return false;
         }
 
-        float cosBeta = Math.min(1F, Math.max(-1F, (goalDistance * goalDistance + a * a - b * b) / (2F * goalDistance * a)));
+        /* β capped at 120°, not 180: a goal closer than the two-segment annulus
+         * (d < |a−b| — long sub-chain, deep curl) degenerates the reduction,
+         * and a full clamp lands the elbow at −goalDir with sinβ = 0 — the
+         * POLE SIDE signal gone right where the distributed folds land the tip
+         * exactly and the iterations have nothing left to rescue with. The cap
+         * keeps the first segment leaning towards the pole and the curl wraps
+         * from that side. */
+        float cosBeta = Math.min(1F, Math.max(-0.5F, (goalDistance * goalDistance + a * a - b * b) / (2F * goalDistance * a)));
         float sinBeta = (float) Math.sqrt(Math.max(0F, 1F - cosBeta * cosBeta));
         Vector3f elbowTarget = new Vector3f(goalDir).mul(cosBeta).fma(sinBeta, side);
 
@@ -699,17 +706,50 @@ public final class IKTreeSolver
          * angle — well-defined even folded double (a shortest-arc turn between
          * near-antiparallel directions has an arbitrary axis and would kick
          * the fold out of the plane). Out-of-plane rest components survive it;
-         * the iterations absorb the small miss they cause. */
+         * the iterations absorb the small miss they cause.
+         *
+         * <p>The fold is SPREAD over every movable joint below the root,
+         * root-side first — each takes an equal share of the in-plane angle
+         * still missing at its own pivot, the last takes the exact remainder
+         * so the tip still lands. One joint swallowing the whole fold reads
+         * as a broken kink on any chain longer than two bones (and, with the
+         * tip landed exactly, the iterations have no error left to
+         * redistribute it with). Two bones reduce to the plain single fold. */
         Vector3f normal = new Vector3f(goalDir).cross(side).normalize();
-        Vector3f elbow = tree.joints[elbowIndex].position;
-        Vector3f tipDir = new Vector3f(effector.position).sub(elbow);
-        Vector3f tipTarget = new Vector3f(effector.goal).sub(elbow);
+        int foldable = 0;
 
-        if (tipDir.lengthSquared() > EPS * EPS && tipTarget.lengthSquared() > EPS * EPS)
+        for (int j = elbowIndex; j >= 0; j = j == tree.effectors[e].joint ? -1 : childTowards(tree, j, tree.effectors[e].joint))
         {
-            float fold = (float) Math.atan2(new Vector3f(tipDir).cross(tipTarget).dot(normal), tipDir.dot(tipTarget));
+            if (fullyMovable(tree.joints[j]))
+            {
+                foldable++;
+            }
+        }
 
-            tree.rotateJointWorld(elbowIndex, new Quaternionf().rotationAxis(fold, normal.x, normal.y, normal.z));
+        int remaining = foldable;
+
+        for (int j = elbowIndex; j >= 0 && remaining > 0; j = j == tree.effectors[e].joint ? -1 : childTowards(tree, j, tree.effectors[e].joint))
+        {
+            if (!fullyMovable(tree.joints[j]))
+            {
+                continue;
+            }
+
+            Vector3f pivot = tree.joints[j].position;
+            Vector3f tipDir = new Vector3f(effector.position).sub(pivot);
+            Vector3f tipTarget = new Vector3f(effector.goal).sub(pivot);
+
+            if (tipDir.lengthSquared() > EPS * EPS && tipTarget.lengthSquared() > EPS * EPS)
+            {
+                float fold = (float) Math.atan2(new Vector3f(tipDir).cross(tipTarget).dot(normal), tipDir.dot(tipTarget)) / remaining;
+
+                if (Math.abs(fold) >= EPS)
+                {
+                    tree.rotateJointWorld(j, new Quaternionf().rotationAxis(fold, normal.x, normal.y, normal.z));
+                }
+            }
+
+            remaining--;
         }
 
         return true;
