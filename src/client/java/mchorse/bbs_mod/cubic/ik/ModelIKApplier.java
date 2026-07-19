@@ -519,7 +519,9 @@ final class ModelIKApplier
                 polePoint = restVirtualPole(model, workIds, tree.startParentRotation[rootJoint], rootPosition, reach);
             }
 
-            poles[e] = polePoint == null ? null : new IKTreeSolver.Pole(rootJoint, polePoint, r.poleAngle());
+            Vector3f materialUp = polePoint == null ? null : poleMaterialUp(model, workIds, tree.startParentRotation[rootJoint], tree.joints[rootJoint].startWorldRotation);
+
+            poles[e] = polePoint == null || materialUp == null ? null : new IKTreeSolver.Pole(rootJoint, polePoint, r.poleAngle(), materialUp);
         }
 
         IKTreeSolver.Result result = IKTreeSolver.solve(tree, poles, IKTreeSolver.Params.DEFAULT);
@@ -715,28 +717,29 @@ final class ModelIKApplier
     }
 
     /**
-     * The rest-authored virtual pole point for a chain: the direction its first
-     * interior pivot sticks out from the rest root-to-effector line — where the
-     * model's own elbow/knee points — lifted into the world and placed a reach
-     * away from the root. Cubic rest geometry lives in the authored pivots
-     * (lifted by the chain root's current parent frame); BOBJ rest geometry
-     * lives in the bind matrices, and the lift is the DELTA of the root's
-     * parent frame from its bind orientation (BOBJ ancestors carry authored
-     * rest rotations, so the raw parent frame alone would double-count them).
-     * {@code null} when the chain is too short or authored dead straight (no
-     * side to prefer).
+     * A chain's authored rest geometry: the root, first interior and effector
+     * rest positions (absolute model rest space) plus the {@code lift}
+     * rotation folding rest-space directions into the current pose.
      */
-    private static Vector3f restVirtualPole(IModel model, List<String> workIds, Quaternionf rootParentRotation, Vector3f rootPosition, float reach)
+    private record RestChain(Vector3f root, Vector3f elbow, Vector3f effector, Quaternionf lift)
+    {
+    }
+
+    /**
+     * Loads a chain's rest geometry. Cubic rest geometry lives in the
+     * authored pivots (absolute model coordinates), and the lift is the DELTA
+     * of the chain root's current parent frame from its rest orientation;
+     * BOBJ rest geometry lives in the bind matrices, and the lift subtracts
+     * the bind frame the same way (BOBJ ancestors carry authored rest
+     * rotations, so the raw parent frame alone would double-count them).
+     * {@code null} when the chain is too short or a bone is missing.
+     */
+    private static RestChain restChain(IModel model, List<String> workIds, Quaternionf rootParentRotation)
     {
         if (workIds.size() < 3)
         {
             return null;
         }
-
-        Vector3f restRoot;
-        Vector3f restElbow;
-        Vector3f restEffector;
-        Quaternionf lift;
 
         if (model instanceof Model cubic)
         {
@@ -749,20 +752,14 @@ final class ModelIKApplier
                 return null;
             }
 
-            restRoot = root.initial.translate;
-            restElbow = elbow.initial.translate;
-            restEffector = effector.initial.translate;
-
-            /* The rest bend direction lives in the authored pivots — absolute model
-             * coordinates (each cubic pivot is placed in model space). To carry it
-             * into the current pose it must ride the DELTA of the root's parent frame
-             * from its REST orientation, exactly as the BOBJ branch subtracts the
-             * bind frame below: lifting by the raw current parent frame would
-             * double-count any rest rotation the chain's ancestors carry, tilting
-             * the auto-pole even when the model sits in its rest pose. */
+            /* To carry a rest direction into the current pose it must ride the
+             * DELTA of the root's parent frame from its REST orientation, exactly
+             * as the BOBJ branch subtracts the bind frame below: lifting by the
+             * raw current parent frame would double-count any rest rotation the
+             * chain's ancestors carry, tilting the result even in rest pose. */
             Quaternionf restParent = cubicRestParentRotation(cubic, workIds.get(0));
 
-            lift = new Quaternionf(rootParentRotation).mul(restParent.conjugate());
+            return new RestChain(root.initial.translate, elbow.initial.translate, effector.initial.translate, new Quaternionf(rootParentRotation).mul(restParent.conjugate()));
         }
         else if (model instanceof BOBJModel bobj)
         {
@@ -776,22 +773,33 @@ final class ModelIKApplier
                 return null;
             }
 
-            restRoot = root.boneMat.getTranslation(new Vector3f());
-            restElbow = elbow.boneMat.getTranslation(new Vector3f());
-            restEffector = effector.boneMat.getTranslation(new Vector3f());
-
             /* In bind pose (zero channels) the root's parent frame IS its bind
              * rotation, so the current-vs-bind delta is the exact world lift. */
             Quaternionf bindParent = root.boneMat.getUnnormalizedRotation(new Quaternionf());
 
-            lift = new Quaternionf(rootParentRotation).mul(bindParent.conjugate());
+            return new RestChain(root.boneMat.getTranslation(new Vector3f()), elbow.boneMat.getTranslation(new Vector3f()), effector.boneMat.getTranslation(new Vector3f()), new Quaternionf(rootParentRotation).mul(bindParent.conjugate()));
         }
-        else
+
+        return null;
+    }
+
+    /**
+     * The rest-authored virtual pole point for a chain: the direction its first
+     * interior pivot sticks out from the rest root-to-effector line — where the
+     * model's own elbow/knee points — lifted into the world and placed a reach
+     * away from the root. {@code null} when the chain is too short or authored
+     * dead straight (no side to prefer).
+     */
+    private static Vector3f restVirtualPole(IModel model, List<String> workIds, Quaternionf rootParentRotation, Vector3f rootPosition, float reach)
+    {
+        RestChain rest = restChain(model, workIds, rootParentRotation);
+
+        if (rest == null)
         {
             return null;
         }
 
-        Vector3f axis = new Vector3f(restEffector).sub(restRoot);
+        Vector3f axis = new Vector3f(rest.effector()).sub(rest.root());
 
         if (axis.lengthSquared() < EPS * EPS)
         {
@@ -800,7 +808,7 @@ final class ModelIKApplier
 
         axis.normalize();
 
-        Vector3f side = perpendicularTo(new Vector3f(restElbow).sub(restRoot), axis);
+        Vector3f side = perpendicularTo(new Vector3f(rest.elbow()).sub(rest.root()), axis);
         // (axis and side are in absolute model rest space; `lift` folds them into the current pose.)
 
         if (side == null)
@@ -808,9 +816,62 @@ final class ModelIKApplier
             return null;
         }
 
-        lift.transform(side);
+        rest.lift().transform(side);
 
         return new Vector3f(rootPosition).fma(reach, side);
+    }
+
+    /**
+     * The calibrated pole-plane anchor for a chain, in the ROOT joint's local
+     * rotation frame. Blender anchors its pole plane to the root bone's own
+     * basis — the pole_angle knob picks which bone axis faces the pole — so
+     * the plane never degenerates however straight the chain solves; the knob
+     * here is turned automatically: the axis is the direction the chain's
+     * AUTHORED rest bend faces (noise-free data, needed once, not measured
+     * from solved geometry every frame), lifted into the current pose and
+     * expressed against the root's FK world rotation. A dead-straight rest
+     * falls back to a deterministic rest-space perpendicular — the pole then
+     * still holds a stable plane, which a measured bend could never give.
+     * {@code null} when the chain is too short or a bone is missing.
+     */
+    private static Vector3f poleMaterialUp(IModel model, List<String> workIds, Quaternionf rootParentRotation, Quaternionf rootStartWorldRotation)
+    {
+        RestChain rest = restChain(model, workIds, rootParentRotation);
+
+        if (rest == null)
+        {
+            return null;
+        }
+
+        Vector3f axis = new Vector3f(rest.effector()).sub(rest.root());
+
+        if (axis.lengthSquared() < EPS * EPS)
+        {
+            return null;
+        }
+
+        axis.normalize();
+
+        Vector3f side = perpendicularTo(new Vector3f(rest.elbow()).sub(rest.root()), axis);
+
+        if (side == null)
+        {
+            /* Straight rest: any fixed rest-space perpendicular anchors a stable
+             * plane (world Z, falling back to world Y — the solver's own
+             * deterministic-perpendicular convention). */
+            side = new Vector3f(axis).cross(0F, 0F, 1F);
+
+            if (side.lengthSquared() < EPS * EPS)
+            {
+                side.set(axis).cross(0F, 1F, 0F);
+            }
+
+            side.normalize();
+        }
+
+        rest.lift().transform(side);
+
+        return new Quaternionf(rootStartWorldRotation).conjugate().transform(side);
     }
 
     /**

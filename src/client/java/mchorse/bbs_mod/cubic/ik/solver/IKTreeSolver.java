@@ -83,8 +83,16 @@ public final class IKTreeSolver
     /**
      * A chain's pole inside the tree: twist about {@code rootJoint}'s
      * root→goal line towards {@code polePoint}, offset by {@code poleAngle}.
+     *
+     * <p>{@code materialUp} is the axis the pole plane is anchored to, in the
+     * ROOT JOINT'S local rotation frame — Blender's pole_angle basis, with
+     * the knob calibrated by the caller from the chain's authored rest bend.
+     * The twist aligns this axis (carried by the root's current world
+     * rotation) with the pole, never the measured bend: a bone frame stays
+     * unit-crisp however straight the chain is, so there is no near-extension
+     * zone where the plane dissolves into iteration noise.
      */
-    public record Pole(int rootJoint, Vector3f polePoint, float poleAngle)
+    public record Pole(int rootJoint, Vector3f polePoint, float poleAngle, Vector3f materialUp)
     {
     }
 
@@ -93,8 +101,9 @@ public final class IKTreeSolver
      * @param alignDeg how far the goal pre-alignment rigidly turned the root (0 = it did not run).
      * @param broke whether the straight-chain nudge fired.
      * @param stalled whether the iterations gave up before reaching tolerance.
-     * @param poleTwistDeg how far the POST-iteration pole twist turned the root — near 180
-     * means the iterations picked the mirror solution and the pole flipped the whole chain back.
+     * @param poleTwistDeg how far the POST-iteration pole twist turned the root — how much
+     * roll the iterations drifted the root's frame out of the pole plane; stays small when
+     * the pre-twisted seed held.
      *
      * <p>The last three exist for the log: each is a THRESHOLD the solve crosses,
      * and a pose that snaps once and then moves smoothly again is the signature
@@ -340,12 +349,9 @@ public final class IKTreeSolver
         int rootIndex = tree.rootOf(e);
         IKJoint root = tree.joints[rootIndex];
 
-        for (int c = 0; c < 3; c++)
+        if (!fullyMovable(root))
         {
-            if (root.locked[c] || root.limited[c] || root.weight(c) <= 0F)
-            {
-                return 0F;
-            }
+            return 0F;
         }
 
         IKTree.Effector effector = tree.effectors[e];
@@ -387,26 +393,28 @@ public final class IKTreeSolver
     }
 
     /**
-     * Blender's pole: twist the chain about its root→goal line so the bend
-     * plane (root → first joint towards the effector) contains the pole
-     * target, then roll by the pole angle. Skipped when the geometry defines
-     * no plane — no interior joint, a goal on the root, or a bend or pole
-     * sitting exactly on the twist line (the straight-chain degeneracy).
-     * On a merged tree the twist turns the whole branch under the chain's
-     * root, other chains included — which is why it is pre-only there.
+     * Blender's pole: twist the chain about its root→goal line so the plane
+     * it bends in contains the pole target, then roll by the pole angle. The
+     * plane is anchored to the ROOT JOINT'S ORIENTATION — the calibrated
+     * {@link Pole#materialUp()} axis carried by its world rotation — never to
+     * the measured bend geometry (a measured bend dissolves into iteration
+     * noise as the chain straightens, and a noise-driven twist rolls the
+     * whole chain by a random half turn; a bone frame never degenerates).
+     * A consequence worth knowing: a solve that bent to the wrong side no
+     * longer gets "rescued" by a 180° roll — the side is owned by the seed
+     * (pre-twist plus {@link #breakExtension}), and the post twist only
+     * corrects the frame's roll drift, exactly like Blender's post pass.
+     * Skipped when the geometry defines no twist line — a goal on the root,
+     * or the up axis or the pole sitting on it (the inherent pole
+     * singularity). On a merged tree the twist turns the whole branch under
+     * the chain's root, other chains included — which is why it is pre-only
+     * there.
      */
     public static float applyPole(IKTree tree, Pole pole)
     {
         int e = effectorUnder(tree, pole.rootJoint());
 
-        if (e < 0)
-        {
-            return 0F;
-        }
-
-        int elbowIndex = childTowards(tree, pole.rootJoint(), tree.effectors[e].joint);
-
-        if (elbowIndex < 0)
+        if (e < 0 || pole.materialUp() == null)
         {
             return 0F;
         }
@@ -422,15 +430,15 @@ public final class IKTreeSolver
 
         axis.normalize();
 
-        Vector3f bend = perpendicular(new Vector3f(tree.joints[elbowIndex].position).sub(root.position), axis);
+        Vector3f up = perpendicular(root.worldRotation.transform(new Vector3f(pole.materialUp())), axis);
         Vector3f poleDir = perpendicular(new Vector3f(pole.polePoint()).sub(root.position), axis);
 
-        if (bend == null || poleDir == null)
+        if (up == null || poleDir == null)
         {
             return 0F;
         }
 
-        float twist = (float) Math.atan2(new Vector3f(bend).cross(poleDir).dot(axis), bend.dot(poleDir)) + pole.poleAngle();
+        float twist = (float) Math.atan2(new Vector3f(up).cross(poleDir).dot(axis), up.dot(poleDir)) + pole.poleAngle();
 
         if (Math.abs(twist) < EPS)
         {
@@ -447,10 +455,26 @@ public final class IKTreeSolver
      * with the goal closer than full reach, the Jacobian columns all run
      * perpendicular to the compression the goal asks for and the solve sticks
      * fully extended (Blender locks up the same way; riggers pre-bend the
-     * knee). Nudges the first interior joint a fraction of a degree towards
-     * the pole side (or a deterministic side) through its most-aligned FREE
-     * channel — locks, limits and stiffness are respected. A goal at or past
-     * full reach leaves the chain straight, as it should be.
+     * knee). A goal at or past full reach leaves the chain straight, as it
+     * should be.
+     *
+     * <p>With a pole and free root/elbow joints the cure is the ANALYTIC
+     * TWO-SEGMENT PRE-POSE: the root is aimed so the first interior joint
+     * sits on the pole side of the root→goal line at the law-of-cosines
+     * angle, and that joint is folded so the tip (with its rigid sub-chain)
+     * lands on the goal — the classic two-bone solution used as the seed,
+     * which the iterations then only polish. A seed fold ALONE cannot pick
+     * the side: near extension the reach correction is mostly a rigid root
+     * turn and the elbow crosses AGAINST the tip's seed displacement, deep in
+     * the fold it is mostly further folding and the elbow FOLLOWS it — one
+     * nudge lands on opposite sides in the two regimes (the near-extension
+     * mirror flip was exactly this).
+     *
+     * <p>A locked, limited or weightless root/elbow axis falls back to a
+     * token 0.02 rad fold through the elbow's most-aligned free channel (a
+     * rigid re-pose would trample what those protect), and so does a
+     * pole-less chain — its side would be arbitrary, and existing pole-less
+     * rigs keep their settling behavior.
      */
     public static boolean breakExtension(IKTree tree, int e, Pole pole)
     {
@@ -460,7 +484,7 @@ public final class IKTreeSolver
         float reach = tree.reach(e);
         float goalDistance = root.distance(effector.goal);
 
-        if (reach < EPS || goalDistance >= reach * 0.999F)
+        if (reach < EPS)
         {
             return false;
         }
@@ -487,18 +511,36 @@ public final class IKTreeSolver
 
         goalDir.normalize();
 
-        /* The side to fold towards: the pole's, else a deterministic perpendicular. */
+        /* The side the ELBOW must land on: the pole's, else a deterministic perpendicular. */
         Vector3f side = pole == null || pole.polePoint() == null ? null : perpendicular(new Vector3f(pole.polePoint()).sub(root), goalDir);
+
+        /* The analytic pre-pose carries NO distance gate: past the two-segment
+         * reach its angle is zero and it degrades continuously into the plain
+         * straight-at-goal pose — a distance cutoff would be a seam in the
+         * pose right where the chain straightens (measured: a 5.6° root snap
+         * at the old 0.999·reach line). */
+        if (side != null && fullyMovable(tree.joints[rootIndex]) && fullyMovable(tree.joints[elbowIndex]))
+        {
+            return analyticPrePose(tree, e, rootIndex, elbowIndex, goalDir, goalDistance, side);
+        }
+
+        /* Token path: only for a goal INSIDE reach (a straight chain at or past
+         * full extension is already the answer). */
+        if (goalDistance >= reach * 0.999F)
+        {
+            return false;
+        }
 
         if (side == null)
         {
             side = stablePerpendicular(goalDir);
         }
 
-        /* The world axis whose turn moves the sub-chain towards that side. */
-        Vector3f bendAxis = new Vector3f(goalDir).cross(side).normalize();
+        /* Token fold, tip swinging AWAY from the side (near extension the root
+         * correction then carries the elbow back across, towards it). */
+        Vector3f bendAxis = new Vector3f(side).cross(goalDir).normalize();
 
-        /* The elbow's most-aligned movable channel takes the nudge. */
+        /* The elbow's most-aligned movable channel takes the fold. */
         IKJoint elbow = tree.joints[elbowIndex];
         Vector3f axis = new Vector3f();
         int best = -1;
@@ -528,6 +570,68 @@ public final class IKTreeSolver
         IKJoint.set(elbow.angles, best, IKJoint.get(elbow.angles, best) + Math.signum(bestScore) * 0.02F);
         elbow.clampLimits();
         tree.forward();
+
+        return true;
+    }
+
+    /**
+     * The two-segment analytic seed (see {@link #breakExtension}): places the
+     * elbow on the {@code side} of the root→goal line at the angle the
+     * law of cosines asks for the goal's distance, then folds the elbow so
+     * the tip lands on the goal. A goal too close for the two-segment
+     * reduction (clamped angle) leaves the tip short with the chain already
+     * curled towards the side — the iterations fold the interior joints
+     * onward from there, staying on it.
+     */
+    private static boolean analyticPrePose(IKTree tree, int e, int rootIndex, int elbowIndex, Vector3f goalDir, float goalDistance, Vector3f side)
+    {
+        IKTree.Effector effector = tree.effectors[e];
+        Vector3f root = new Vector3f(tree.joints[rootIndex].position);
+        Vector3f elbowOffset = new Vector3f(tree.joints[elbowIndex].position).sub(root);
+        float a = elbowOffset.length();
+        float b = tree.joints[elbowIndex].position.distance(effector.position);
+
+        if (a < EPS || b < EPS || goalDistance < EPS)
+        {
+            return false;
+        }
+
+        float cosBeta = Math.min(1F, Math.max(-1F, (goalDistance * goalDistance + a * a - b * b) / (2F * goalDistance * a)));
+        float sinBeta = (float) Math.sqrt(Math.max(0F, 1F - cosBeta * cosBeta));
+        Vector3f elbowTarget = new Vector3f(goalDir).mul(cosBeta).fma(sinBeta, side);
+
+        tree.rotateJointWorld(rootIndex, new Quaternionf().rotationTo(elbowOffset.div(a), elbowTarget));
+
+        /* The fold turns about the pole plane's normal by the SIGNED in-plane
+         * angle — well-defined even folded double (a shortest-arc turn between
+         * near-antiparallel directions has an arbitrary axis and would kick
+         * the fold out of the plane). Out-of-plane rest components survive it;
+         * the iterations absorb the small miss they cause. */
+        Vector3f normal = new Vector3f(goalDir).cross(side).normalize();
+        Vector3f elbow = tree.joints[elbowIndex].position;
+        Vector3f tipDir = new Vector3f(effector.position).sub(elbow);
+        Vector3f tipTarget = new Vector3f(effector.goal).sub(elbow);
+
+        if (tipDir.lengthSquared() > EPS * EPS && tipTarget.lengthSquared() > EPS * EPS)
+        {
+            float fold = (float) Math.atan2(new Vector3f(tipDir).cross(tipTarget).dot(normal), tipDir.dot(tipTarget));
+
+            tree.rotateJointWorld(elbowIndex, new Quaternionf().rotationAxis(fold, normal.x, normal.y, normal.z));
+        }
+
+        return true;
+    }
+
+    /** Whether every axis of the joint is free to move — no locks, limits or zeroed weight. */
+    private static boolean fullyMovable(IKJoint joint)
+    {
+        for (int c = 0; c < 3; c++)
+        {
+            if (joint.locked[c] || joint.limited[c] || joint.weight(c) <= 0F)
+            {
+                return false;
+            }
+        }
 
         return true;
     }
