@@ -22,6 +22,7 @@ import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.forms.forms.ModelForm;
 import mchorse.bbs_mod.forms.forms.utils.Anchor;
 import mchorse.bbs_mod.forms.renderers.ModelFormRenderer;
+import mchorse.bbs_mod.forms.renderers.utils.FormFrameCache;
 import mchorse.bbs_mod.forms.renderers.utils.MatrixCache;
 import mchorse.bbs_mod.graphics.window.Window;
 import mchorse.bbs_mod.ui.Keys;
@@ -532,7 +533,10 @@ public class OrbitFilmCameraController implements ICameraController
 
         if (form != null)
         {
-            MatrixCache map = FormUtilsClient.getRenderer(form).collectMatrices(entity, transition);
+            /* Shared with the anchor resolution below (nothing between them touches the pose): a form
+             * anchored within its own tree would otherwise evaluate the same pose twice. */
+            FormFrameCache frame = new FormFrameCache();
+            MatrixCache map = FormFrameCache.collect(frame, form, entity, transition);
             String group = "anchor";
 
             if (form instanceof ModelForm modelForm)
@@ -553,7 +557,7 @@ public class OrbitFilmCameraController implements ICameraController
             {
                 Anchor v = form.anchor.get();
                 Matrix4f defaultMatrix = BaseFilmController.getMatrixForRenderWithRotation(entity, x, y, z, transition);
-                Pair<Matrix4f, Float> totalMatrix = BaseFilmController.getTotalMatrix(this.controller.getEntities(), v, defaultMatrix, x, y, z, transition, 0);
+                Pair<Matrix4f, Float> totalMatrix = BaseFilmController.getTotalMatrix(this.controller.getEntities(), v, defaultMatrix, x, y, z, transition, 0, false, frame);
 
                 if (totalMatrix.a != null)
                 {
