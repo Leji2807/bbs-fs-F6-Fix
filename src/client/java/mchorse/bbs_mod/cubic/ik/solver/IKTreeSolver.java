@@ -451,30 +451,36 @@ public final class IKTreeSolver
     }
 
     /**
-     * Breaks the STRAIGHT-CHAIN degeneracy on a single chain: dead straight
-     * with the goal closer than full reach, the Jacobian columns all run
-     * perpendicular to the compression the goal asks for and the solve sticks
-     * fully extended (Blender locks up the same way; riggers pre-bend the
-     * knee). A goal at or past full reach leaves the chain straight, as it
-     * should be.
+     * Breaks the two seed degeneracies of a single chain: DEAD STRAIGHT (the
+     * Jacobian columns all run perpendicular to the compression the goal asks
+     * for and the solve sticks fully extended — Blender locks up the same
+     * way; riggers pre-bend the knee), and, with a pole, a seed bending on
+     * the WRONG SIDE of the root→goal line. The side is the pole's whole
+     * contract, and the plane twist cannot enforce it: both in-plane mirror
+     * branches keep the root's up axis in the pole plane, so a wrong-side
+     * seed converges wrong-side with a clean conscience — and a seed
+     * teetering between basins flips branches from FK wiggle alone (measured:
+     * a procedural idle nudge of 3.7° on the FK base flipping a 2-bone arm by
+     * 67° frame to frame). A seed already bending towards the pole is left
+     * untouched — tuned poses never re-seed.
      *
-     * <p>With a pole and free root/elbow joints the cure is the ANALYTIC
-     * TWO-SEGMENT PRE-POSE: the root is aimed so the first interior joint
-     * sits on the pole side of the root→goal line at the law-of-cosines
-     * angle, and that joint is folded so the tip (with its rigid sub-chain)
-     * lands on the goal — the classic two-bone solution used as the seed,
-     * which the iterations then only polish. A seed fold ALONE cannot pick
-     * the side: near extension the reach correction is mostly a rigid root
-     * turn and the elbow crosses AGAINST the tip's seed displacement, deep in
-     * the fold it is mostly further folding and the elbow FOLLOWS it — one
-     * nudge lands on opposite sides in the two regimes (the near-extension
-     * mirror flip was exactly this).
+     * <p>The cure is the ANALYTIC TWO-SEGMENT PRE-POSE: the root is aimed so
+     * the first interior joint sits on the pole side of the root→goal line at
+     * the law-of-cosines angle, and that joint is folded so the tip (with its
+     * rigid sub-chain) lands on the goal — the classic two-bone solution used
+     * as the seed, which the iterations then only polish. A seed fold ALONE
+     * cannot pick the side: near extension the reach correction is mostly a
+     * rigid root turn and the elbow crosses AGAINST the tip's seed
+     * displacement, deep in the fold it is mostly further folding and the
+     * elbow FOLLOWS it — one nudge lands on opposite sides in the two regimes
+     * (the near-extension mirror flip was exactly this).
      *
      * <p>A locked, limited or weightless root/elbow axis falls back to a
-     * token 0.02 rad fold through the elbow's most-aligned free channel (a
-     * rigid re-pose would trample what those protect), and so does a
-     * pole-less chain — its side would be arbitrary, and existing pole-less
-     * rigs keep their settling behavior.
+     * token 0.02 rad fold of the elbow on straight seeds only (a rigid
+     * re-pose would trample what those protect), and so does a pole-less
+     * chain — no pole means no plane owner, so the fold only nudges the tip
+     * towards the goal's own lateral offset (agreeing with the descent)
+     * instead of imposing a side.
      */
     public static boolean breakExtension(IKTree tree, int e, Pole pole)
     {
@@ -490,10 +496,7 @@ public final class IKTreeSolver
         }
 
         /* Straightness: the effector of a straight chain sits a full arc length out. */
-        if (root.distance(effector.position) < reach * 0.999F)
-        {
-            return false;
-        }
+        boolean straight = root.distance(effector.position) >= reach * 0.999F;
 
         int elbowIndex = childTowards(tree, rootIndex, effector.joint);
 
@@ -521,7 +524,26 @@ public final class IKTreeSolver
          * at the old 0.999·reach line). */
         if (side != null && fullyMovable(tree.joints[rootIndex]) && fullyMovable(tree.joints[elbowIndex]))
         {
-            return analyticPrePose(tree, e, rootIndex, elbowIndex, goalDir, goalDistance, side);
+            boolean wrongSide = false;
+
+            if (!straight)
+            {
+                Vector3f elbowPerp = perpendicular(new Vector3f(tree.joints[elbowIndex].position).sub(root), goalDir);
+
+                wrongSide = elbowPerp != null && elbowPerp.dot(side) < 0F;
+            }
+
+            if (straight || wrongSide)
+            {
+                return analyticPrePose(tree, e, rootIndex, elbowIndex, goalDir, goalDistance, side, pole.materialUp());
+            }
+
+            return false;
+        }
+
+        if (!straight)
+        {
+            return false;
         }
 
         /* Token path: only for a goal INSIDE reach (a straight chain at or past
@@ -531,18 +553,63 @@ public final class IKTreeSolver
             return false;
         }
 
-        if (side == null)
+        /* The direction the TIP should set off in: away from the pole side when
+         * one is known (near extension the root correction then carries the
+         * elbow back across, towards the pole), else towards the goal's own
+         * lateral offset — the side the descent is about to pick anyway. An
+         * arbitrary fixed side here FIGHTS the descent whenever the goal leans
+         * elsewhere, and the fight hops the pose mid-drag. */
+        Vector3f desiredTip;
+
+        if (side != null)
         {
-            side = stablePerpendicular(goalDir);
+            desiredTip = new Vector3f(side).negate();
+        }
+        else
+        {
+            Vector3f chainDir = new Vector3f(effector.position).sub(root).normalize();
+
+            desiredTip = perpendicular(new Vector3f(effector.goal).sub(effector.position), chainDir);
+
+            if (desiredTip == null)
+            {
+                /* Goal dead on the chain axis: any deterministic side. */
+                desiredTip = stablePerpendicular(goalDir).negate();
+            }
         }
 
-        /* Token fold, tip swinging AWAY from the side (near extension the root
-         * correction then carries the elbow back across, towards it). */
-        Vector3f bendAxis = new Vector3f(side).cross(goalDir).normalize();
-
-        /* The elbow's most-aligned movable channel takes the fold. */
         IKJoint elbow = tree.joints[elbowIndex];
+        Vector3f lever = new Vector3f(effector.position).sub(elbow.position);
+
+        if (lever.lengthSquared() < EPS * EPS)
+        {
+            return false;
+        }
+
+        /* A fully free elbow folds about the exact bend axis. A DoF-constrained
+         * one folds through the single movable channel that MOVES THE TIP
+         * farthest along the desired direction — scored by the channel's actual
+         * position effect (axis × lever), never by raw axis alignment: an
+         * alignment score can elect a TWIST channel (axis along the chain,
+         * moves nothing), and the electorate switching mid-drag snapped the
+         * pose (measured: a 67° hop at exactly 45° of goal travel). */
+        if (fullyMovable(elbow))
+        {
+            Vector3f bendAxis = new Vector3f(lever).cross(desiredTip);
+
+            if (bendAxis.lengthSquared() < EPS * EPS)
+            {
+                return false;
+            }
+
+            bendAxis.normalize();
+            tree.rotateJointWorld(elbowIndex, new Quaternionf().rotationAxis(0.02F, bendAxis.x, bendAxis.y, bendAxis.z));
+
+            return true;
+        }
+
         Vector3f axis = new Vector3f();
+        Vector3f effect = new Vector3f();
         int best = -1;
         float bestScore = 0F;
 
@@ -553,7 +620,7 @@ public final class IKTreeSolver
                 continue;
             }
 
-            float score = tree.channelAxis(elbowIndex, c, axis).dot(bendAxis);
+            float score = tree.channelAxis(elbowIndex, c, axis).cross(lever, effect).dot(desiredTip);
 
             if (Math.abs(score) > Math.abs(bestScore))
             {
@@ -582,8 +649,18 @@ public final class IKTreeSolver
      * reduction (clamped angle) leaves the tip short with the chain already
      * curled towards the side — the iterations fold the interior joints
      * onward from there, staying on it.
+     *
+     * <p>After the aim the root's ROLL is pinned too — the frame's
+     * {@code materialUp} twisted into the pole plane about the ELBOW RAY (the
+     * elbow stays put) — so the landed pose is a pure function of the goal,
+     * the pole and the rest geometry, with ZERO seed dependence. Aim alone
+     * leaves the shortest-arc's roll to the seed, and an FK idle wiggle of a
+     * few degrees came back amplified through the post pole snap as a
+     * frame-to-frame orbit of the elbow around the goal axis. Together the
+     * aim and the pin are Blender's ConstrainPoleVector look-at, reached the
+     * long way around.
      */
-    private static boolean analyticPrePose(IKTree tree, int e, int rootIndex, int elbowIndex, Vector3f goalDir, float goalDistance, Vector3f side)
+    private static boolean analyticPrePose(IKTree tree, int e, int rootIndex, int elbowIndex, Vector3f goalDir, float goalDistance, Vector3f side, Vector3f materialUp)
     {
         IKTree.Effector effector = tree.effectors[e];
         Vector3f root = new Vector3f(tree.joints[rootIndex].position);
@@ -601,6 +678,22 @@ public final class IKTreeSolver
         Vector3f elbowTarget = new Vector3f(goalDir).mul(cosBeta).fma(sinBeta, side);
 
         tree.rotateJointWorld(rootIndex, new Quaternionf().rotationTo(elbowOffset.div(a), elbowTarget));
+
+        if (materialUp != null)
+        {
+            Vector3f up = perpendicular(tree.joints[rootIndex].worldRotation.transform(new Vector3f(materialUp)), elbowTarget);
+            Vector3f sidePerp = perpendicular(new Vector3f(side), elbowTarget);
+
+            if (up != null && sidePerp != null)
+            {
+                float roll = (float) Math.atan2(new Vector3f(up).cross(sidePerp).dot(elbowTarget), up.dot(sidePerp));
+
+                if (Math.abs(roll) >= EPS)
+                {
+                    tree.rotateJointWorld(rootIndex, new Quaternionf().rotationAxis(roll, elbowTarget.x, elbowTarget.y, elbowTarget.z));
+                }
+            }
+        }
 
         /* The fold turns about the pole plane's normal by the SIGNED in-plane
          * angle — well-defined even folded double (a shortest-arc turn between

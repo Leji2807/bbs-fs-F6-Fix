@@ -519,7 +519,7 @@ final class ModelIKApplier
                 polePoint = restVirtualPole(model, workIds, tree.startParentRotation[rootJoint], rootPosition, reach);
             }
 
-            Vector3f materialUp = polePoint == null ? null : poleMaterialUp(model, workIds, tree.startParentRotation[rootJoint], tree.joints[rootJoint].startWorldRotation);
+            Vector3f materialUp = polePoint == null ? null : poleMaterialUp(model, workIds, r.chain().poleTarget(), tree.startParentRotation[rootJoint], tree.joints[rootJoint].startWorldRotation);
 
             poles[e] = polePoint == null || materialUp == null ? null : new IKTreeSolver.Pole(rootJoint, polePoint, r.poleAngle(), materialUp);
         }
@@ -826,15 +826,21 @@ final class ModelIKApplier
      * rotation frame. Blender anchors its pole plane to the root bone's own
      * basis — the pole_angle knob picks which bone axis faces the pole — so
      * the plane never degenerates however straight the chain solves; the knob
-     * here is turned automatically: the axis is the direction the chain's
-     * AUTHORED rest bend faces (noise-free data, needed once, not measured
-     * from solved geometry every frame), lifted into the current pose and
-     * expressed against the root's FK world rotation. A dead-straight rest
-     * falls back to a deterministic rest-space perpendicular — the pole then
-     * still holds a stable plane, which a measured bend could never give.
-     * {@code null} when the chain is too short or a bone is missing.
+     * here is turned automatically to ZERO TWIST IN REST POSE: the axis is
+     * the direction from the rest chain axis to the POLE BONE's authored rest
+     * spot (noise-free data, needed once — exactly what a rigger dials in; a
+     * film-driven pole then twists the plane from that zero). Without an
+     * authored pole bone the axis is the rest bend's bulge — the auto pole
+     * point sits on that side by construction, so the zero-twist property
+     * holds there too. NEVER the bulge when a pole bone exists: a chain bent
+     * only at its elbow bulges BACKWARD of its root→tip chord even though it
+     * visibly bends forward, and calibrating on the bulge turned such an arm
+     * a permanent half-turn against its own pole. Falls back to a
+     * deterministic rest-space perpendicular when everything above sits on
+     * the chain axis. {@code null} when the chain is too short or a bone is
+     * missing.
      */
-    private static Vector3f poleMaterialUp(IModel model, List<String> workIds, Quaternionf rootParentRotation, Quaternionf rootStartWorldRotation)
+    private static Vector3f poleMaterialUp(IModel model, List<String> workIds, String poleTarget, Quaternionf rootParentRotation, Quaternionf rootStartWorldRotation)
     {
         RestChain rest = restChain(model, workIds, rootParentRotation);
 
@@ -852,11 +858,17 @@ final class ModelIKApplier
 
         axis.normalize();
 
-        Vector3f side = perpendicularTo(new Vector3f(rest.elbow()).sub(rest.root()), axis);
+        Vector3f poleRest = restPosition(model, poleTarget);
+        Vector3f side = poleRest == null ? null : perpendicularTo(new Vector3f(poleRest).sub(rest.root()), axis);
 
         if (side == null)
         {
-            /* Straight rest: any fixed rest-space perpendicular anchors a stable
+            side = perpendicularTo(new Vector3f(rest.elbow()).sub(rest.root()), axis);
+        }
+
+        if (side == null)
+        {
+            /* Last resort: any fixed rest-space perpendicular anchors a stable
              * plane (world Z, falling back to world Y — the solver's own
              * deterministic-perpendicular convention). */
             side = new Vector3f(axis).cross(0F, 0F, 1F);
@@ -872,6 +884,31 @@ final class ModelIKApplier
         rest.lift().transform(side);
 
         return new Quaternionf(rootStartWorldRotation).conjugate().transform(side);
+    }
+
+    /** A bone's authored rest position in model rest space; {@code null} when absent. */
+    private static Vector3f restPosition(IModel model, String id)
+    {
+        if (id == null || id.isEmpty())
+        {
+            return null;
+        }
+
+        if (model instanceof Model cubic)
+        {
+            ModelGroup bone = cubic.getGroup(id);
+
+            return bone == null ? null : bone.initial.translate;
+        }
+
+        if (model instanceof BOBJModel bobj)
+        {
+            BOBJBone bone = bobj.getArmature().bones.get(id);
+
+            return bone == null ? null : bone.boneMat.getTranslation(new Vector3f());
+        }
+
+        return null;
     }
 
     /**
