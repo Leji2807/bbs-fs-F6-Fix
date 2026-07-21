@@ -4,6 +4,9 @@ import mchorse.bbs_mod.utils.joml.Matrices;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Damped-least-squares IK over channel angles for a whole {@link IKTree} —
  * ONE solver for any chain length and any number of merged chains, modeled on
@@ -32,7 +35,11 @@ import org.joml.Vector3f;
  * merged tree poles are pre-applied only — an exact post-twist of one chain
  * would move the OTHER chains' effectors — and the goal pre-alignment and
  * extension-break degeneracy cures stay single-chain-only for the same
- * reason. Everything is radians and world units; the solve is stateless.
+ * reason. A chain whose root or first interior joint is NOT fully movable
+ * gets neither the rigid twist nor the analytic pre-pose (both would trample
+ * the locked channels) — its pole acts through weak in-Jacobian rows instead,
+ * see {@link #buildBiases}. Everything is radians and world units; the solve
+ * is stateless.
  */
 public final class IKTreeSolver
 {
@@ -65,9 +72,26 @@ public final class IKTreeSolver
      * dominate quadratically (~1/0.05² = 400×), so the reach lands to within a
      * fraction of a millimetre, while the weak orientation spring keeps the
      * finish from unwinding the pose the first phase shaped (unrestrained, it
-     * drifted the chain right back).
+     * drifted the chain right back). The soft pole rows of a DoF-constrained
+     * chain ({@link #buildBiases}) ride the same scale for the same reason.
      */
     private static final float ORIENT_FINISH = 0.05F;
+
+    /**
+     * Row weight of a DoF-constrained chain's soft pole relative to its
+     * chain's effector weight: strong enough to pick the bend branch from the
+     * FK seed every frame, quadratically too weak (0.25² = 1/16) to bend the
+     * reach the position rows land.
+     */
+    private static final float POLE_BIAS = 0.25F;
+
+    /**
+     * The fraction of a biased pivot's root arc within which its soft pole
+     * counts as settled — the shaping phase stops pressing once every pivot
+     * sits this close to its pole-side spot (locked channels often cannot land
+     * it exactly, and grinding the budget against them buys nothing).
+     */
+    private static final float POLE_BIAS_SETTLE = 0.05F;
 
     /**
      * @param maxIterations DLS iteration cap; ~64 covers long chains comfortably.
@@ -158,13 +182,17 @@ public final class IKTreeSolver
         int columns = countColumns(tree);
         int iterations = 0;
 
+        PoleBias[] biases = buildBiases(tree, poles);
+
         /* Orientation goals solve in TWO phases: first a compromise pass with the
          * orientation rows in (the chain shapes itself towards the tip's frame),
          * then a position-only pass that finishes the reach exactly. In one joint
          * pass the two tasks trade against each other at the least-squares
          * minimum and the position never quite lands — but the position is the
          * hard promise (the exact tip snap covers whatever orientation remains),
-         * so it gets the last word. */
+         * so it gets the last word. The soft pole rows of DoF-constrained chains
+         * share the phases: full strength while the pose is shaped, a whisper
+         * while the reach is finished. */
         boolean hasOrient = false;
 
         for (IKTree.Effector effector : tree.effectors)
@@ -172,18 +200,19 @@ public final class IKTreeSolver
             hasOrient |= effector.orientGoal != null;
         }
 
-        if (hasOrient && columns > 0)
+        if ((hasOrient || biases != null) && columns > 0)
         {
-            /* The shaping phase runs until BOTH tasks are done (or it stalls) —
+            /* The shaping phase runs until EVERY task is done (or it stalls) —
              * exiting on position alone would abandon a half-solved orientation
-             * whenever the goal happens to be easy to reach. */
+             * or a half-crossed bend branch whenever the goal happens to be easy
+             * to reach. */
             int budget = params.maxIterations() / 2;
 
-            while (iterations < budget && (worstError(tree) > params.tolerance() || worstOrientation(tree) > 0.01F))
+            while (iterations < budget && (worstError(tree) > params.tolerance() || worstOrientation(tree) > 0.01F || worstBiasExcess(tree, biases) > 0F))
             {
                 iterations++;
 
-                if (!step(tree, lambdaSq, 1F))
+                if (!step(tree, lambdaSq, 1F, biases))
                 {
                     break;
                 }
@@ -196,7 +225,7 @@ public final class IKTreeSolver
         {
             iterations++;
 
-            if (!step(tree, lambdaSq, ORIENT_FINISH))
+            if (!step(tree, lambdaSq, ORIENT_FINISH, biases))
             {
                 break;
             }
@@ -409,6 +438,16 @@ public final class IKTreeSolver
      * singularity). On a merged tree the twist turns the whole branch under
      * the chain's root, other chains included — which is why it is pre-only
      * there.
+     *
+     * <p>Also skipped when the root is not fully movable — the same guard the
+     * goal pre-alignment carries, and here it is load-bearing twice over: the
+     * fold goes through {@link IKTree#rotateJointWorld}, which writes all
+     * THREE channels, so it would overwrite locked ones; and on a chain whose
+     * only free channels share one axis the rig is planar — the root's up
+     * axis and the pole project onto the SAME line, the twist degenerates to
+     * exactly 0 or ±180° and the branch is picked by float noise (the log's
+     * X-only spine flipped half a turn frame to frame on precisely this).
+     * Such a chain's pole is enforced softly instead — {@link #buildBiases}.
      */
     public static float applyPole(IKTree tree, Pole pole)
     {
@@ -420,6 +459,11 @@ public final class IKTreeSolver
         }
 
         IKJoint root = tree.joints[pole.rootJoint()];
+
+        if (!fullyMovable(root))
+        {
+            return 0F;
+        }
         Vector3f goal = tree.effectors[e].goal;
         Vector3f axis = new Vector3f(goal).sub(root.position);
 
@@ -755,6 +799,191 @@ public final class IKTreeSolver
         return true;
     }
 
+    /**
+     * One soft-pole attractor: three weak Jacobian rows pulling the pivot of
+     * {@code joint} towards {@code target} (the pivot's two-segment spot on
+     * the pole side). {@code moved} marks the joints whose channels the rows
+     * engage — the chain's joints above the pivot, up to and including the
+     * chain root, so a forearm's pole can never recruit the torso. {@code
+     * settle} is the miss (world units) below which the pull counts as done.
+     */
+    private record PoleBias(int joint, Vector3f target, float weight, float settle, boolean[] moved)
+    {
+    }
+
+    /**
+     * The pole of a DoF-CONSTRAINED chain, enforced softly through the rows:
+     * for every interior pivot of the chain, a weak positional pull towards
+     * the spot the law of cosines puts it at on the POLE SIDE of the
+     * root→goal line — the same construction the analytic pre-pose lands
+     * rigidly, applied here as a standing attractor inside the iterations.
+     *
+     * <p>The rigid side owners — the root pre-twist and the analytic
+     * pre-pose — both turn joints through {@link IKTree#rotateJointWorld},
+     * which writes all three channels, so they are gated on fully movable
+     * joints and such a chain used to have NO side owner at all: the descent
+     * fell into whichever bend branch its basin held, and a goal drag of 0.02
+     * units flipped the log's X-only spine by 150° between frames. The rows
+     * respect locks, limits and stiffness by construction — they run through
+     * the same movable-channel machinery as every other row — and EVERY
+     * interior pivot is pulled, not just the first: with the elbow held, the
+     * sub-chain below it keeps its own mirror pair, and the log's flip lived
+     * exactly there (body_upper at −53° one frame, +97° the next).
+     *
+     * <p>Arc lengths come from the captured segments (constant, so the spots
+     * are a pure function of root, goal and pole — stateless like the rest of
+     * the solve). Near full extension sinβ → 0 and the spots slide onto the
+     * chord: the side signal fades exactly where the branches merge and no
+     * side exists to pick. Fully movable chains are excluded — their rigid
+     * owners already hold the side exactly, and the tuned behavior must not
+     * change. {@code null} when nothing qualifies, which is the common case.
+     */
+    private static PoleBias[] buildBiases(IKTree tree, Pole[] poles)
+    {
+        if (poles == null)
+        {
+            return null;
+        }
+
+        List<PoleBias> biases = null;
+
+        for (Pole pole : poles)
+        {
+            if (pole == null || pole.polePoint() == null)
+            {
+                continue;
+            }
+
+            int e = effectorUnder(tree, pole.rootJoint());
+
+            if (e < 0)
+            {
+                continue;
+            }
+
+            IKTree.Effector effector = tree.effectors[e];
+            int rootIndex = pole.rootJoint();
+            int elbowIndex = childTowards(tree, rootIndex, effector.joint);
+
+            if (elbowIndex < 0)
+            {
+                continue;
+            }
+
+            if (fullyMovable(tree.joints[rootIndex]) && fullyMovable(tree.joints[elbowIndex]))
+            {
+                continue;
+            }
+
+            Vector3f root = tree.joints[rootIndex].position;
+            Vector3f goalDir = new Vector3f(effector.goal).sub(root);
+            float goalDistance = goalDir.length();
+
+            if (goalDistance < EPS)
+            {
+                continue;
+            }
+
+            goalDir.div(goalDistance);
+
+            Vector3f side = perpendicular(new Vector3f(pole.polePoint()).sub(root), goalDir);
+
+            if (side == null)
+            {
+                continue;
+            }
+
+            /* The chain's joints below the root, root-side first, and the
+             * captured arc length accumulated down to each pivot. */
+            int count = 0;
+
+            for (int j = effector.joint; j != rootIndex; j = tree.parentIndex[j])
+            {
+                count++;
+            }
+
+            int[] path = new int[count];
+            int fill = count;
+
+            for (int j = effector.joint; j != rootIndex; j = tree.parentIndex[j])
+            {
+                path[--fill] = j;
+            }
+
+            float totalArc = effector.startPosition.distance(tree.joints[effector.joint].startPosition);
+
+            for (int k = 0; k < count; k++)
+            {
+                int above = k == 0 ? rootIndex : path[k - 1];
+
+                totalArc += tree.joints[path[k]].startPosition.distance(tree.joints[above].startPosition);
+            }
+
+            float arc = 0F;
+
+            for (int k = 0; k < count; k++)
+            {
+                int above = k == 0 ? rootIndex : path[k - 1];
+
+                arc += tree.joints[path[k]].startPosition.distance(tree.joints[above].startPosition);
+
+                float a = arc;
+                float b = totalArc - arc;
+
+                if (a < EPS || b < EPS)
+                {
+                    continue;
+                }
+
+                /* β capped at 120° like the analytic pre-pose, and for the same
+                 * reason: a goal inside the two-segment annulus must not land
+                 * the spot at −goalDir with the side signal gone. */
+                float cosBeta = Math.min(1F, Math.max(-0.5F, (goalDistance * goalDistance + a * a - b * b) / (2F * goalDistance * a)));
+                float sinBeta = (float) Math.sqrt(Math.max(0F, 1F - cosBeta * cosBeta));
+                Vector3f target = new Vector3f(root).fma(a * cosBeta, goalDir).fma(a * sinBeta, side);
+
+                boolean[] moved = new boolean[tree.joints.length];
+
+                for (int j = tree.parentIndex[path[k]]; j >= 0; j = tree.parentIndex[j])
+                {
+                    moved[j] = true;
+
+                    if (j == rootIndex)
+                    {
+                        break;
+                    }
+                }
+
+                if (biases == null)
+                {
+                    biases = new ArrayList<>();
+                }
+
+                biases.add(new PoleBias(path[k], target, POLE_BIAS * effector.weight, POLE_BIAS_SETTLE * a, moved));
+            }
+        }
+
+        return biases == null ? null : biases.toArray(new PoleBias[0]);
+    }
+
+    /** The largest distance a biased pivot still sits beyond its settle band; 0 = all settled. */
+    private static float worstBiasExcess(IKTree tree, PoleBias[] biases)
+    {
+        if (biases == null)
+        {
+            return 0F;
+        }
+
+        float worst = 0F;
+
+        for (PoleBias bias : biases)
+        {
+            worst = Math.max(worst, tree.joints[bias.joint()].position.distance(bias.target()) - bias.settle());
+        }
+
+        return worst;
+    }
+
     /** Whether every axis of the joint is free to move — no locks, limits or zeroed weight. */
     private static boolean fullyMovable(IKJoint joint)
     {
@@ -847,8 +1076,8 @@ public final class IKTreeSolver
         return worst;
     }
 
-    /** The weighted least-squares error the step must not increase — positions AND orientations. */
-    private static float combinedError(IKTree tree, float orientScale)
+    /** The weighted least-squares error the step must not increase — positions, orientations AND soft poles. */
+    private static float combinedError(IKTree tree, float orientScale, PoleBias[] biases)
     {
         float sum = 0F;
         Vector3f rotation = new Vector3f();
@@ -866,6 +1095,16 @@ public final class IKTreeSolver
                 float turn = rotation.length() * effector.weight * effector.orientWeight * orientScale;
 
                 sum += turn * turn;
+            }
+        }
+
+        if (biases != null)
+        {
+            for (PoleBias bias : biases)
+            {
+                float pull = tree.joints[bias.joint()].position.distance(bias.target()) * bias.weight() * orientScale;
+
+                sum += pull * pull;
             }
         }
 
@@ -931,15 +1170,16 @@ public final class IKTreeSolver
     }
 
     /** One damped-least-squares iteration; false when the step stalls. */
-    private static boolean step(IKTree tree, float lambdaSq, float orientScale)
+    private static boolean step(IKTree tree, float lambdaSq, float orientScale, PoleBias[] biases)
     {
         IKJoint[] joints = tree.joints;
         int n = joints.length;
         int k = tree.effectors.length;
-        float errorBefore = combinedError(tree, orientScale);
+        float errorBefore = combinedError(tree, orientScale, biases);
 
         /* Row layout: 3 position rows per effector, plus 3 orientation rows for
-         * effectors that carry an orientation goal. */
+         * effectors that carry an orientation goal, plus 3 pull rows per soft
+         * pole attractor. */
         int[] rowOffset = new int[k];
         int rows = 0;
 
@@ -949,8 +1189,22 @@ public final class IKTreeSolver
             rows += orientScale > 0F && tree.effectors[e].orientGoal != null ? 6 : 3;
         }
 
-        /* Row-weighted error vector b: weight · (goal − position), and for the
-         * orientation rows weight · orientWeight · the missing world turn. */
+        int[] biasOffset = null;
+
+        if (biases != null)
+        {
+            biasOffset = new int[biases.length];
+
+            for (int p = 0; p < biases.length; p++)
+            {
+                biasOffset[p] = rows;
+                rows += 3;
+            }
+        }
+
+        /* Row-weighted error vector b: weight · (goal − position), for the
+         * orientation rows weight · orientWeight · the missing world turn, and
+         * for the pull rows the phase-scaled pull towards the pole-side spot. */
         float[] b = new float[rows];
         Vector3f rotation = new Vector3f();
 
@@ -970,6 +1224,21 @@ public final class IKTreeSolver
                 b[at + 3] = rotation.x;
                 b[at + 4] = rotation.y;
                 b[at + 5] = rotation.z;
+            }
+        }
+
+        if (biases != null)
+        {
+            for (int p = 0; p < biases.length; p++)
+            {
+                PoleBias bias = biases[p];
+                Vector3f pivot = tree.joints[bias.joint()].position;
+                float pull = bias.weight() * orientScale;
+                int at = biasOffset[p];
+
+                b[at] = pull * (bias.target().x - pivot.x);
+                b[at + 1] = pull * (bias.target().y - pivot.y);
+                b[at + 2] = pull * (bias.target().z - pivot.z);
             }
         }
 
@@ -1029,6 +1298,31 @@ public final class IKTreeSolver
                         columns[offset + 5] = axis.z * scale;
                     }
                 }
+
+                /* Pull rows: axis × (pivot − joint pivot) for the chain joints
+                 * above the biased pivot — the pivot moves exactly like an
+                 * effector riding its joint. */
+                if (biases != null)
+                {
+                    for (int p = 0; p < biases.length; p++)
+                    {
+                        PoleBias bias = biases[p];
+
+                        if (!bias.moved()[i])
+                        {
+                            continue;
+                        }
+
+                        int offset = at + biasOffset[p];
+
+                        lever.set(tree.joints[bias.joint()].position).sub(joint.position);
+                        axis.cross(lever, lever).mul(w * bias.weight() * orientScale);
+
+                        columns[offset] = lever.x;
+                        columns[offset + 1] = lever.y;
+                        columns[offset + 2] = lever.z;
+                    }
+                }
             }
         }
 
@@ -1054,7 +1348,7 @@ public final class IKTreeSolver
 
         tree.forward();
 
-        if (combinedError(tree, orientScale) <= errorBefore)
+        if (combinedError(tree, orientScale, biases) <= errorBefore)
         {
             return largest > STALL_STEP;
         }
@@ -1089,7 +1383,7 @@ public final class IKTreeSolver
                 largest = applyDeltas(tree, deltas, 1F);
                 tree.forward();
 
-                if (combinedError(tree, orientScale) <= errorBefore)
+                if (combinedError(tree, orientScale, biases) <= errorBefore)
                 {
                     return largest > STALL_STEP;
                 }
@@ -1110,7 +1404,7 @@ public final class IKTreeSolver
                 largest = applyDeltas(tree, deltas, scale);
                 tree.forward();
 
-                if (combinedError(tree, orientScale) <= errorBefore)
+                if (combinedError(tree, orientScale, biases) <= errorBefore)
                 {
                     return largest > STALL_STEP;
                 }
