@@ -166,6 +166,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.updateLabels();
             this.commitChanges();
         });
+        this.enabled.h(UIConstants.CONTROL_HEIGHT);
 
         this.target = new UIButton(IKey.EMPTY, (b) ->
         {
@@ -206,6 +207,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.updateLabels();
             this.commitChanges();
         });
+        this.pole.h(UIConstants.CONTROL_HEIGHT);
 
         this.poleTarget = new UIButton(IKey.EMPTY, (b) ->
         {
@@ -288,17 +290,23 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 
         UISection settings = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_SETTINGS);
 
+        /* Blender's IK constraint order: target, then the pole group, chain
+         * length, the tip/stretch toggles, and influence last (Blender puts the
+         * constraint's Influence slider at the very bottom). enabled/pole/softness
+         * stay — they are ours; softness rides just above influence as the other
+         * solve tuning scalar. enabled+target and pole+poleTarget each pair into
+         * one labelRow — the toggle names itself in the label slot, the bone picker
+         * pins to the shared value column (same grid as the pose editor's
+         * lighting+colour row). */
         settings.fields.add(
-            this.enabled,
-            this.target,
-            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_CHAIN_LENGTH, this.chainLength).marginTop(UIConstants.SECTION_GAP),
-            this.pole,
-            this.poleTarget,
-            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_POLE_ANGLE, this.poleAngle).marginTop(UIConstants.SECTION_GAP),
-            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_SOFTNESS, this.softness).marginTop(UIConstants.SECTION_GAP),
-            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_WEIGHT, this.weight).marginTop(UIConstants.SECTION_GAP),
+            UI.labelRow(this.enabled, this.target),
+            UI.labelRow(this.pole, this.poleTarget),
+            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_POLE_ANGLE, this.poleAngle),
+            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_CHAIN_LENGTH, this.chainLength),
             this.tipRotation,
-            this.stretch
+            this.stretch,
+            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_SOFTNESS, this.softness),
+            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_WEIGHT, this.weight)
         );
 
         /* The selected bone's JOINT freedom — per axis: lock, limit (degrees), stiffness.
