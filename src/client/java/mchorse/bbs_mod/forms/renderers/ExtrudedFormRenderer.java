@@ -129,31 +129,62 @@ public class ExtrudedFormRenderer extends FormRenderer<ExtrudedForm>
             gameRenderer.getLightmapTextureManager().enable();
             gameRenderer.getOverlayTexture().setupOverlayColor();
 
-            ShaderProgram finalShader = shader.get();
+            boolean irisWorld = BBSRendering.isIrisShadersEnabled() && BBSRendering.isRenderingWorld();
 
-            if (defer && FormTranslucentQueue.needsSplit(finalShader, null, textureObject, color.a))
+            /* Same law as model forms under Iris: the draw always runs right now, in the phase
+             * its program is meant for (the end-of-frame replay lands after a deferred pack's
+             * shading composite — Photon never shades it), and texture translucency at full
+             * colour degrades to alpha cutout — transparent texels become holes, semi-transparent
+             * ones draw solid. */
+            boolean cutout = defer && irisWorld && textureObject != null && textureObject.hasTranslucency()
+                && color.a >= 1F && !this.form.additiveColor.get();
+
+            ShaderProgram finalShader = cutout ? GameRenderer.getRenderTypeEntityCutoutProgram() : shader.get();
+            boolean wasActive = false;
+
+            if (irisWorld)
             {
-                Matrix4f modelView = ModelVAORenderer.captureModelView(matrices);
-                Matrix3f normalMat = new Matrix3f(matrices.peek().getNormalMatrix());
-
-                FormTranslucentQueue.setPassMode(finalShader, FormTranslucentQueue.PASS_OPAQUE);
-                ModelVAORenderer.render(finalShader, data, modelView, normalMat, color.r, color.g, color.b, color.a, light, overlay);
-                FormTranslucentQueue.setPassMode(finalShader, FormTranslucentQueue.PASS_SINGLE);
-
-                FormTranslucentQueue.add(new FormTranslucentQueue.ModelVAOCommand(data, textureObject, modelView, normalMat, color.r, color.g, color.b, color.a, light, overlay, true));
+                wasActive = FormTranslucentQueue.suspend();
             }
-            else if (defer && FormTranslucentQueue.needsWholeDefer(finalShader, null, textureObject, color.a))
-            {
-                /* Iris: no PassMode uniform to split with — the whole draw defers into the
-                 * sorted end-of-frame pass instead of drawing now. */
-                Matrix4f modelView = ModelVAORenderer.captureModelView(matrices);
-                Matrix3f normalMat = new Matrix3f(matrices.peek().getNormalMatrix());
 
-                FormTranslucentQueue.add(new FormTranslucentQueue.ModelVAOCommand(data, () -> finalShader, FormTranslucentQueue.PASS_SINGLE, true, textureObject, modelView, normalMat, color.r, color.g, color.b, color.a, light, overlay, true));
-            }
-            else
+            if (cutout)
             {
-                ModelVAORenderer.render(finalShader, data, matrices, color.r, color.g, color.b, color.a, light, overlay);
+                RenderSystem.disableBlend();
+            }
+
+            try
+            {
+                if (defer && FormTranslucentQueue.needsSplit(finalShader, null, textureObject, color.a))
+                {
+                    Matrix4f modelView = ModelVAORenderer.captureModelView(matrices);
+                    Matrix3f normalMat = new Matrix3f(matrices.peek().getNormalMatrix());
+
+                    FormTranslucentQueue.setPassMode(finalShader, FormTranslucentQueue.PASS_OPAQUE);
+                    ModelVAORenderer.render(finalShader, data, modelView, normalMat, color.r, color.g, color.b, color.a, light, overlay);
+                    FormTranslucentQueue.setPassMode(finalShader, FormTranslucentQueue.PASS_SINGLE);
+
+                    FormTranslucentQueue.add(new FormTranslucentQueue.ModelVAOCommand(data, textureObject, modelView, normalMat, color.r, color.g, color.b, color.a, light, overlay, true));
+                }
+                else if (defer && FormTranslucentQueue.needsWholeDefer(finalShader, null, color.a))
+                {
+                    /* A uniform colour fade defers the whole draw into the sorted end-of-frame
+                     * pass with depth kept on, so the faded form still self-occludes. */
+                    Matrix4f modelView = ModelVAORenderer.captureModelView(matrices);
+                    Matrix3f normalMat = new Matrix3f(matrices.peek().getNormalMatrix());
+
+                    FormTranslucentQueue.add(new FormTranslucentQueue.ModelVAOCommand(data, () -> finalShader, FormTranslucentQueue.PASS_SINGLE, true, textureObject, modelView, normalMat, color.r, color.g, color.b, color.a, light, overlay, true));
+                }
+                else
+                {
+                    ModelVAORenderer.render(finalShader, data, matrices, color.r, color.g, color.b, color.a, light, overlay);
+                }
+            }
+            finally
+            {
+                if (irisWorld)
+                {
+                    FormTranslucentQueue.restore(wasActive);
+                }
             }
 
             RenderSystem.disableBlend();

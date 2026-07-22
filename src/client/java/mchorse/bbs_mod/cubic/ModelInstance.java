@@ -576,7 +576,10 @@ public class ModelInstance implements IModelInstance
      */
     private void drawImmediate(BufferBuilder builder, ShaderProgram shader, MatrixStack stack, Matrix3f normalMat, StencilMap stencilMap, Texture texture, float alpha)
     {
-        if (!FormTranslucentQueue.needsSplit(shader, stencilMap, texture, alpha))
+        boolean split = FormTranslucentQueue.needsSplit(shader, stencilMap, texture, alpha);
+        boolean whole = !split && FormTranslucentQueue.needsWholeDefer(shader, stencilMap, alpha);
+
+        if (!split && !whole)
         {
             BufferRenderer.drawWithGlobalProgram(builder.end());
 
@@ -593,25 +596,38 @@ public class ModelInstance implements IModelInstance
 
         Matrix4f modelView = new Matrix4f(RenderSystem.getModelViewMatrix());
 
-        if (normalMat != null)
+        if (split)
         {
-            GlUniform normalUniform = shader.getUniform("NormalMat");
-
-            if (normalUniform != null)
+            /* Immediate opaque pass: the solid texels draw now and write depth. (The whole-defer
+             * case skips this — it replays the entire mesh with depth at flush instead.) */
+            if (normalMat != null)
             {
-                normalUniform.set(normalMat);
-            }
-        }
+                GlUniform normalUniform = shader.getUniform("NormalMat");
 
-        FormTranslucentQueue.setPassMode(shader, FormTranslucentQueue.PASS_OPAQUE);
-        buffer.draw(modelView, RenderSystem.getProjectionMatrix(), shader);
-        FormTranslucentQueue.setPassMode(shader, FormTranslucentQueue.PASS_SINGLE);
+                if (normalUniform != null)
+                {
+                    normalUniform.set(normalMat);
+                }
+            }
+
+            FormTranslucentQueue.setPassMode(shader, FormTranslucentQueue.PASS_OPAQUE);
+            buffer.draw(modelView, RenderSystem.getProjectionMatrix(), shader);
+            FormTranslucentQueue.setPassMode(shader, FormTranslucentQueue.PASS_SINGLE);
+        }
 
         VertexBuffer.unbind();
 
         Vector3f origin = modelView.transformPosition(stack.peek().getPositionMatrix().getTranslation(new Vector3f()));
 
-        FormTranslucentQueue.add(new FormTranslucentQueue.VertexBufferCommand(buffer, () -> shader, texture, modelView, normalMat, origin, this.isCulling(), null, null));
+        if (split)
+        {
+            FormTranslucentQueue.add(new FormTranslucentQueue.VertexBufferCommand(buffer, () -> shader, texture, modelView, normalMat, origin, this.isCulling(), null, null));
+        }
+        else
+        {
+            /* Uniform colour fade: defer the whole mesh with depth on so it self-occludes. */
+            FormTranslucentQueue.add(new FormTranslucentQueue.VertexBufferCommand(buffer, () -> shader, FormTranslucentQueue.PASS_SINGLE, true, texture, modelView, normalMat, origin, this.isCulling(), null, null));
+        }
     }
 
     /** Whether the immediate path will emit anything: a visible bending welded bone, or a visible bone with geometry but no VAO. */
@@ -716,10 +732,10 @@ public class ModelInstance implements IModelInstance
 
                         FormTranslucentQueue.add(new FormTranslucentQueue.BOBJCommand(vao, vao.snapshotArmature(), vao.getUploadCount(), texture, modelView, normalMat, color.r, color.g, color.b, color.a, light, overlay, this.isCulling()));
                     }
-                    else if (FormTranslucentQueue.needsWholeDefer(shader, stencilMap, texture, color.a))
+                    else if (FormTranslucentQueue.needsWholeDefer(shader, stencilMap, color.a))
                     {
-                        /* Iris: no PassMode uniform to split with — the whole draw defers into
-                         * the sorted end-of-frame pass instead of drawing now. */
+                        /* A uniform colour fade defers the whole draw into the sorted end-of-frame
+                         * pass with depth kept on, so the faded model still self-occludes. */
                         Matrix4f modelView = ModelVAORenderer.captureModelView(stack);
                         Matrix3f normalMat = new Matrix3f(stack.peek().getNormalMatrix());
 

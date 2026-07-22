@@ -49,6 +49,7 @@ import mchorse.bbs_mod.utils.pose.PoseTransform;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.ShaderProgram;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
+import mchorse.bbs_mod.graphics.texture.Texture;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.LightmapTextureManager;
 import net.minecraft.client.render.OverlayTexture;
@@ -727,12 +728,62 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
             BBSModClient.getTextures().bindTexture(texture);
 
-            Supplier<ShaderProgram> mainShader = (BBSRendering.isIrisShadersEnabled() && BBSRendering.isRenderingWorld()) || !model.isVAORendered()
-                ? GameRenderer::getRenderTypeEntityTranslucentCullProgram
-                : BBSShaders::getModel;
+            Texture textureObject = BBSModClient.getTextures().getTexture(texture);
+            boolean irisWorld = BBSRendering.isIrisShadersEnabled() && BBSRendering.isRenderingWorld();
+
+            /* Under shaders we can't split opaque/translucent per pixel (Iris strips our PassMode),
+             * so a texture with semi-transparent texels would either hide what's behind it or drop
+             * the whole model out of Photon's translucent handling. Degrade gracefully to alpha
+             * cutout: the cutout program's baked alpha test turns fully-transparent texels into
+             * proper holes and draws the rest as a solid, normally-shaded entity. Only for texture
+             * translucency at full colour — a uniform colour fade must stay translucent, or the
+             * cutout test would erase the whole faded model. */
+            boolean cutout = irisWorld && textureObject != null && textureObject.hasTranslucency()
+                && contextColor.a >= 1F && formColor.a >= 1F && !additive;
+
+            Supplier<ShaderProgram> mainShader = cutout
+                ? GameRenderer::getRenderTypeEntityCutoutProgram
+                : (irisWorld || !model.isVAORendered())
+                    ? GameRenderer::getRenderTypeEntityTranslucentCullProgram
+                    : BBSShaders::getModel;
             Supplier<ShaderProgram> shader = this.getShader(context, mainShader, BBSShaders::getPickerModelsProgram);
 
-            this.renderModel(context.entity, shader, context.stack, model, context.light, context.overlay, contextColor, formColor, additive, false, context.stencilMap, context.getTransition(), context.world);
+            boolean wasActive = false;
+
+            if (irisWorld)
+            {
+                /* Under Iris the model always draws right now, in the phase its program is meant
+                 * for. The end-of-frame replay runs after a deferred pack's shading composite —
+                 * Photon never shades it and the model vanishes (a 1% colour fade used to fall
+                 * into that path). Vanilla translucent entities don't sort either: vanilla-level
+                 * blending is the ceiling under shaders, the sorted queue stays a no-shader
+                 * feature. */
+                wasActive = FormTranslucentQueue.suspend();
+            }
+
+            if (cutout)
+            {
+                /* Blend off to match the vanilla cutout render type: semi-transparent texels
+                 * draw solid instead of smearing over the gbuffer. */
+                RenderSystem.disableBlend();
+            }
+
+            try
+            {
+                this.renderModel(context.entity, shader, context.stack, model, context.light, context.overlay, contextColor, formColor, additive, false, context.stencilMap, context.getTransition(), context.world);
+            }
+            finally
+            {
+                if (cutout)
+                {
+                    RenderSystem.enableBlend();
+                }
+
+                if (irisWorld)
+                {
+                    FormTranslucentQueue.restore(wasActive);
+                }
+            }
         }
     }
 

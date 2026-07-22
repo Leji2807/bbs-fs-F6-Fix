@@ -106,30 +106,33 @@ public class FormTranslucentQueue
     }
 
     /**
-     * Whether a draw with this shader/texture/alpha must split into opaque + deferred
-     * translucent passes. False outside an active queue scope (UI previews, first-person arm),
-     * during picking (the stencil needs every pixel), and on shaders without the PassMode
-     * uniform (vanilla programs — the Iris path).
+     * Whether a draw splits into an immediate opaque pass (writes depth) + a deferred translucent
+     * pass. Only when translucency is <em>intrinsic to the texture</em> and the colour is not
+     * faded: the solid texels draw now and write depth, the see-through ones defer. A uniform
+     * colour fade (alpha &lt; 1) instead takes {@link #needsWholeDefer}, because splitting would
+     * push every texel of an otherwise-opaque model into the depth-less translucent pass — the
+     * model would stop writing depth entirely and lose its self-occlusion. False outside an active
+     * queue scope (UI previews, first-person arm), during picking (the stencil needs every pixel),
+     * and on shaders without the PassMode uniform (vanilla programs — the Iris path).
      */
     public static boolean needsSplit(ShaderProgram shader, StencilMap stencilMap, Texture texture, float alpha)
     {
-        boolean translucent = alpha < 1F || (texture != null && texture.hasTranslucency());
-
-        return translucent && isActive() && stencilMap == null && shader.getUniform("PassMode") != null;
+        return alpha >= 1F && texture != null && texture.hasTranslucency()
+            && isActive() && stencilMap == null && shader.getUniform("PassMode") != null;
     }
 
     /**
-     * The Iris path: its patched vanilla programs have no PassMode uniform, so the draw can't
-     * split into opaque/translucent halves — instead the whole draw defers as-is. The far-to-near
-     * sort alone fixes the between-model blending order, and depth writes stay on during the
-     * replay so the model still occludes itself correctly.
+     * Whether the whole draw defers as one unit with depth writes kept on, sorted between models:
+     * a uniform colour fade on the BBS model shader. The faded model keeps writing depth so it
+     * still self-occludes instead of collapsing into an unordered translucent blob, and the
+     * transition out of alpha == 1 stays continuous (no pop). Never true under Iris: model draws
+     * suspend the queue and render immediately in their own phase, because replaying a captured
+     * Iris program at the end of the frame lands after a deferred pack's shading composite
+     * (Photon never shades it — the model vanishes).
      */
-    public static boolean needsWholeDefer(ShaderProgram shader, StencilMap stencilMap, Texture texture, float alpha)
+    public static boolean needsWholeDefer(ShaderProgram shader, StencilMap stencilMap, float alpha)
     {
-        boolean translucent = alpha < 1F || (texture != null && texture.hasTranslucency());
-
-        return translucent && isActive() && stencilMap == null && shader.getUniform("PassMode") == null
-            && BBSRendering.isIrisShadersEnabled() && BBSRendering.isRenderingWorld();
+        return alpha < 1F && isActive() && stencilMap == null && shader.getUniform("PassMode") != null;
     }
 
     public static void setPassMode(ShaderProgram shader, int mode)
@@ -291,8 +294,8 @@ public class FormTranslucentQueue
 
     /**
      * Replays a cubic model group's static VAO. The two-pass form draws the BBS model shader's
-     * translucent pass without depth writes; the whole-draw form (Iris) replays the entire draw
-     * with its captured program and keeps depth writes.
+     * translucent pass without depth writes; the whole-draw form (a uniform colour fade) replays
+     * the entire draw and keeps depth writes.
      */
     public static class ModelVAOCommand extends DrawCommand
     {
@@ -496,18 +499,26 @@ public class FormTranslucentQueue
     {
         private final VertexBuffer buffer;
         private final Supplier<ShaderProgram> shader;
+        private final int passMode;
         private final Texture texture;
         private final Matrix4f modelView;
         private final Matrix3f normalMat;
         private final Runnable preDraw;
         private final Runnable postDraw;
 
+        /** The split translucent replay: only the semi-transparent texels, no depth write. */
         public VertexBufferCommand(VertexBuffer buffer, Supplier<ShaderProgram> shader, Texture texture, Matrix4f modelView, Matrix3f normalMat, Vector3f cameraSpaceOrigin, boolean cull, Runnable preDraw, Runnable postDraw)
         {
-            super(cameraSpaceOrigin, cull, false);
+            this(buffer, shader, PASS_TRANSLUCENT, false, texture, modelView, normalMat, cameraSpaceOrigin, cull, preDraw, postDraw);
+        }
+
+        public VertexBufferCommand(VertexBuffer buffer, Supplier<ShaderProgram> shader, int passMode, boolean depthWrite, Texture texture, Matrix4f modelView, Matrix3f normalMat, Vector3f cameraSpaceOrigin, boolean cull, Runnable preDraw, Runnable postDraw)
+        {
+            super(cameraSpaceOrigin, cull, depthWrite);
 
             this.buffer = buffer;
             this.shader = shader;
+            this.passMode = passMode;
             this.texture = texture;
             this.modelView = modelView;
             this.normalMat = normalMat;
@@ -540,7 +551,7 @@ public class FormTranslucentQueue
                 }
             }
 
-            setPassMode(program, PASS_TRANSLUCENT);
+            setPassMode(program, this.passMode);
 
             this.buffer.bind();
             this.buffer.draw(this.modelView, RenderSystem.getProjectionMatrix(), program);

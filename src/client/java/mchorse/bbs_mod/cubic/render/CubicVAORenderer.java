@@ -126,10 +126,10 @@ public class CubicVAORenderer extends CubicCubeRenderer
 
                 FormTranslucentQueue.add(new FormTranslucentQueue.ModelVAOCommand(entry.getValue(), texture, modelView, normalMat, r, g, b, a, light, this.overlay, this.model.isCulling()));
             }
-            else if (FormTranslucentQueue.needsWholeDefer(this.program, this.stencilMap, texture, a))
+            else if (FormTranslucentQueue.needsWholeDefer(this.program, this.stencilMap, a))
             {
-                /* Iris: no PassMode uniform to split with, so the whole draw defers into the
-                 * sorted end-of-frame pass instead of drawing now. */
+                /* A uniform colour fade defers the whole draw into the sorted end-of-frame pass
+                 * with depth kept on, so the faded model still self-occludes. */
                 Matrix4f modelView = ModelVAORenderer.captureModelView(stack);
                 Matrix3f normalMat = new Matrix3f(stack.peek().getNormalMatrix());
                 ShaderProgram program = this.program;
