@@ -73,6 +73,19 @@ public class GizmoDrag
     public final Matrix3f rotateAxes = new Matrix3f();
 
     /**
+     * World-space orthonormal basis {@link TransformSpace#GLOBAL} aligns to.
+     * Identity &mdash; the plain world axes &mdash; unless a host sets it, which
+     * is what the editors without a scene of their own (form editor, model
+     * blocks, animation states) leave it at. The film viewport instead fills it
+     * with the edited replay's own facing
+     * ({@code BaseFilmController.getReplayWorldAxes}), so "global" there means
+     * the actor's world rather than the map's: it stays flat and axis-aligned,
+     * it just turns with the replay. Read through {@link #frameBasis}, and drawn
+     * by the twin {@link #stackBasisForSpace}.
+     */
+    public final Matrix3f globalWorldAxes = new Matrix3f();
+
+    /**
      * Euler rotation (ZYX radians) the renderer SUMS UNDER the edited transform's
      * rotate channels — non-zero when the edited value is an additive layer, like
      * a pose overlay stacked per-channel onto the base pose. The renderer then
@@ -255,7 +268,10 @@ public class GizmoDrag
      * GEOMETRY to: the frame its handles are drawn and picked in, and the world
      * directions a constrained translate slides along or a scale levers along.
      * {@link TransformSpace#LOCAL} is the bone's rendered frame ({@link #gizmoWorldAxes},
-     * the visible arrows); {@link TransformSpace#GLOBAL} is the world identity;
+     * the visible arrows); {@link TransformSpace#GLOBAL} is {@link #globalWorldAxes}
+     * (the world axes, turned by the replay's facing in the film viewport);
+     * {@link TransformSpace#WORLD} is the world identity, container and all
+     * ignored;
      * {@link TransformSpace#VIEW} is the camera's right/up/forward
      * ({@link #cameraBasis}, world axes when the view is degenerate);
      * {@link TransformSpace#PARENT} is {@link #gizmoWorldAxes} as well &mdash;
@@ -282,6 +298,10 @@ public class GizmoDrag
         switch (space)
         {
             case GLOBAL:
+                return new Matrix3f(this.globalWorldAxes);
+            case WORLD:
+                /* Deliberately NOT globalWorldAxes: this frame's whole point is
+                 * to ignore whatever container the edited thing sits in. */
                 return new Matrix3f();
             case VIEW:
                 Matrix3f camera = this.cameraBasis();
@@ -323,17 +343,48 @@ public class GizmoDrag
      * The 3&times;3 the gizmo's view-space drawing frame gets for a
      * {@link TransformSpace} ({@link Gizmo#reorientForSpace}). The drawing stack
      * already carries world&rarr;view, so this is {@code view · frameBasis(space)}
-     * simplified: {@link TransformSpace#GLOBAL} is the view rotation itself
+     * spelled out: {@link TransformSpace#GLOBAL} is {@code view · globalAxes},
+     * {@link TransformSpace#WORLD} the view rotation itself
      * ({@code view · identity}) and {@link TransformSpace#VIEW} the identity
-     * ({@code view · view⁻¹}). {@link TransformSpace#LOCAL} and
+     * ({@code view · view⁻¹}).
+     * {@code globalAxes} is the drawn twin of {@link #globalWorldAxes} and must
+     * come from the same source the drag's does &mdash; {@code null} means the
+     * plain world axes. {@link TransformSpace#LOCAL} and
      * {@link TransformSpace#PARENT} never reach this &mdash; the reorient keeps
      * the placement frame for them (bone frame / origin-flavour parent frame).
      * Keeping it here ties the drawn frame to the same space&rarr;basis mapping
      * the drags read.
      */
-    public static Matrix3f stackBasisForSpace(TransformSpace space, Matrix4f view)
+    public static Matrix3f stackBasisForSpace(TransformSpace space, Matrix4f view, Matrix3f globalAxes)
     {
-        return space == TransformSpace.GLOBAL ? view.get3x3(new Matrix3f()) : new Matrix3f();
+        if (space == TransformSpace.WORLD)
+        {
+            return view.get3x3(new Matrix3f());
+        }
+
+        if (space != TransformSpace.GLOBAL)
+        {
+            return new Matrix3f();
+        }
+
+        Matrix3f basis = view.get3x3(new Matrix3f());
+
+        return globalAxes == null ? basis : basis.mul(globalAxes);
+    }
+
+    /** See {@link #globalWorldAxes}; {@code null} restores the plain world axes. */
+    public GizmoDrag setGlobalAxes(Matrix3f axes)
+    {
+        if (axes == null)
+        {
+            this.globalWorldAxes.identity();
+        }
+        else
+        {
+            this.globalWorldAxes.set(axes);
+        }
+
+        return this;
     }
 
     public GizmoDrag setJacobian(Matrix3f jacobian)

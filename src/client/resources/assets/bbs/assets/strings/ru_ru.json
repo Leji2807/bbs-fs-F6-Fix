@@ -1535,6 +1535,7 @@
 	"bbs.ui.transforms.space.global": "Глобально",
 	"bbs.ui.transforms.space.local": "Локально",
 	"bbs.ui.transforms.space.view": "Вид",
+	"bbs.ui.transforms.space.world": "Мировое",
 	"bbs.ui.transforms.space.parent": "Родитель",
 	"bbs.ui.transforms.space.title": "Пространство",
 	"bbs.ui.transforms.space.tooltip": "Система координат, в которой работают гизмо и ограниченные оси",

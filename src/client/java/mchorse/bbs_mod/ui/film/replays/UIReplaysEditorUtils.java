@@ -777,7 +777,9 @@ public class UIReplaysEditorUtils
      * {@link GizmoDrag#computeRotateAxes} / {@link GizmoDrag#computeTranslateJacobian}
      * driven by the composite bone matrix {@code target.mul(bone)} so replay
      * {@code bodyYaw}, anchor parents, and other film-only transforms match
-     * {@link BaseFilmController#renderEntity}.
+     * {@link BaseFilmController#renderEntity}. Also the one place the film's
+     * GLOBAL frame is set on the drag &mdash; the replay's own facing
+     * ({@link BaseFilmController#getReplayWorldAxes}).
      */
     public static GizmoDrag buildFilmGizmoDrag(
         UIFilmPanel panel,
@@ -789,7 +791,21 @@ public class UIReplaysEditorUtils
     {
         GizmoDrag drag = GizmoDrag.fromRenderedGizmo(camera, viewport);
 
-        if (drag == null || transform == null || transform.getTransform() == null || panel == null)
+        if (drag == null || panel == null)
+        {
+            return drag;
+        }
+
+        IEntity entity = panel.getController().getCurrentEntity();
+
+        /* The GLOBAL frame of a film edit is the edited replay's own facing, not
+         * the map's axes — set before any early return, since it is the gizmo's
+         * frame for every track (it doesn't depend on the bone or the sampled
+         * matrices below). The drawn handles get the same axes in
+         * BaseFilmController#renderAxes; the two must not drift apart. */
+        drag.setGlobalAxes(BaseFilmController.getReplayWorldAxes(entity, transition));
+
+        if (transform == null || transform.getTransform() == null)
         {
             return drag;
         }
@@ -803,7 +819,6 @@ public class UIReplaysEditorUtils
 
         Pair<String, Boolean> bone = keyframeEditor.getBone();
         Replay replay = panel.replayEditor.getReplay();
-        IEntity entity = panel.getController().getCurrentEntity();
 
         if (bone == null || bone.a == null || replay == null || entity == null)
         {

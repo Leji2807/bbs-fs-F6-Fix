@@ -1208,6 +1208,7 @@ public class UIKeys
     public static final IKey TRANSFORMS_SPACE_GLOBAL = L10n.lang("bbs.ui.transforms.space.global");
     public static final IKey TRANSFORMS_SPACE_LOCAL = L10n.lang("bbs.ui.transforms.space.local");
     public static final IKey TRANSFORMS_SPACE_VIEW = L10n.lang("bbs.ui.transforms.space.view");
+    public static final IKey TRANSFORMS_SPACE_WORLD = L10n.lang("bbs.ui.transforms.space.world");
     public static final IKey TRANSFORMS_SPACE_PARENT = L10n.lang("bbs.ui.transforms.space.parent");
     public static final IKey TRANSFORMS_SPACE_TITLE = L10n.lang("bbs.ui.transforms.space.title");
     public static final IKey TRANSFORMS_SPACE_TOOLTIP = L10n.lang("bbs.ui.transforms.space.tooltip");

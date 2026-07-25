@@ -208,7 +208,7 @@ public class UIPickableFormRenderer extends UIFormRenderer implements GizmoViewp
 
             /* Reorient the pick stencil into the active space to match the visual
              * (below), so hovering a ring lands where it's drawn. */
-            Gizmo.INSTANCE.reorientForSpace(stack, this.formEditor.getGizmoSpace(), this.camera.view);
+            Gizmo.INSTANCE.reorientForSpace(stack, this.formEditor.getGizmoSpace(), this.camera.view, this.getSceneAxes());
 
             /* Skip the gizmo's pick stencil while the hide-gizmo key is held, so its handles can't be
              * clicked when hidden. Form-part picking (the stencil rendered above) is left intact, and
@@ -247,10 +247,14 @@ public class UIPickableFormRenderer extends UIFormRenderer implements GizmoViewp
             MatrixStackUtils.multiply(stack, MatrixStackUtils.stripScale(matrix));
         }
 
-        /* Reorient the drawn gizmo into the active space (world axes for GLOBAL,
-         * screen axes for VIEW); LOCAL leaves it on the bone's own axes. Kept in
-         * lockstep with the pick stencil above. */
-        Gizmo.INSTANCE.reorientForSpace(stack, this.formEditor.getGizmoSpace(), this.camera.view);
+        /* Reorient the drawn gizmo into the active space (the preview's own scene
+         * axes for GLOBAL, screen axes for VIEW); LOCAL leaves it on the bone's
+         * own axes. Kept in lockstep with the pick stencil above. The scene axes
+         * are the renderer's transform ({@link UIModelRenderer#getSceneAxes}):
+         * identity in a plain preview, the model block's own rotation when the
+         * block is edited immersively — GLOBAL must follow the container the
+         * form is drawn inside, or it points off the scene the user sees. */
+        Gizmo.INSTANCE.reorientForSpace(stack, this.formEditor.getGizmoSpace(), this.camera.view, this.getSceneAxes());
 
         /* Draw axes */
         if (UIBaseMenu.shouldRenderAxes())

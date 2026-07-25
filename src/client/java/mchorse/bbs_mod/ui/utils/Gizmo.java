@@ -1636,8 +1636,13 @@ public class Gizmo
      * BEFORE its own rotation, which is exactly the parent frame. Call right
      * after the gizmo origin is multiplied onto the stack and before
      * {@link #render}/{@link #renderStencil}/{@link #captureVisual}.
+     *
+     * <p>{@code globalAxes} is what {@link TransformSpace#GLOBAL} aligns to
+     * (see {@link GizmoDrag#globalWorldAxes}); pass the same axes the drag gets
+     * or the handles would be drawn off the frame they slide in. {@code null}
+     * is the plain world axes, which is what the hosts without a scene use.
      */
-    public void reorientForSpace(MatrixStack stack, TransformSpace space, Matrix4f cameraView)
+    public void reorientForSpace(MatrixStack stack, TransformSpace space, Matrix4f cameraView, Matrix3f globalAxes)
     {
         if (space == null || space == TransformSpace.LOCAL || space == TransformSpace.PARENT || cameraView == null)
         {
@@ -1647,7 +1652,7 @@ public class Gizmo
         Matrix4f matrix = stack.peek().getPositionMatrix();
         Vector3f translation = matrix.getTranslation(new Vector3f());
 
-        matrix.set(new Matrix4f(GizmoDrag.stackBasisForSpace(space, cameraView)).setTranslation(translation));
+        matrix.set(new Matrix4f(GizmoDrag.stackBasisForSpace(space, cameraView, globalAxes)).setTranslation(translation));
     }
 
     /**

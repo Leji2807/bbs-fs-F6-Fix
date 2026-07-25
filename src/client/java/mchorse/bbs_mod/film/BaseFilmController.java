@@ -290,10 +290,11 @@ public abstract class BaseFilmController
             stack.push();
             MatrixStackUtils.multiply(stack, matrix);
 
-            /* Reorient into the active space (world axes for GLOBAL, screen axes for
-             * VIEW; LOCAL untouched) before the frame is captured — so the visual
-             * and the pick stencil, both built from it, stay in lockstep. */
-            Gizmo.INSTANCE.reorientForSpace(stack, space, gizmoView);
+            /* Reorient into the active space (the replay's own world axes for
+             * GLOBAL, screen axes for VIEW; LOCAL untouched) before the frame is
+             * captured — so the visual and the pick stencil, both built from it,
+             * stay in lockstep. */
+            Gizmo.INSTANCE.reorientForSpace(stack, space, gizmoView, getReplayWorldAxes(entity, transition));
 
             if (stencilMap == null)
             {
@@ -394,7 +395,7 @@ public abstract class BaseFilmController
 
         /* Same lockstep as renderAxes: reorient before the frame is captured, so
          * the visual and the pick stencil built from it agree with the drag. */
-        Gizmo.INSTANCE.reorientForSpace(stack, space, gizmoView);
+        Gizmo.INSTANCE.reorientForSpace(stack, space, gizmoView, getReplayWorldAxes(entity, transition));
 
         if (stencilMap == null)
         {
@@ -549,6 +550,34 @@ public abstract class BaseFilmController
         }
 
         return defaultMatrix;
+    }
+
+    /**
+     * The replay's own world orientation &mdash; the frame
+     * {@link mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace#GLOBAL}
+     * aligns the gizmo to in the film viewport. It is exactly the rotation
+     * {@link #getMatrixForRenderWithRotation} puts the whole actor under
+     * ({@code bodyYaw} about the world Y), and nothing else: not the pose, not
+     * the form's own transform, not an anchor parent's frame. So the frame turns
+     * with the replay's facing while staying flat and axis-aligned like the world
+     * one &mdash; drag X and the bone slides along the actor's own left/right
+     * whatever direction the actor was placed in.
+     *
+     * <p>Returns the identity (the plain world axes, the pre-change behaviour)
+     * for a missing entity, and naturally for any replay whose facing is zero.
+     */
+    public static Matrix3f getReplayWorldAxes(IEntity entity, float tickDelta)
+    {
+        Matrix3f axes = new Matrix3f();
+
+        if (entity == null)
+        {
+            return axes;
+        }
+
+        float bodyYaw = Lerps.lerp(entity.getPrevBodyYaw(), entity.getBodyYaw(), tickDelta);
+
+        return axes.rotateY(MathUtils.toRad(-bodyYaw));
     }
 
     public static Matrix4f getMatrixForRenderWithRotation(IEntity entity, double cameraX, double cameraY, double cameraZ, float tickDelta)

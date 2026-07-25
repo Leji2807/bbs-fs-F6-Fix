@@ -74,7 +74,8 @@ public class TranslateDrag extends DragStrategy
         Matrix3f jacobian = new Matrix3f(drag.translateJacobian);
 
         /* Handles slide along the active space's axes exactly as DRAWN
-         * (frameBasis: LOCAL/PARENT = the placed gizmo frame, GLOBAL = world,
+         * (frameBasis: LOCAL/PARENT = the placed gizmo frame, GLOBAL = the
+         * container's frame, WORLD = the map's,
          * VIEW = camera axes), and the inverse Jacobian maps one world unit
          * along a handle into translate-channel units. One formula for every
          * space. LOCAL used to rebuild its axes analytically from the

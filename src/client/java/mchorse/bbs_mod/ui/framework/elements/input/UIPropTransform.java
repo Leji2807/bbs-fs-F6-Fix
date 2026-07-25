@@ -395,6 +395,9 @@ public class UIPropTransform extends UITransform
         switch (space)
         {
             case GLOBAL: return Icons.SPACE_GLOBAL;
+            /* The globe: no dedicated space_* sprite exists for WORLD, and a
+             * globe reads as "the map itself" better than a new flat glyph. */
+            case WORLD: return Icons.GLOBE;
             case VIEW: return Icons.SPACE_VIEW;
             case PARENT: return Icons.SPACE_PARENT;
             default: return Icons.SPACE_LOCAL;
@@ -408,6 +411,7 @@ public class UIPropTransform extends UITransform
         switch (space)
         {
             case GLOBAL: return 0x4C8DFF;
+            case WORLD: return 0x2FBFD9;
             case VIEW: return 0x43C67A;
             case PARENT: return 0xB27BE0;
             default: return 0xF0A63C;
@@ -419,6 +423,7 @@ public class UIPropTransform extends UITransform
         switch (space)
         {
             case GLOBAL: return UIKeys.TRANSFORMS_SPACE_GLOBAL;
+            case WORLD: return UIKeys.TRANSFORMS_SPACE_WORLD;
             case VIEW: return UIKeys.TRANSFORMS_SPACE_VIEW;
             case PARENT: return UIKeys.TRANSFORMS_SPACE_PARENT;
             default: return UIKeys.TRANSFORMS_SPACE_LOCAL;

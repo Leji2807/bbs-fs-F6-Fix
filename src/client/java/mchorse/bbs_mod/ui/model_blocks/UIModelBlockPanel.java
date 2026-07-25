@@ -381,7 +381,13 @@ public class UIModelBlockPanel extends UIDashboardPanel implements IFlightSuppor
          * feeds both the visual and the pick stencil, so they stay in lockstep. */
         TransformSpace space = this.transform.getSpace();
 
-        Gizmo.INSTANCE.reorientForSpace(stack, space == TransformSpace.PARENT ? TransformSpace.GLOBAL : space, this.gizmoCamera.view);
+        /* This gizmo edits the BLOCK's own transform, which composes straight
+         * onto the world, so GLOBAL keeps meaning the plain world axes (null) —
+         * turning the block must not turn the frame its own rotation is edited
+         * in. The form INSIDE the block is a different story: it is drawn under
+         * this transform, so its editor takes GLOBAL from the preview's scene
+         * axes (UIModelRenderer#getSceneAxes) and follows the block. */
+        Gizmo.INSTANCE.reorientForSpace(stack, space == TransformSpace.PARENT ? TransformSpace.GLOBAL : space, this.gizmoCamera.view, null);
         Gizmo.INSTANCE.captureVisual(stack);
         stack.pop();
     }

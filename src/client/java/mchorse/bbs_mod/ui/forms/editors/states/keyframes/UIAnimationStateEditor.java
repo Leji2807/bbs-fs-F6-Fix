@@ -356,6 +356,11 @@ public class UIAnimationStateEditor extends UIElement
         {
             float tick = this.editor.getSamplingTick();
 
+            /* The frame GLOBAL is drawn in — the preview's scene axes (see
+             * UIPickableFormRenderer#renderAxes); identity unless the form is
+             * being edited inside a rotated model block. */
+            drag.setGlobalAxes(this.editor.renderer.getSceneAxes());
+
             /* The bone matrices come from the previewed form, which only reflects a keyframe edit
              * once the animation state is re-applied. computeRotateAxes / computeTranslateJacobian
              * perturb the keyframe transform, so re-pose the form before each sample (mirroring the
@@ -369,7 +374,10 @@ public class UIAnimationStateEditor extends UIElement
 
                     Matrix4f origin = this.getOrigin(transition);
 
-                    return origin == null ? new Vector3f() : origin.getTranslation(new Vector3f());
+                    /* Into the frame the preview is drawn in, like UIFormEditor's
+                     * drag: the gizmo's own origin/axes come from the render
+                     * matrix and already carry the renderer's transform. */
+                    return origin == null ? new Vector3f() : this.editor.renderer.toSceneMatrix(origin).getTranslation(new Vector3f());
                 }
             ));
             drag.setRotateAxes(GizmoDrag.computeRotateAxes(
@@ -384,7 +392,7 @@ public class UIAnimationStateEditor extends UIElement
                      * collapse to identity. */
                     Matrix4f origin = this.getOriginMatrix(transition);
 
-                    return origin == null ? new Matrix4f() : MatrixStackUtils.stripScale(origin);
+                    return origin == null ? new Matrix4f() : MatrixStackUtils.stripScale(this.editor.renderer.toSceneMatrix(origin));
                 }
             ));
 

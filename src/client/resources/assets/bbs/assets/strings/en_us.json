@@ -1548,6 +1548,7 @@
 	"bbs.ui.transforms.space.global": "Global",
 	"bbs.ui.transforms.space.local": "Local",
 	"bbs.ui.transforms.space.view": "View",
+	"bbs.ui.transforms.space.world": "World",
 	"bbs.ui.transforms.space.parent": "Parent",
 	"bbs.ui.transforms.space.title": "Space",
 	"bbs.ui.transforms.space.tooltip": "Reference frame the gizmo and constrained edits operate in",
