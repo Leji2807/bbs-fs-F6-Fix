@@ -611,12 +611,51 @@ public class OrbitFilmCameraController implements ICameraController
         this.targetPivot.set(this.toLocal(pivot));
     }
 
-    private void rotate(int dx, int dy)
+    public void rotate(int dx, int dy)
     {
         float orbitSpeed = this.controller.panel.dashboard.orbit.getAngleSpeed() * 4F;
 
         this.targetRotation.x = MathUtils.clamp(this.targetRotation.x - dy * orbitSpeed, -PITCH_LIMIT, PITCH_LIMIT);
         this.targetRotation.y -= dx * orbitSpeed;
+    }
+
+    /**
+     * Snap the orbit rotation so the camera ends up on the given axis side of
+     * the pivot, looking at it. The axis is given in the anchor's space: for a
+     * detached orbit (or one without a valid anchor) that is world space, for
+     * an attached orbit it is the replay's space, matching the axes the
+     * navigation ball displays. Yaw is unwrapped to the closest turn, so the
+     * camera never spins the long way around.
+     */
+    public void snapToAxis(int x, int y, int z)
+    {
+        float pitch;
+        float yaw;
+
+        if (y != 0)
+        {
+            pitch = y > 0 ? -PITCH_LIMIT : PITCH_LIMIT;
+            yaw = this.targetRotation.y;
+        }
+        else
+        {
+            float twoPi = MathUtils.PI * 2F;
+
+            pitch = 0F;
+            yaw = (float) Math.atan2(x, z);
+            yaw += Math.round((this.targetRotation.y - yaw) / twoPi) * twoPi;
+        }
+
+        this.targetRotation.set(pitch, yaw);
+    }
+
+    /**
+     * Yaw of the attachment anchor (zero when detached), i.e. the rotation
+     * between the orbit's local space and world space.
+     */
+    public float getAnchorYaw()
+    {
+        return this.anchorYaw;
     }
 
     private Vector3f getOffset()

@@ -328,6 +328,11 @@ public class UIFilmPreview extends UIElement
 
         if (area.isInside(context))
         {
+            if (this.panel.getController().orbitGizmo.mouseClicked(context, area))
+            {
+                return true;
+            }
+
             return this.panel.replayEditor.clickViewport(context, area);
         }
 
@@ -364,7 +369,11 @@ public class UIFilmPreview extends UIElement
             context.batcher.texturedBox(texture.id, Colors.WHITE, area.x, area.y, area.w, area.h, 0, texture.height, texture.width, 0, texture.width, texture.height);
         }
 
-        this.renderCursor(context);
+        /* The navigation ball replaces the axes crosshair in the corner */
+        if (!this.panel.getController().orbitGizmo.isActive())
+        {
+            this.renderCursor(context);
+        }
 
         boolean needGuides = BBSSettings.editorRuleOfThirds.get()
             || BBSSettings.editorCenterLines.get()

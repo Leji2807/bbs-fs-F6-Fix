@@ -135,6 +135,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
     private final GizmoInteraction gizmo = new GizmoInteraction(this);
 
     public final OrbitFilmCameraController orbit = new OrbitFilmCameraController(this);
+    public final OrbitViewGizmo orbitGizmo = new OrbitViewGizmo(this);
     private int pov;
     private boolean paused;
 
@@ -787,6 +788,8 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
         boolean consumed = this.gizmo.mouseReleased(context);
 
+        consumed = this.orbitGizmo.mouseReleased(context) || consumed;
+
         this.stopGizmoInteraction();
 
         this.panel.replayEditor.releaseViewport(context, this.orbit.wasDragged());
@@ -1352,6 +1355,8 @@ public class UIFilmController extends UIElement implements GizmoViewport
         }
 
         this.renderPickingPreview(context, area);
+
+        this.orbitGizmo.render(context, area);
 
         this.orbit.handleOrbiting(context);
     }
