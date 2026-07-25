@@ -515,7 +515,7 @@ public class BBSSettings {
 		poseShowDisabledBones = builder.getBoolean("pose_show_disabled_bones", false);
 		translateHotkeyOrder = new ValueOrder("translate_hotkey_order", "screen", "x", "y", "z");
 		builder.register(translateHotkeyOrder);
-		scaleHotkeyOrder = new ValueOrder("scale_hotkey_order", "x", "y", "z");
+		scaleHotkeyOrder = new ValueOrder("scale_hotkey_order", "all", "x", "y", "z");
 		builder.register(scaleHotkeyOrder);
 		rotateHotkeyOrder = new ValueOrder("rotate_hotkey_order", "view", "sphere", "x", "y", "z");
 		builder.register(rotateHotkeyOrder);

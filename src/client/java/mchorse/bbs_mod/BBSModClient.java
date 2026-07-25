@@ -444,11 +444,12 @@ public class BBSModClient implements ClientModInitializer
 
         BBSSettings.scaleHotkeyOrder
             .labels(
+                UIKeys.TRANSFORMS_TARGET_ALL,
                 IKey.constant("X"),
                 IKey.constant("Y"),
                 IKey.constant("Z")
             )
-            .colors(Colors.A100 | Colors.RED, Colors.A100 | Colors.GREEN, Colors.A100 | Colors.BLUE);
+            .colors(0, Colors.A100 | Colors.RED, Colors.A100 | Colors.GREEN, Colors.A100 | Colors.BLUE);
 
         BBSSettings.rotateHotkeyOrder
             .labels(
