@@ -1530,6 +1530,7 @@
 	"bbs.ui.transforms.scale": "Размер",
 	"bbs.ui.transforms.space.global": "Глобально",
 	"bbs.ui.transforms.space.local": "Локально",
+	"bbs.ui.transforms.target.all": "Все оси",
 	"bbs.ui.transforms.target.screen": "Экран",
 	"bbs.ui.transforms.target.sphere": "Сфера",
 	"bbs.ui.transforms.target.view": "Взгляд",
