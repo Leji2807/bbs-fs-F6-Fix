@@ -1535,6 +1535,7 @@
 	"bbs.ui.transforms.scale": "Scale",
 	"bbs.ui.transforms.space.global": "Global",
 	"bbs.ui.transforms.space.local": "Local",
+	"bbs.ui.transforms.target.all": "All axes",
 	"bbs.ui.transforms.target.screen": "Screen",
 	"bbs.ui.transforms.target.sphere": "Sphere",
 	"bbs.ui.transforms.target.view": "View",
