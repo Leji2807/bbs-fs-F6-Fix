@@ -34,9 +34,11 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.Framebuffer;
 import net.minecraft.client.gl.WindowFramebuffer;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.util.Window;
 import net.minecraft.client.util.math.MatrixStack;
+import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL30;
 import org.slf4j.Logger;
@@ -72,6 +74,12 @@ public class BBSRendering
 
     private static int width;
     private static int height;
+
+    /* Orbit distance for the orthographic projection; negative = perspective.
+     * Re-armed every frame by the film editor's orbit camera (which is set up
+     * from Camera#update, between renderWorld's HEAD and its projection use),
+     * so it can never go stale when another controller takes over. */
+    private static float orthoDistance = -1F;
 
     private static boolean toggleFramebuffer;
     private static Framebuffer framebuffer;
@@ -343,6 +351,20 @@ public class BBSRendering
 
     public static void onWorldRenderBegin()
     {
+        if (orthoDistance > 0F)
+        {
+            /* Give back the culling disabled for the previous ortho frame
+             * (see setOrthoDistance); re-armed by the orbit if still on. */
+            MinecraftClient.getInstance().chunkCullingEnabled = true;
+
+            if (sodium)
+            {
+                SodiumUtils.restorePointCameraCulling();
+            }
+        }
+
+        orthoDistance = -1F;
+
         MinecraftClient mc = MinecraftClient.getInstance();
         BBSModClient.getFilms().startRenderFrame(mc.getTickDelta());
 
@@ -549,6 +571,70 @@ public class BBSRendering
     public static boolean isRenderingWorld()
     {
         return renderingWorld;
+    }
+
+    /**
+     * Arm the orthographic projection for the current frame. Pass the orbit
+     * camera's distance to the pivot; negative disables. The value is reset
+     * at the beginning of every world render, so the caller must re-arm it
+     * each frame for as long as ortho should stay on.
+     */
+    public static void setOrthoDistance(float distance)
+    {
+        orthoDistance = distance;
+
+        if (distance > 0F)
+        {
+            /* The chunk occlusion culling walks sections outward from the
+             * camera POINT, which is only sound for a perspective projection —
+             * under ortho's parallel sightlines it over-culls sections near
+             * the screen edges. Disable it for the frame (Sodium honours the
+             * same flag); the frustum and render distance still cull. Sodium's
+             * own point-camera heuristics get the same treatment. */
+            MinecraftClient.getInstance().chunkCullingEnabled = false;
+
+            if (sodium)
+            {
+                SodiumUtils.disablePointCameraCulling();
+            }
+        }
+    }
+
+    public static boolean isOrthoActive()
+    {
+        return orthoDistance > 0F;
+    }
+
+    /**
+     * Build the orthographic projection replacing the given perspective one
+     * (returns the input untouched when ortho is not armed). FOV and aspect are
+     * derived from the perspective matrix itself, so the ortho frame height
+     * matches the perspective frame height at the orbit pivot's distance: the
+     * subject keeps its size when toggling projections, and the scroll zoom
+     * keeps working through the orbit distance.
+     *
+     * @param minHalfHeight a lower bound on the frame's half height; the
+     *        frustum culling matrix is built with a loose bound so culling
+     *        stays conservative when zoomed all the way in.
+     */
+    public static Matrix4f getOrthoProjection(GameRenderer renderer, Matrix4f perspective, float minHalfHeight)
+    {
+        if (orthoDistance <= 0F)
+        {
+            return perspective;
+        }
+
+        float tanHalfFov = 1F / perspective.m11();
+        float aspect = perspective.m11() / perspective.m00();
+        float halfHeight = Math.max(minHalfHeight, orthoDistance * tanHalfFov);
+        float halfWidth = halfHeight * aspect;
+        float far = renderer.getFarPlaneDistance() * 4F;
+
+        /* The near plane goes negative (geometry behind the camera plane still
+         * renders): under ortho the near plane slices across the WHOLE frame,
+         * so a positive one visibly eats a subject the camera gets close to
+         * long before the camera is actually inside it. */
+        return new Matrix4f().setOrtho(-halfWidth, halfWidth, -halfHeight, halfHeight, -far, far);
     }
 
     public static boolean isIrisShadersEnabled()

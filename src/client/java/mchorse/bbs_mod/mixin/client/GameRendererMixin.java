@@ -1,5 +1,7 @@
 package mchorse.bbs_mod.mixin.client;
 
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.systems.VertexSorter;
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.camera.controller.CameraController;
 import mchorse.bbs_mod.camera.controller.ICameraController;
@@ -10,10 +12,12 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.RotationAxis;
+import org.joml.Matrix4f;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
@@ -86,6 +90,45 @@ public class GameRendererMixin
     private void onWorldRenderBegin(CallbackInfo callbackInfo)
     {
         BBSRendering.onWorldRenderBegin();
+    }
+
+    /**
+     * These two injections substitute an orthographic projection when the film
+     * editor's orbit camera asks for one (see BBSRendering#getOrthoProjection).
+     * The frustum culling matrix gets a loose lower bound on the frame size so
+     * culling stays conservative when zoomed all the way in.
+     */
+    @ModifyArg(
+        method = "renderWorld",
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/client/render/WorldRenderer;setupFrustum(Lnet/minecraft/client/util/math/MatrixStack;Lnet/minecraft/util/math/Vec3d;Lorg/joml/Matrix4f;)V"
+        ),
+        index = 2
+    )
+    private Matrix4f onSetupFrustumProjection(Matrix4f projection)
+    {
+        return BBSRendering.getOrthoProjection((GameRenderer) (Object) this, projection, 20F);
+    }
+
+    @ModifyArg(
+        method = "renderWorld",
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/client/render/WorldRenderer;render(Lnet/minecraft/client/util/math/MatrixStack;FJZLnet/minecraft/client/render/Camera;Lnet/minecraft/client/render/GameRenderer;Lnet/minecraft/client/render/LightmapTextureManager;Lorg/joml/Matrix4f;)V"
+        ),
+        index = 7
+    )
+    private Matrix4f onRenderProjection(Matrix4f projection)
+    {
+        Matrix4f ortho = BBSRendering.getOrthoProjection((GameRenderer) (Object) this, projection, 0F);
+
+        if (ortho != projection)
+        {
+            RenderSystem.setProjectionMatrix(ortho, VertexSorter.BY_Z);
+        }
+
+        return ortho;
     }
 
     @Inject(at = @At("RETURN"), method = "renderWorld")

@@ -11,6 +11,7 @@ import org.joml.Vector3i;
 
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.camera.Camera;
+import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.camera.controller.ICameraController;
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.film.BaseFilmController;
@@ -75,6 +76,7 @@ public class OrbitFilmCameraController implements ICameraController
      * moves the camera.
      */
     private boolean attached = true;
+    private boolean ortho;
     private Replay anchorReplay;
     private final Vector3d anchorPosition = new Vector3d();
     private float anchorYaw;
@@ -294,10 +296,12 @@ public class OrbitFilmCameraController implements ICameraController
     {
         Area viewport = this.controller.panel.preview.getViewport();
         Vector3d vector = new Vector3d();
-        Vector3d origin = new Vector3d(this.panState.camera.position).sub(this.panState.pivot.x, this.panState.pivot.y, this.panState.pivot.z);
-        Vector3d destination = new Vector3d(
-            this.panState.camera.getMouseDirection(context.mouseX, context.mouseY, viewport.x, viewport.y, viewport.w, viewport.h)
-        ).mul(Math.max(this.distance, MIN_DISTANCE) * 2F).add(origin);
+        Vector3f originOffset = new Vector3f();
+        Vector3f direction = this.panState.camera.getMouseRay(context.mouseX, context.mouseY, viewport.x, viewport.y, viewport.w, viewport.h, originOffset);
+        Vector3d origin = new Vector3d(this.panState.camera.position)
+            .add(originOffset.x, originOffset.y, originOffset.z)
+            .sub(this.panState.pivot.x, this.panState.pivot.y, this.panState.pivot.z);
+        Vector3d destination = new Vector3d(direction).mul(Math.max(this.distance, MIN_DISTANCE) * 2F).add(origin);
 
         Intersectiond.intersectLineSegmentPlane(
             origin.x,
@@ -319,6 +323,15 @@ public class OrbitFilmCameraController implements ICameraController
     @Override
     public void setup(Camera camera, float transition)
     {
+        /* Re-armed every frame: BBSRendering resets it at the start of every
+         * world render, so ortho turns itself off the moment the orbit stops
+         * driving the camera. Shaderpacks get the ortho matrix too — Iris
+         * captures gbufferProjection from the same WorldRenderer#render
+         * argument the mixin replaces, so pack math built on the matrices
+         * stays consistent (analytic perspective assumptions, e.g. the sky
+         * direction or depth linearization, are up to the pack). */
+        BBSRendering.setOrthoDistance(this.ortho ? this.distance : -1F);
+
         this.updateAnchor(transition);
 
         if (!this.positioned)
@@ -366,6 +379,16 @@ public class OrbitFilmCameraController implements ICameraController
             this.targetPivot.set(this.toLocal(replay));
             this.positioned = true;
         }
+    }
+
+    public boolean isOrtho()
+    {
+        return this.ortho;
+    }
+
+    public void toggleOrtho()
+    {
+        this.ortho = !this.ortho;
     }
 
     public boolean isAttached()

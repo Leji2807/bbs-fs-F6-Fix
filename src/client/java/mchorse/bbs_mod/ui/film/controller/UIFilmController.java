@@ -165,6 +165,11 @@ public class UIFilmController extends UIElement implements GizmoViewport
             this.toggleOrbitAttachment();
             UIUtils.playClick();
         }).strict().active(() -> this.getPovMode() == CAMERA_MODE_ORBIT).category(category);
+        this.keys().register(Keys.FILM_CONTROLLER_TOGGLE_ORTHO, () ->
+        {
+            this.orbit.toggleOrtho();
+            UIUtils.playClick();
+        }).strict().active(() -> this.getPovMode() == CAMERA_MODE_ORBIT).category(category);
         this.keys().register(Keys.FILM_CONTROLLER_TOGGLE_REPLAY_MENU, this::toggleReplayMenu).category(category);
         this.keys().register(Keys.FILM_CONTROLLER_MOVE_REPLAY_TO_CURSOR, () ->
         {
@@ -173,10 +178,13 @@ public class UIFilmController extends UIElement implements GizmoViewport
             World world = MinecraftClient.getInstance().world;
             Camera camera = this.panel.getCamera();
 
+            Vector3f rayOffset = new Vector3f();
+            Vector3f rayDirection = camera.getMouseRay(context.mouseX, context.mouseY, area.x, area.y, area.w, area.h, rayOffset);
+
             HitResult result = RayTracing.rayTrace(
                 world,
-                RayTracing.fromVector3d(camera.position),
-                RayTracing.fromVector3f(camera.getMouseDirection(context.mouseX, context.mouseY, area.x, area.y, area.w, area.h)),
+                RayTracing.fromVector3d(new Vector3d(camera.position).add(rayOffset.x, rayOffset.y, rayOffset.z)),
+                RayTracing.fromVector3f(rayDirection),
                 512F
             );
 

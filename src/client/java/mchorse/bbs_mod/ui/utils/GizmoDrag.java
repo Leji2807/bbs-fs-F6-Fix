@@ -205,7 +205,10 @@ public class GizmoDrag
      */
     public boolean intersectPlane(int mouseX, int mouseY, Vector3f planeNormal, Vector3d out)
     {
-        Vector3f dir = this.rayDirection(mouseX, mouseY, new Vector3f());
+        /* Projection-agnostic ray: under ortho the direction is constant and
+         * the per-pixel shift lives in the origin offset instead. */
+        Vector3f originOffset = new Vector3f();
+        Vector3f dir = CameraUtils.getMouseRay(this.projection, this.view, mouseX, mouseY, this.viewportX, this.viewportY, this.viewportW, this.viewportH, originOffset);
         double denom = dir.x * planeNormal.x + dir.y * planeNormal.y + dir.z * planeNormal.z;
 
         if (Math.abs(denom) < PARALLEL_EPSILON)
@@ -213,16 +216,20 @@ public class GizmoDrag
             return false;
         }
 
-        double t = ((this.gizmoOrigin.x - this.cameraOrigin.x) * planeNormal.x
-            + (this.gizmoOrigin.y - this.cameraOrigin.y) * planeNormal.y
-            + (this.gizmoOrigin.z - this.cameraOrigin.z) * planeNormal.z) / denom;
+        double originX = this.cameraOrigin.x + originOffset.x;
+        double originY = this.cameraOrigin.y + originOffset.y;
+        double originZ = this.cameraOrigin.z + originOffset.z;
+
+        double t = ((this.gizmoOrigin.x - originX) * planeNormal.x
+            + (this.gizmoOrigin.y - originY) * planeNormal.y
+            + (this.gizmoOrigin.z - originZ) * planeNormal.z) / denom;
 
         if (t <= 0D)
         {
             return false;
         }
 
-        out.set(this.cameraOrigin.x + dir.x * t, this.cameraOrigin.y + dir.y * t, this.cameraOrigin.z + dir.z * t);
+        out.set(originX + dir.x * t, originY + dir.y * t, originZ + dir.z * t);
 
         return true;
     }
