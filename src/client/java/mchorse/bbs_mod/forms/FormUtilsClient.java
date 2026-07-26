@@ -29,17 +29,17 @@ import mchorse.bbs_mod.forms.renderers.ParticleFormRenderer;
 import mchorse.bbs_mod.forms.renderers.TrailFormRenderer;
 import mchorse.bbs_mod.forms.renderers.VanillaParticleFormRenderer;
 import mchorse.bbs_mod.ui.framework.UIContext;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.TexturedRenderLayers;
+import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.model.ModelLoader;
-import net.minecraft.util.Util;
+import net.minecraft.client.util.BufferAllocator;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.SortedMap;
+import java.util.SequencedMap;
 import java.util.Stack;
 
 public class FormUtilsClient
@@ -64,14 +64,54 @@ public class FormUtilsClient
         register(FramebufferForm.class, FramebufferFormRenderer::new);
     }
 
+    /**
+     * Forms must render into buffers of their own rather than into Minecraft's shared entity
+     * consumers. Form renderers flush the provider themselves and install a {@link
+     * CustomVertexConsumerProvider#hijackVertexFormat(java.util.function.Consumer)} hook that
+     * overrides GL state (custom texture, picker shader, blending) per drawn layer. On the shared
+     * provider that hook also fires for whatever the world or the GUI had buffered but not yet
+     * drawn, so the state lands on somebody else's geometry — e.g. a mob form's custom texture
+     * ends up on an unrelated layer instead of the mob, since it only applies to the first drawn
+     * layer. Own buffers guarantee that everything drawn while the hook is installed belongs to
+     * the form being rendered.
+     */
     public static CustomVertexConsumerProvider getProvider()
     {
         if (customVertexConsumerProvider == null)
         {
-            customVertexConsumerProvider = new CustomVertexConsumerProvider(MinecraftClient.getInstance().getBufferBuilders().getEntityVertexConsumers());
+            SequencedMap<RenderLayer, BufferAllocator> layers = new Object2ObjectLinkedOpenHashMap<>();
+
+            assignAllocator(layers, TexturedRenderLayers.getEntitySolid());
+            assignAllocator(layers, TexturedRenderLayers.getEntityCutout());
+            assignAllocator(layers, TexturedRenderLayers.getBannerPatterns());
+            assignAllocator(layers, TexturedRenderLayers.getEntityTranslucentCull());
+            assignAllocator(layers, TexturedRenderLayers.getShieldPatterns());
+            assignAllocator(layers, TexturedRenderLayers.getBeds());
+            assignAllocator(layers, TexturedRenderLayers.getShulkerBoxes());
+            assignAllocator(layers, TexturedRenderLayers.getSign());
+            assignAllocator(layers, TexturedRenderLayers.getHangingSign());
+            assignAllocator(layers, TexturedRenderLayers.getChest());
+            assignAllocator(layers, RenderLayer.getArmorEntityGlint());
+            assignAllocator(layers, RenderLayer.getGlint());
+            assignAllocator(layers, RenderLayer.getGlintTranslucent());
+            assignAllocator(layers, RenderLayer.getEntityGlint());
+            assignAllocator(layers, RenderLayer.getDirectEntityGlint());
+            assignAllocator(layers, RenderLayer.getWaterMask());
+
+            for (RenderLayer layer : ModelLoader.BLOCK_DESTRUCTION_RENDER_LAYERS)
+            {
+                assignAllocator(layers, layer);
+            }
+
+            customVertexConsumerProvider = new CustomVertexConsumerProvider(VertexConsumerProvider.immediate(layers, new BufferAllocator(1536)));
         }
 
         return customVertexConsumerProvider;
+    }
+
+    private static void assignAllocator(SequencedMap<RenderLayer, BufferAllocator> layers, RenderLayer layer)
+    {
+        layers.put(layer, new BufferAllocator(layer.getExpectedBufferSize()));
     }
 
     public static <T extends Form> void register(Class<T> clazz, IFormRendererFactory<T> function)
