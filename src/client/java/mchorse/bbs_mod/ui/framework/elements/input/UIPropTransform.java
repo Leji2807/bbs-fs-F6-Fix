@@ -168,6 +168,13 @@ public class UIPropTransform extends UITransform
             field.getEvents().register(UITrackpadDragEndEvent.class, (e) -> this.endGesture());
         }
 
+        /* The deferred uniform-scale row sync (see setTransform). Mouse events traverse
+         * children by index, so restructuring the row here is safe, unlike mid-render. */
+        for (UITrackpad field : new UITrackpad[]{this.sx, this.sy, this.sz})
+        {
+            field.getEvents().register(UITrackpadDragEndEvent.class, (e) -> this.syncUniformScaleRow());
+        }
+
         this.noCulling();
     }
 
@@ -607,6 +614,32 @@ public class UIPropTransform extends UITransform
         this.setTransform(this.getTransform());
     }
 
+    private boolean isScaleFieldDragging()
+    {
+        return this.sx.isDragging() || this.sy.isDragging() || this.sz.isDragging();
+    }
+
+    /**
+     * Collapse the scale row when all three scale coordinates are equal, expand it when
+     * they differ (the {@link BBSSettings#uniformScale} option). Compared against the
+     * row's own state — not {@link #isUniformScale()}, which is the SPACE/RMB field
+     * linking — so matching states are a no-op instead of a blind toggle.
+     */
+    private void syncUniformScaleRow()
+    {
+        if (this.transform == null || !BBSSettings.uniformScale.get())
+        {
+            return;
+        }
+
+        Vector3f scale = this.transform.scale;
+
+        if ((scale.x == scale.y && scale.y == scale.z) != this.isScaleRowCollapsed())
+        {
+            this.toggleUniformScale();
+        }
+    }
+
     public void setTransform(Transform transform)
     {
         this.transform = transform;
@@ -625,24 +658,16 @@ public class UIPropTransform extends UITransform
             return;
         }
 
-        /* The uniform-scale auto-sync restructures the scale row (removeAll/add).
-         * That must never run while a drag is being simulated inside render(): mutating
-         * the element tree mid-traversal throws ConcurrentModificationException (only when
-         * uniformScale is on and the scale crosses the uniform boundary during a drag —
-         * hence the intermittent crash). During a live drag the row also shouldn't relayout
-         * under the cursor. The sync runs when a transform is loaded into the panel
-         * (editing == false) and once more when the gesture ends via disable(). */
-        if (!this.editing && BBSSettings.uniformScale.get())
+        /* The uniform-scale auto-sync restructures the scale row (removeAll/add), and a
+         * scale trackpad applies its drag from inside render() (through the delta editor
+         * this loops right back here): mutating the element tree mid-traversal throws
+         * ConcurrentModificationException. So the sync is deferred past any live gesture —
+         * a gizmo/hotkey edit (editing) or a scale-field drag — and runs when a transform
+         * is loaded into the panel, plus once more when the gesture ends (disable() for
+         * hotkey edits, the drag-end listeners in the constructor for field drags). */
+        if (!this.editing && !this.isScaleFieldDragging())
         {
-            float minScale = Math.min(transform.scale.x, Math.min(transform.scale.y, transform.scale.z));
-            float maxScale = Math.max(transform.scale.x, Math.max(transform.scale.y, transform.scale.z));
-
-            if (
-                (minScale == maxScale && !this.isUniformScale()) ||
-                (minScale != maxScale && this.isUniformScale())
-            ) {
-                this.toggleUniformScale();
-            }
+            this.syncUniformScaleRow();
         }
 
         this.fillT(transform.translate.x, transform.translate.y, transform.translate.z);
