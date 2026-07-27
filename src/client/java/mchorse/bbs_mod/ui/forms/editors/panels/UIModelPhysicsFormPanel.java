@@ -17,6 +17,7 @@ import mchorse.bbs_mod.ui.framework.elements.UISection;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
+import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
 import mchorse.bbs_mod.ui.utils.UI;
@@ -46,23 +47,23 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
     public UIButton targetBone;
     public UIStringList bones;
     public UIToggle enabled;
-    public UITrackpad gravity;
+    public UISliderTrackpad gravity;
     public UIToggle relativeGravity;
     public UITrackpad relativeGravityRotateX;
     public UITrackpad relativeGravityRotateY;
     public UITrackpad relativeGravityRotateZ;
-    public UITrackpad stiffness;
-    public UITrackpad damping;
+    public UISliderTrackpad stiffness;
+    public UISliderTrackpad damping;
     public UITrackpad iterations;
     public UIToggle collisions;
-    public UITrackpad radius;
-    public UITrackpad windStrength;
+    public UISliderTrackpad radius;
+    public UISliderTrackpad windStrength;
     public UITrackpad windX;
     public UITrackpad windY;
     public UITrackpad windZ;
-    public UITrackpad windTurbulence;
-    public UITrackpad windTurbulenceSpeed;
-    public UITrackpad windTurbulenceScale;
+    public UISliderTrackpad windTurbulence;
+    public UISliderTrackpad windTurbulenceSpeed;
+    public UISliderTrackpad windTurbulenceScale;
     public UIToggle windLocal;
 
     private List<String> availableBones = Collections.emptyList();
@@ -167,7 +168,7 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
             this.commitChanges();
         });
 
-        this.gravity = new UITrackpad((v) ->
+        this.gravity = new UISliderTrackpad((v) ->
         {
             if (this.syncingUI)
             {
@@ -247,7 +248,7 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
             }
         }, Colors.BLUE, axis.format(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_RELATIVE_GRAVITY_ROTATION, UIKeys.GENERAL_Z));
 
-        this.stiffness = new UITrackpad((v) ->
+        this.stiffness = new UISliderTrackpad((v) ->
         {
             if (this.syncingUI)
             {
@@ -265,7 +266,7 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
         this.stiffness.onlyNumbers().values(0.05D, 0.01D, 0.2D).increment(0.01D).limit(0D, 1D);
         this.stiffness.tooltip(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_STIFFNESS);
 
-        this.damping = new UITrackpad((v) ->
+        this.damping = new UISliderTrackpad((v) ->
         {
             if (this.syncingUI)
             {
@@ -317,7 +318,7 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
             }
         });
 
-        this.radius = new UITrackpad((v) ->
+        this.radius = new UISliderTrackpad((v) ->
         {
             if (this.syncingUI)
             {
@@ -335,7 +336,7 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
         this.radius.onlyNumbers().values(0.05D, 0.01D, 0.2D).increment(0.01D).limit(0D, 1D);
         this.radius.tooltip(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_RADIUS);
 
-        this.windStrength = new UITrackpad((v) ->
+        this.windStrength = new UISliderTrackpad((v) ->
         {
             if (this.syncingUI)
             {
@@ -379,7 +380,7 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
             this.commitChanges();
         }, Colors.BLUE);
 
-        this.windTurbulence = new UITrackpad((v) ->
+        this.windTurbulence = new UISliderTrackpad((v) ->
         {
             if (this.syncingUI)
             {
@@ -392,7 +393,7 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
         this.windTurbulence.onlyNumbers().values(0.05D, 0.01D, 0.2D).increment(0.05D).limit(0D, 1D);
         this.windTurbulence.tooltip(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_WIND_TURBULENCE);
 
-        this.windTurbulenceSpeed = new UITrackpad((v) ->
+        this.windTurbulenceSpeed = new UISliderTrackpad((v) ->
         {
             if (this.syncingUI)
             {
@@ -405,7 +406,7 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
         this.windTurbulenceSpeed.onlyNumbers().values(0.1D, 0.05D, 0.5D).increment(0.1D).limit(0D, 10D);
         this.windTurbulenceSpeed.tooltip(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_WIND_TURBULENCE_SPEED);
 
-        this.windTurbulenceScale = new UITrackpad((v) ->
+        this.windTurbulenceScale = new UISliderTrackpad((v) ->
         {
             if (this.syncingUI)
             {

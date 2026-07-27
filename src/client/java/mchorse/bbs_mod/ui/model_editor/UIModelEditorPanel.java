@@ -47,6 +47,7 @@ import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcons;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UISimpleTransform;
 import mchorse.bbs_mod.ui.framework.elements.input.UITexturePicker;
+import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.text.UITextbox;
 import mchorse.bbs_mod.ui.framework.elements.overlay.UIOverlay;
@@ -1418,9 +1419,9 @@ public class UIModelEditorPanel extends UIDataDashboardPanel<ModelConfig>
         return trackpad;
     }
 
-    private UITrackpad weldFalloff(WeldValue weld)
+    private UISliderTrackpad weldFalloff(WeldValue weld)
     {
-        UITrackpad trackpad = new UITrackpad((v) ->
+        UISliderTrackpad trackpad = new UISliderTrackpad((v) ->
         {
             weld.seamFalloff.set(v.floatValue());
             this.invalidateWelds();
@@ -1433,9 +1434,9 @@ public class UIModelEditorPanel extends UIDataDashboardPanel<ModelConfig>
         return trackpad;
     }
 
-    private UITrackpad weldShare(WeldValue weld)
+    private UISliderTrackpad weldShare(WeldValue weld)
     {
-        UITrackpad trackpad = new UITrackpad((v) ->
+        UISliderTrackpad trackpad = new UISliderTrackpad((v) ->
         {
             weld.parentShare.set(v.floatValue());
             this.invalidateWelds();

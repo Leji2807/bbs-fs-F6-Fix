@@ -6,7 +6,7 @@ import mchorse.bbs_mod.ui.UIKeys;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UIColor;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
-import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
+import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframeSheet;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframes;
@@ -19,7 +19,7 @@ import java.util.function.Consumer;
 
 public class UIPoseTransformKeyframeFactory extends UIKeyframeFactory<PoseTransform>
 {
-    public UITrackpad fix;
+    public UISliderTrackpad fix;
     public UIColor color;
     public UIToggle lighting;
     public UIPropTransform transform;
@@ -34,7 +34,7 @@ public class UIPoseTransformKeyframeFactory extends UIKeyframeFactory<PoseTransf
 
         this.keys().register(Keys.TRANSFORMATIONS_TOGGLE_FIX, this::toggleFix).category(UIKeys.TRANSFORMS_KEYS_CATEGORY);
 
-        this.fix = new UITrackpad((v) ->
+        this.fix = new UISliderTrackpad((v) ->
         {
             if (this.transform.getTransform() instanceof PoseTransform)
             {

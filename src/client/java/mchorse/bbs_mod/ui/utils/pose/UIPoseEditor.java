@@ -11,7 +11,7 @@ import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UIColor;
 import mchorse.bbs_mod.ui.framework.elements.input.UIDeltaPropTransform;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
-import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
+import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
@@ -43,7 +43,7 @@ public class UIPoseEditor extends UIElement
     private static final int MIN_LIST_HEIGHT = UIStringList.DEFAULT_HEIGHT * 4;
 
     public UIBoneList groups;
-    public UITrackpad fix;
+    public UISliderTrackpad fix;
     public UIColor color;
     public UIToggle lighting;
     public UIPropTransform transform;
@@ -68,7 +68,7 @@ public class UIPoseEditor extends UIElement
 
             return menu;
         });
-        this.fix = new UITrackpad((v) -> this.applyFixToSelection(v.floatValue()));
+        this.fix = new UISliderTrackpad((v) -> this.applyFixToSelection(v.floatValue()));
         this.fix.limit(0D, 1D).increment(0.1D).values(0.1, 0.05D, 0.2D);
         this.fix.tooltip(UIKeys.POSE_CONTEXT_FIX_TOOLTIP);
         this.fix.context((menu) ->

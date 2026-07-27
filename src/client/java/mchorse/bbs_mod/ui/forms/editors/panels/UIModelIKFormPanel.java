@@ -17,6 +17,7 @@ import mchorse.bbs_mod.ui.framework.elements.UISection;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
+import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
 import mchorse.bbs_mod.ui.utils.UI;
@@ -44,8 +45,8 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     public UIToggle pole;
     public UIButton poleTarget;
     public UITrackpad poleAngle;
-    public UITrackpad softness;
-    public UITrackpad weight;
+    public UISliderTrackpad softness;
+    public UISliderTrackpad weight;
     public UIToggle tipRotation;
 
     public UIToggle lockX;
@@ -60,9 +61,9 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     public UITrackpad limitMaxY;
     public UITrackpad limitMinZ;
     public UITrackpad limitMaxZ;
-    public UITrackpad stiffnessX;
-    public UITrackpad stiffnessY;
-    public UITrackpad stiffnessZ;
+    public UISliderTrackpad stiffnessX;
+    public UISliderTrackpad stiffnessY;
+    public UISliderTrackpad stiffnessZ;
     public UIToggle stretch;
 
     private String selectedBone = "";
@@ -236,7 +237,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.poleAngle.limit(-180D, 180D).increment(5D).values(1D, 0.5D, 5D);
         this.poleAngle.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_POLE_ANGLE);
 
-        this.softness = new UITrackpad((v) ->
+        this.softness = new UISliderTrackpad((v) ->
         {
             if (this.syncingUI || this.selectedBone.isEmpty())
             {
@@ -250,7 +251,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.softness.limit(0D, 1D).increment(0.05D).values(0.05D, 0.01D, 0.1D);
         this.softness.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_SOFTNESS);
 
-        this.weight = new UITrackpad((v) ->
+        this.weight = new UISliderTrackpad((v) ->
         {
             if (this.syncingUI || this.selectedBone.isEmpty())
             {
@@ -376,7 +377,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 
     private UITrackpad jointDegrees(IKey tooltip, BiConsumer<JointData, Float> setter)
     {
-        UITrackpad pad = this.jointPad(setter);
+        UITrackpad pad = new UITrackpad(this.jointCallback(setter));
 
         pad.limit(-180D, 180D).increment(5D).values(1D, 0.5D, 5D);
         pad.tooltip(tooltip);
@@ -384,9 +385,9 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         return pad;
     }
 
-    private UITrackpad jointStiffness(BiConsumer<JointData, Float> setter)
+    private UISliderTrackpad jointStiffness(BiConsumer<JointData, Float> setter)
     {
-        UITrackpad pad = this.jointPad(setter);
+        UISliderTrackpad pad = new UISliderTrackpad(this.jointCallback(setter));
 
         pad.limit(0D, 1D).increment(0.1D).values(0.1D, 0.05D, 0.2D);
         pad.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS);
@@ -394,9 +395,9 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         return pad;
     }
 
-    private UITrackpad jointPad(BiConsumer<JointData, Float> setter)
+    private Consumer<Double> jointCallback(BiConsumer<JointData, Float> setter)
     {
-        return new UITrackpad((v) ->
+        return (v) ->
         {
             if (this.syncingUI || this.selectedBone.isEmpty())
             {
@@ -405,7 +406,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 
             setter.accept(this.getOrCreateJoint(this.selectedBone), v.floatValue());
             this.commitChanges();
-        });
+        };
     }
 
     private JointData getOrCreateJoint(String bone)
