@@ -673,10 +673,12 @@ public class OrbitFilmCameraController implements ICameraController
      * navigation ball displays. Yaw is unwrapped to the closest turn, so the
      * camera never spins the long way around.
      *
-     * The snap turns the orthographic projection on: an axis view is asked for
-     * to read the pose as a blueprint (front, side, top), and perspective
-     * skews exactly the alignment it is being read for. Orbiting away turns it
-     * back off, unless the user had turned it on themselves.
+     * The snap turns the orthographic projection on (editorOrbitAxisOrtho): an
+     * axis view is asked for to read the pose as a blueprint (front, side,
+     * top), and perspective skews exactly the alignment it is being read for.
+     * Orbiting away turns it back off, unless the user had turned it on
+     * themselves — and with the setting off nothing arms autoOrtho in the
+     * first place, so the projection is left alone in both directions.
      */
     public void snapToAxis(int x, int y, int z)
     {
@@ -699,7 +701,7 @@ public class OrbitFilmCameraController implements ICameraController
 
         this.targetRotation.set(pitch, yaw);
 
-        if (!this.ortho)
+        if (!this.ortho && BBSSettings.editorOrbitAxisOrtho.get())
         {
             this.ortho = true;
             this.autoOrtho = true;
