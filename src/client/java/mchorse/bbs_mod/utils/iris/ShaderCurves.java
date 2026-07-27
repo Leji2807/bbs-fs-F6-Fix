@@ -135,7 +135,7 @@ public class ShaderCurves
     private static Map<String, ShaderVariable> parseVariables(String source)
     {
         Map<String, ShaderVariable> variables = new HashMap<>();
-        Pattern definePattern = Pattern.compile("^\\s*(?!//)\\s*#define[ \\t]+([\\w_]+)[ \\t]+([-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?)[ \\t]*//[ \\t]*(\\[|OptionAnnotatedSource)");
+        Pattern definePattern = Pattern.compile("^\\s*(?!//)\\s*#define +([\\w_]+) +([\\d.]+) *// *(\\[|OptionAnnotatedSource)");
         int index = 0;
 
         while ((index = source.indexOf("#define", index)) != -1)
@@ -155,7 +155,7 @@ public class ShaderCurves
             {
                 String name = matcher.group(1);
                 String defaultValue = matcher.group(2);
-                boolean integer = !defaultValue.contains(".") && !defaultValue.contains("e") && !defaultValue.contains("E");
+                boolean integer = !defaultValue.contains(".");
                 ShaderVariable variable = new ShaderVariable(name, defaultValue, integer);
 
                 variables.putIfAbsent(variable.name, variable);
