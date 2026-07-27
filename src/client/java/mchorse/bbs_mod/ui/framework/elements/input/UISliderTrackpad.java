@@ -20,9 +20,10 @@ import mchorse.bbs_mod.utils.colors.Colors;
  * Pressing the track puts the value under the cursor at once and keeps it there
  * for the rest of the drag, while pressing the handle itself grabs it where it
  * stands. Since the left button is spent on that, the value is typed by hand
- * through the middle button instead. Modifiers refine the travel rather than
- * scale a step: shift slows it down, alt slows it further, and ctrl snaps onto
- * {@link #increment}. Arrow keys and the wheel still move by the step fields.
+ * through the middle button instead, which brings it up selected. Modifiers
+ * refine the travel rather than scale a step: shift slows it down, alt slows it
+ * further, and ctrl snaps onto {@link #increment}. Arrow keys and the wheel
+ * still move by the step fields.
  *
  * Given no finite limits there is no track to travel along, so the drag falls
  * back to a trackpad's relative one rather than leaving the element inert.
@@ -257,10 +258,12 @@ public class UISliderTrackpad extends UINumericInput<UISliderTrackpad>
         }
 
         /* The left button belongs to the track, so typing the value by hand
-         * lives on the middle one */
+         * lives on the middle one. The number comes up selected: reaching for
+         * this button means replacing it, not editing a digit of it */
         if (context.mouseButton == 2 && this.area.isInside(context))
         {
             context.focus(this);
+            this.selectAll(context);
 
             return true;
         }
