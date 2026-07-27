@@ -26,7 +26,8 @@ import java.util.Comparator;
  * Navigation ball in the bottom left corner of the film editor's preview
  * (like in Blender and other DCC apps). Available only in the orbit camera
  * mode: dragging the ball rotates the orbit, clicking an axis ball snaps
- * the camera to look along that world axis.
+ * the camera to look along that world axis (and switches the projection to
+ * orthographic, see {@link OrbitFilmCameraController#snapToAxis}).
  *
  * The ball is drawn from {@link UIFilmPanel#lastView}, so it always matches
  * the rendered frame, including the camera smoothing.

@@ -77,6 +77,10 @@ public class OrbitFilmCameraController implements ICameraController
      */
     private boolean attached = true;
     private boolean ortho;
+
+    /* Whether ortho was turned on by an axis snap rather than by the user, in
+     * which case orbiting away from the axis turns it back off (see rotate). */
+    private boolean autoOrtho;
     private Replay anchorReplay;
     private final Vector3d anchorPosition = new Vector3d();
     private float anchorYaw;
@@ -389,6 +393,10 @@ public class OrbitFilmCameraController implements ICameraController
     public void toggleOrtho()
     {
         this.ortho = !this.ortho;
+
+        /* Toggling by hand takes the projection away from the axis snap: it
+         * stays whatever the user set until they toggle it again. */
+        this.autoOrtho = false;
     }
 
     public boolean isAttached()
@@ -636,10 +644,25 @@ public class OrbitFilmCameraController implements ICameraController
 
     public void rotate(int dx, int dy)
     {
+        if (dx == 0 && dy == 0)
+        {
+            return;
+        }
+
         float orbitSpeed = this.controller.panel.dashboard.orbit.getAngleSpeed() * 4F;
 
         this.targetRotation.x = MathUtils.clamp(this.targetRotation.x - dy * orbitSpeed, -PITCH_LIMIT, PITCH_LIMIT);
         this.targetRotation.y -= dx * orbitSpeed;
+
+        /* Orbiting off the axis gives the perspective back: an ortho view is
+         * what an axis snap is for, but away from an axis it only costs the
+         * depth cues. A projection the user picked themselves is left alone
+         * (see autoOrtho). */
+        if (this.autoOrtho)
+        {
+            this.ortho = false;
+            this.autoOrtho = false;
+        }
     }
 
     /**
@@ -649,6 +672,11 @@ public class OrbitFilmCameraController implements ICameraController
      * an attached orbit it is the replay's space, matching the axes the
      * navigation ball displays. Yaw is unwrapped to the closest turn, so the
      * camera never spins the long way around.
+     *
+     * The snap turns the orthographic projection on: an axis view is asked for
+     * to read the pose as a blueprint (front, side, top), and perspective
+     * skews exactly the alignment it is being read for. Orbiting away turns it
+     * back off, unless the user had turned it on themselves.
      */
     public void snapToAxis(int x, int y, int z)
     {
@@ -670,6 +698,12 @@ public class OrbitFilmCameraController implements ICameraController
         }
 
         this.targetRotation.set(pitch, yaw);
+
+        if (!this.ortho)
+        {
+            this.ortho = true;
+            this.autoOrtho = true;
+        }
     }
 
     /**
