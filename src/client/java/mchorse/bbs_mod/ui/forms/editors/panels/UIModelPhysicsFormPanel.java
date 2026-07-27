@@ -49,9 +49,9 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
     public UIToggle enabled;
     public UISliderTrackpad gravity;
     public UIToggle relativeGravity;
-    public UITrackpad relativeGravityRotateX;
-    public UITrackpad relativeGravityRotateY;
-    public UITrackpad relativeGravityRotateZ;
+    public UISliderTrackpad relativeGravityRotateX;
+    public UISliderTrackpad relativeGravityRotateY;
+    public UISliderTrackpad relativeGravityRotateZ;
     public UISliderTrackpad stiffness;
     public UISliderTrackpad damping;
     public UITrackpad iterations;
@@ -978,9 +978,9 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
         return out;
     }
 
-    private static UITrackpad axisTrackpad(Consumer<Double> callback, int color, IKey tooltip)
+    private static UISliderTrackpad axisTrackpad(Consumer<Double> callback, int color, IKey tooltip)
     {
-        UITrackpad t = new UITrackpad(callback).degrees().onlyNumbers().limit(-180D, 180D);
+        UISliderTrackpad t = new UISliderTrackpad(callback).degrees().onlyNumbers().limit(-180D, 180D);
         t.textbox.setColor(color);
         t.tooltip(tooltip);
         return t;

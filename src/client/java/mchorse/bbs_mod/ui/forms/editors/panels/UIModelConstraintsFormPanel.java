@@ -13,6 +13,7 @@ import mchorse.bbs_mod.ui.forms.editors.forms.UIForm;
 import mchorse.bbs_mod.ui.framework.elements.UISection;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
+import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
 import mchorse.bbs_mod.ui.utils.UI;
@@ -36,12 +37,12 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
     public UIStringList bones;
 
     public UIToggle enabled;
-    public UITrackpad minX;
-    public UITrackpad minY;
-    public UITrackpad minZ;
-    public UITrackpad maxX;
-    public UITrackpad maxY;
-    public UITrackpad maxZ;
+    public UISliderTrackpad minX;
+    public UISliderTrackpad minY;
+    public UISliderTrackpad minZ;
+    public UISliderTrackpad maxX;
+    public UISliderTrackpad maxY;
+    public UISliderTrackpad maxZ;
     public UIButton applyToChildren;
 
     private List<String> availableBones = Collections.emptyList();
@@ -119,9 +120,9 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
         );
     }
 
-    private static UITrackpad axisTrackpad(Consumer<Double> c, int color, IKey tooltip)
+    private static UISliderTrackpad axisTrackpad(Consumer<Double> c, int color, IKey tooltip)
     {
-        UITrackpad t = new UITrackpad(c).degrees().onlyNumbers().limit(-180D, 180D);
+        UISliderTrackpad t = new UISliderTrackpad(c).degrees().onlyNumbers().limit(-180D, 180D);
         t.textbox.setColor(color);
         t.tooltip(tooltip);
         return t;

@@ -44,7 +44,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     public UITrackpad chainLength;
     public UIToggle pole;
     public UIButton poleTarget;
-    public UITrackpad poleAngle;
+    public UISliderTrackpad poleAngle;
     public UISliderTrackpad softness;
     public UISliderTrackpad weight;
     public UIToggle tipRotation;
@@ -55,12 +55,12 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     public UIToggle limitX;
     public UIToggle limitY;
     public UIToggle limitZ;
-    public UITrackpad limitMinX;
-    public UITrackpad limitMaxX;
-    public UITrackpad limitMinY;
-    public UITrackpad limitMaxY;
-    public UITrackpad limitMinZ;
-    public UITrackpad limitMaxZ;
+    public UISliderTrackpad limitMinX;
+    public UISliderTrackpad limitMaxX;
+    public UISliderTrackpad limitMinY;
+    public UISliderTrackpad limitMaxY;
+    public UISliderTrackpad limitMinZ;
+    public UISliderTrackpad limitMaxZ;
     public UISliderTrackpad stiffnessX;
     public UISliderTrackpad stiffnessY;
     public UISliderTrackpad stiffnessZ;
@@ -223,7 +223,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             });
         });
 
-        this.poleAngle = new UITrackpad((v) ->
+        this.poleAngle = new UISliderTrackpad((v) ->
         {
             if (this.syncingUI || this.selectedBone.isEmpty())
             {
@@ -375,9 +375,9 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         });
     }
 
-    private UITrackpad jointDegrees(IKey tooltip, BiConsumer<JointData, Float> setter)
+    private UISliderTrackpad jointDegrees(IKey tooltip, BiConsumer<JointData, Float> setter)
     {
-        UITrackpad pad = new UITrackpad(this.jointCallback(setter));
+        UISliderTrackpad pad = new UISliderTrackpad(this.jointCallback(setter));
 
         pad.limit(-180D, 180D).increment(5D).values(1D, 0.5D, 5D);
         pad.tooltip(tooltip);
