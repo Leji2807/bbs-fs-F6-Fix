@@ -73,9 +73,10 @@ public class CameraUtils
         Vector3f direction = new Vector3f(far.x - near.x, far.y - near.y, far.z - near.z).normalize();
 
         /* Slide the origin along the ray onto the camera's plane: the ortho
-         * near plane is negative (see BBSRendering#getOrthoProjection), and an
-         * origin hundreds of blocks behind the camera would starve the finite
-         * segments the callers trace. Only the lateral shift is kept. */
+         * near plane does not sit at the camera (see
+         * BBSRendering#getOrthoProjection), and an origin that lands somewhere
+         * up or down the view axis would shift the finite segments the callers
+         * trace. Only the lateral shift is kept. */
         originOffset.set(near.x, near.y, near.z);
         originOffset.fma(-originOffset.dot(direction), direction);
 

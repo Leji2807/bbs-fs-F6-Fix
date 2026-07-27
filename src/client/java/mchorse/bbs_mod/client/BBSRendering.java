@@ -613,8 +613,9 @@ public class BBSRendering
      * subject keeps its size when toggling projections, and the scroll zoom
      * keeps working through the orbit distance.
      *
-     * @param minHalfHeight a lower bound on the frame's half height; the
-     *        frustum culling matrix is built with a loose bound so culling
+     * @param minHalfHeight a lower bound on the frame's half height, and the
+     *        slack behind the camera plane the near plane is given; the frustum
+     *        culling matrix is built with a loose bound on both, so culling
      *        stays conservative when zoomed all the way in.
      */
     public static Matrix4f getOrthoProjection(GameRenderer renderer, Matrix4f perspective, float minHalfHeight)
@@ -628,13 +629,27 @@ public class BBSRendering
         float aspect = perspective.m11() / perspective.m00();
         float halfHeight = Math.max(minHalfHeight, orthoDistance * tanHalfFov);
         float halfWidth = halfHeight * aspect;
-        float far = renderer.getFarPlaneDistance() * 4F;
 
-        /* The near plane goes negative (geometry behind the camera plane still
-         * renders): under ortho the near plane slices across the WHOLE frame,
-         * so a positive one visibly eats a subject the camera gets close to
-         * long before the camera is actually inside it. */
-        return new Matrix4f().setOrtho(-halfWidth, halfWidth, -halfHeight, halfHeight, -far, far);
+        /* The near plane sits exactly at the camera, the way a perspective one
+         * effectively does: under ortho's parallel sightlines everything BEHIND
+         * the camera projects into the frame as well, so a hillside the camera
+         * stands in paints itself over the subject, and no amount of orbiting
+         * gets past it. Clipping at the camera plane drops precisely what the
+         * eye has already passed and nothing the eye still faces — pushing the
+         * plane any further in would slice the ground in front of the camera
+         * and leave a hole where it was. Zooming in walks the camera towards
+         * the pivot, so the zoom doubles as the control over how much of an
+         * obstacle in front gets cut.
+         *
+         * The far plane is the one vanilla builds its perspective with, which
+         * already bounds everything the game draws; together with the near
+         * plane it keeps the box tight enough for the frustum to cull with,
+         * which matters here because chunk occlusion culling is off (see
+         * setOrthoDistance). */
+        float near = -minHalfHeight;
+        float far = renderer.getFarPlaneDistance();
+
+        return new Matrix4f().setOrtho(-halfWidth, halfWidth, -halfHeight, halfHeight, near, far);
     }
 
     public static boolean isIrisShadersEnabled()

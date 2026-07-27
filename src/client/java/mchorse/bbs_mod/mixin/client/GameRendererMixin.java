@@ -96,7 +96,9 @@ public class GameRendererMixin
      * These two injections substitute an orthographic projection when the film
      * editor's orbit camera asks for one (see BBSRendering#getOrthoProjection).
      * The frustum culling matrix gets a loose lower bound on the frame size so
-     * culling stays conservative when zoomed all the way in.
+     * culling stays conservative when zoomed all the way in; the same bound
+     * pushes its near plane back, so the frustum never culls a section the
+     * render would still have drawn.
      */
     @ModifyArg(
         method = "renderWorld",
