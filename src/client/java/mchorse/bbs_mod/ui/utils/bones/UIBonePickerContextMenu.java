@@ -64,6 +64,14 @@ public class UIBonePickerContextMenu extends UIContextMenu
         return this;
     }
 
+    /** Plain bone names without hierarchy — for forms whose bones have no model tree. */
+    public UIBonePickerContextMenu list(Collection<String> bones)
+    {
+        this.bones.fillFlat(bones);
+
+        return this;
+    }
+
     /** Add the "no bone" entry (empty id) on top. Call after the fill method. */
     public UIBonePickerContextMenu none()
     {

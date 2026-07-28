@@ -134,6 +134,9 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
     /** Armed viewport eyedropper (see {@link #startBonePicking}); null when idle. */
     private Consumer<Pair<Form, String>> bonePicking;
 
+    /** Upper part of the sidebar (toolbar + forms list); shrinks by the body part editor's height. */
+    private UIElement listSection;
+
     static
     {
         register(BillboardForm.class, UIBillboardForm::new);
@@ -214,8 +217,9 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
                 return current != null && current.part != null;
             });
 
-        UIElement listSection = new UIElement();
-        listSection.relative(this.forms).w(1F).h(0.5F);
+        this.listSection = new UIElement();
+        this.listSection.relative(this.forms).w(1F).h(1F);
+        UIElement listSection = this.listSection;
         UIElement listToolbarBg = new UIElement()
         {
             @Override
@@ -267,8 +271,10 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
         this.formsList.relative(listSection).y(20).h(1F, -20).w(1F);
         listSection.add(listToolbarBg, listToolbar, this.formsList);
 
+        /* Pinned to the sidebar's bottom at content height (see resizeSidebar) —
+         * the forms list above takes whatever the editor doesn't need. */
         this.bodyPartEditor = new UIBodyPartEditor(this);
-        this.bodyPartEditor.relative(this.forms).w(1F).y(0.5F).h(0.5F);
+        this.bodyPartEditor.relative(this.forms).w(1F).y(1F).h(0).anchorY(1F);
 
         this.formEditor = new UIElement();
         this.formEditor.full(this);
@@ -768,6 +774,7 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
         if (entry == null)
         {
             this.bodyPartEditor.setVisible(false);
+            this.resizeSidebar();
             return;
         }
 
@@ -778,7 +785,28 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
             this.bodyPartEditor.setPart(entry.part, entry.form);
         }
 
+        this.resizeSidebar();
         this.switchEditor(entry.getForm());
+    }
+
+    /**
+     * Fit the sidebar around the body part editor's actual content: the editor hugs
+     * the bottom at exactly its content height (capped at half the sidebar, the rest
+     * scrolls), the forms list gets everything above. A hidden editor releases the
+     * whole sidebar to the list — no half reserved for nothing.
+     */
+    private void resizeSidebar()
+    {
+        int h = 0;
+
+        if (this.bodyPartEditor.isVisible())
+        {
+            h = Math.min((int) this.bodyPartEditor.scroll.scrollSize, this.forms.area.h / 2);
+        }
+
+        this.bodyPartEditor.h(h);
+        this.listSection.h(1F, -h);
+        this.forms.resize();
     }
 
     public void openFormList(Form current, Consumer<Form> callback)
@@ -810,6 +838,7 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
         form = FormUtils.copy(form);
 
         this.bodyPartEditor.setVisible(false);
+        this.resizeSidebar();
 
         if (this.switchEditor(form))
         {
@@ -936,6 +965,10 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
     public void resize()
     {
         super.resize();
+
+        /* Window/layout changes re-derive the sidebar split from the content height
+         * the pass above just computed. */
+        this.resizeSidebar();
         this.updateFormListButtons();
     }
 

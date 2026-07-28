@@ -160,6 +160,19 @@ public class UIBoneTreeList extends UIStringList
     }
 
     /**
+     * Fill with a plain list of bone names, no hierarchy — the fallback for forms
+     * whose bones don't come from an {@link IModel} (e.g. mob forms' model parts).
+     */
+    public void fillFlat(Collection<String> bones)
+    {
+        this.clear();
+        this.resetMeta();
+
+        this.list.addAll(bones);
+        this.update();
+    }
+
+    /**
      * Fill from a form's attachment keys (see {@code FormRenderer.collectMatrices}):
      * every form in the body part tree becomes a header row, its model bones nest
      * under it in their own hierarchy order. The key set stays the source of truth —
