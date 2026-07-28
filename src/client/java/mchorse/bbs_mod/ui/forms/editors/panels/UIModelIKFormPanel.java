@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 {
@@ -54,9 +55,9 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     public UIToggle tipRotation;
     public UIToggle classic;
 
-    public UIToggle lockX;
-    public UIToggle lockY;
-    public UIToggle lockZ;
+    public UIIcon lockX;
+    public UIIcon lockY;
+    public UIIcon lockZ;
     public UIToggle limitX;
     public UIToggle limitY;
     public UIToggle limitZ;
@@ -345,9 +346,9 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 
         /* The selected bone's JOINT freedom — per axis: lock, limit (degrees), stiffness.
          * Per BONE, not per chain: a bone shared by several chains has one set of joints. */
-        this.lockX = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LOCK.format("X"), (d, v) -> d.lockX = v);
-        this.lockY = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LOCK.format("Y"), (d, v) -> d.lockY = v);
-        this.lockZ = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LOCK.format("Z"), (d, v) -> d.lockZ = v);
+        this.lockX = this.jointLock(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LOCK.format("X"), (d) -> d.lockX, (d, v) -> d.lockX = v);
+        this.lockY = this.jointLock(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LOCK.format("Y"), (d) -> d.lockY, (d, v) -> d.lockY = v);
+        this.lockZ = this.jointLock(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LOCK.format("Z"), (d) -> d.lockZ, (d, v) -> d.lockZ = v);
 
         this.limitX = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LIMIT.format("X"), (d, v) -> d.limitX = v);
         this.limitY = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LIMIT.format("Y"), (d, v) -> d.limitY = v);
@@ -398,11 +399,11 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     }
 
     /**
-     * One joint axis as a single row: the axis letter, the lock and limit
-     * switches (name in the tooltip — the row has no room for labels and does
+     * One joint axis as a single row: the axis letter, the lock icon, the limit
+     * switch (names in the tooltips — the row has no room for labels and does
      * not need them), then min/max/stiffness sharing the remaining width.
      */
-    private UIElement jointAxisRow(String axis, UIToggle lock, UIToggle limit, UISliderTrackpad min, UISliderTrackpad max, UISliderTrackpad stiffness)
+    private UIElement jointAxisRow(String axis, UIIcon lock, UIToggle limit, UISliderTrackpad min, UISliderTrackpad max, UISliderTrackpad stiffness)
     {
         UILabel label = UI.label(IKey.constant(axis), UIConstants.CONTROL_HEIGHT);
 
@@ -411,9 +412,41 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         UIElement row = new UIElement();
 
         row.row(UIConstants.MARGIN).height(UIConstants.CONTROL_HEIGHT);
-        row.add(label.w(8), lock.w(26), limit.w(26), min, max, stiffness);
+        row.add(label.w(6), lock, limit.w(26), min, max, stiffness);
 
         return row;
+    }
+
+    /**
+     * The per-axis lock as a padlock icon: open when the axis solves freely,
+     * closed when it is frozen at its FK value. The glyph IS the state, read
+     * live from the selected bone's joint data — no value syncing.
+     */
+    private UIIcon jointLock(IKey tooltip, Predicate<JointData> getter, BiConsumer<JointData, Boolean> setter)
+    {
+        UIIcon icon = new UIIcon(() ->
+        {
+            JointData data = this.jointData.get(this.selectedBone);
+
+            return data != null && getter.test(data) ? Icons.LOCKED : Icons.UNLOCKED;
+        }, (b) ->
+        {
+            if (this.syncingUI || this.selectedBone.isEmpty())
+            {
+                return;
+            }
+
+            JointData data = this.getOrCreateJoint(this.selectedBone);
+
+            setter.accept(data, !getter.test(data));
+            this.updateLabels();
+            this.commitChanges();
+        });
+
+        icon.wh(16, UIConstants.CONTROL_HEIGHT);
+        icon.tooltip(tooltip);
+
+        return icon;
     }
 
     private UIToggle jointToggle(IKey label, BiConsumer<JointData, Boolean> setter)
@@ -632,9 +665,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.enabled.setEnabled(this.bones.isEnabled() && !this.selectedBone.isEmpty());
             this.enabled.setValue(active);
 
-            this.lockX.setValue(joint != null && joint.lockX);
-            this.lockY.setValue(joint != null && joint.lockY);
-            this.lockZ.setValue(joint != null && joint.lockZ);
             this.limitX.setValue(joint != null && joint.limitX);
             this.limitY.setValue(joint != null && joint.limitY);
             this.limitZ.setValue(joint != null && joint.limitZ);
