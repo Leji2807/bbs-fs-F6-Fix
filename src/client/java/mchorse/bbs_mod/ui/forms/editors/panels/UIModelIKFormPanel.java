@@ -421,8 +421,13 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         return row;
     }
 
-    /** How far the padlock is pulled left of its cell — swallows the row margin plus the icon tile's transparent padding, so the glyph sits right after the axis letter. */
-    private static final int LOCK_NUDGE = 4;
+    /**
+     * How far the padlock is pulled left of its cell. The lock glyph occupies
+     * columns 4..11 of its 16px tile (measured in the atlas), so 4px of the pull
+     * swallows the tile's transparent padding and the other 3px the row margin —
+     * the visible glyph lands flush after the axis letter.
+     */
+    private static final int LOCK_NUDGE = 7;
 
     /**
      * The per-axis lock as a padlock icon: open when the axis solves freely,
@@ -458,9 +463,11 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
                 boolean locked = data != null && getter.test(data);
                 int x = this.area.x - LOCK_NUDGE;
 
+                /* The highlight hugs the visible glyph (tile columns 4..11), not
+                 * the tile — a tile-wide box would hang mostly over empty air. */
                 if (locked)
                 {
-                    Area.SHARED.set(x, this.area.y, 16, this.area.h);
+                    Area.SHARED.set(x + 3, this.area.y, 10, this.area.h);
                     UIDashboardPanels.renderHighlight(context.batcher, Area.SHARED, Direction.BOTTOM);
                 }
 
