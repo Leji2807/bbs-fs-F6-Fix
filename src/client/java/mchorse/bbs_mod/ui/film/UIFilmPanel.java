@@ -17,6 +17,7 @@ import mchorse.bbs_mod.client.renderer.MorphRenderer;
 import mchorse.bbs_mod.data.types.BaseType;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.film.Film;
+import mchorse.bbs_mod.film.FrozenFilmController;
 import mchorse.bbs_mod.film.Recorder;
 import mchorse.bbs_mod.film.replays.Replay;
 import mchorse.bbs_mod.forms.FormUtils;
@@ -2537,6 +2538,13 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
             return;
         }
 
+        /* The editor renders the film itself again, so the frame it left standing in the world when
+         * it last closed (see freezeFrame) has to go, or it would double every replay. */
+        if (this.data != null)
+        {
+            BBSModClient.getFilms().unfreeze(this.data.getId());
+        }
+
         BBSRendering.setCustomSize(true);
         MorphRenderer.hidePlayer = true;
 
@@ -2572,6 +2580,38 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
         this.replayEditor.close();
 
         this.notifyServer(ActionState.STOP);
+
+        this.freezeFrame();
+    }
+
+    /**
+     * Opt-in: instead of vanishing with the editor, the tick that was on screen stays in the world,
+     * handed over to a controller that keeps rendering it (see {@link FrozenFilmController}).
+     *
+     * <p>Only when the film editor is the panel being looked at &mdash; {@link #close()} runs for
+     * every panel the dashboard owns, so a film nobody had open must not pop into the world on the
+     * way out of, say, the model editor. For the same reason a frame frozen on an earlier exit is
+     * left alone there: it is taken down when the editor genuinely comes back (see {@link #appear()}).
+     */
+    private void freezeFrame()
+    {
+        /* No world to leave the frame in: the editor's screen is also torn down on disconnect, and
+         * the replay entities the frozen controller builds would have nowhere to live. */
+        if (this.data == null || MinecraftClient.getInstance().world == null || this.dashboard.getPanels().panel != this)
+        {
+            return;
+        }
+
+        if (BBSSettings.editorKeepFrameOnExit.get())
+        {
+            /* "Freeze when paused" ruled the forms on a stopped timeline while the editor was open,
+             * so it rules them once the frame is left behind too — isPaused() is that toggle off. */
+            BBSModClient.getFilms().freeze(this.data, this.getCursor(), this.controller.isPaused());
+        }
+        else
+        {
+            BBSModClient.getFilms().unfreeze(this.data.getId());
+        }
     }
 
     @Override

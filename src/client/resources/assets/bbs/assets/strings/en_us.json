@@ -171,6 +171,8 @@
 	"bbs.config.editor.player_follows_camera-comment": "When enabled, your player is teleported each tick to match the film camera position and view direction.",
 	"bbs.config.editor.jump": "Jump",
 	"bbs.config.editor.jump-comment": "By how many ticks do jump keybinds move the timeline's cursor (up and down arrow keybinds)",
+	"bbs.config.editor.keep_frame_on_exit": "Keep frame on exit",
+	"bbs.config.editor.keep_frame_on_exit-comment": "When you leave BBS from the film editor, the tick that was on screen stays rendered in the world instead of disappearing. The \"Freeze when paused\" toggle keeps ruling it: off, the forms go on idling on that tick. It is taken down when you open the film editor again. Replays marked as actors still leave with the editor, since those are real entities driven by the server.",
 	"bbs.config.editor.loop": "Loop playback",
 	"bbs.config.editor.loop-comment": "Loops playback of currently selected clip or looping region (you can use [ and ] keys to select the region, or Alt + click drag on the timeline)",
 	"bbs.config.editor.minutes_backup": "Minutes backup",

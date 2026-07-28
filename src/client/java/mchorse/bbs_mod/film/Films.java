@@ -193,6 +193,36 @@ public class Films
         this.controllers.add(controller);
     }
 
+    /**
+     * Leave the film standing in the world at {@code tick}, as the film editor was showing it &mdash;
+     * see {@link FrozenFilmController}, including what {@code animated} means there. Any frame frozen
+     * earlier for the same film is replaced.
+     */
+    public void freeze(Film film, int tick, boolean animated)
+    {
+        this.unfreeze(film.getId());
+        this.controllers.add(new FrozenFilmController(film, tick, animated));
+    }
+
+    /**
+     * Take down the film's frozen frame, leaving a film that is actually playing alone &mdash; both
+     * live under the same id here, and only the frozen one is the editor's leftover.
+     */
+    public void unfreeze(String filmId)
+    {
+        this.controllers.removeIf((controller) ->
+        {
+            boolean frozen = controller instanceof FrozenFilmController && controller.film.getId().equals(filmId);
+
+            if (frozen)
+            {
+                controller.shutdown();
+            }
+
+            return frozen;
+        });
+    }
+
     public boolean has(String filmId)
     {
         for (BaseFilmController controller : this.controllers)
