@@ -58,6 +58,8 @@ public class FilmControllerContext
         this.local = false;
         this.space = TransformSpace.LOCAL;
         this.gizmoView = null;
+        this.bone2 = null;
+        this.local2 = false;
         this.anchorGizmo = false;
         this.anchorLocal = false;
         this.nameTag = "";
