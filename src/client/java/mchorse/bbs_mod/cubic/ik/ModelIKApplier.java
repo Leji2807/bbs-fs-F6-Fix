@@ -172,6 +172,28 @@ final class ModelIKApplier
             Map<String, PivotFrame> frames = new HashMap<>(wanted.size() * 2);
 
             ModelPivotFrames.collect(model, wanted, frames, null);
+
+            /* A classic chain standing alone solves on the analytic two-bone path
+             * — exact, quaternion-assembled, free of channel-space singularities.
+             * Overlapping another chain it falls back to the core tree (shared
+             * bones must negotiate, which the classic path cannot do); the panel
+             * marks that fallback statically, so it never surprises silently. */
+            if (group.size() == 1 && group.get(0).classic())
+            {
+                ModelIKCache.CompiledChain chain = group.get(0);
+                ResolvedChain r = resolveChain(model, chain, frames, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
+
+                if (r == null)
+                {
+                    continue;
+                }
+
+                if (ClassicLimbSolver.apply(model, r.workIds(), frames, r.target(), r.tipTarget(), r.polePoint(), r.poleAngle(), r.softness(), r.weight(), chain.stretch()))
+                {
+                    continue;
+                }
+            }
+
             applyGroup(model, group, frames, jointDoF, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
         }
 
@@ -1426,7 +1448,7 @@ final class ModelIKApplier
      * {@code null} when there is none, the model is not cubic, or the chain is too short to
      * keep a bendable run after dropping the tail.
      */
-    private static String autoTailId(IModel model, List<String> chainIds)
+    static String autoTailId(IModel model, List<String> chainIds)
     {
         if (chainIds.size() < 4 || !(model instanceof Model cubic))
         {

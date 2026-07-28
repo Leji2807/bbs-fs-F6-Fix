@@ -18,6 +18,7 @@ public record ModelIKConfig(List<Chain> chains, Map<String, JointDoF> bones)
     public static final int DEFAULT_CHAIN_LENGTH = 0;
     public static final boolean DEFAULT_TIP_ROTATION = false;
     public static final boolean DEFAULT_STRETCH = false;
+    public static final boolean DEFAULT_CLASSIC = false;
 
     /**
      * One IK constraint, modeled after Blender: it lives on the {@code tip}
@@ -32,8 +33,13 @@ public record ModelIKConfig(List<Chain> chains, Map<String, JointDoF> bones)
      * keeping its FK pose. With {@code stretch} on, a chain that comes up short
      * telescopes onto its target: the gap is split among its bones as
      * translations, so the joints open and the tip lands on the controller.
+     * With {@code classic} on, a chain of exactly two bones is solved by the
+     * analytic position-level solver (swing and roll assembled in quaternions,
+     * no channel-space iteration) — the pre-redesign limb feel; it ignores
+     * per-bone joint freedom and never merges with other chains, falling back
+     * to the core solver when it overlaps one.
      */
-    public record Chain(String tip, String target, int chainLength, boolean pole, String poleTarget, float poleAngle, float softness, float weight, boolean enabled, boolean tipRotation, boolean stretch)
+    public record Chain(String tip, String target, int chainLength, boolean pole, String poleTarget, float poleAngle, float softness, float weight, boolean enabled, boolean tipRotation, boolean stretch, boolean classic)
     {
         public Chain
         {

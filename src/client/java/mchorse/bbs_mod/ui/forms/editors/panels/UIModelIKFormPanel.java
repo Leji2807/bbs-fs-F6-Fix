@@ -1,6 +1,7 @@
 package mchorse.bbs_mod.ui.forms.editors.panels;
 
 import mchorse.bbs_mod.BBSSettings;
+import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.ik.ModelIKConfig;
 import mchorse.bbs_mod.cubic.ik.ModelIKIO;
@@ -48,6 +49,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     public UISliderTrackpad softness;
     public UISliderTrackpad weight;
     public UIToggle tipRotation;
+    public UIToggle classic;
 
     public UIToggle lockX;
     public UIToggle lockY;
@@ -85,6 +87,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         public boolean enabled = true;
         public boolean tipRotation = ModelIKConfig.DEFAULT_TIP_ROTATION;
         public boolean stretch = ModelIKConfig.DEFAULT_STRETCH;
+        public boolean classic = ModelIKConfig.DEFAULT_CLASSIC;
     }
 
     /** Mutable UI shadow of {@link ModelIKConfig.JointDoF} — the selected bone's joint freedom. */
@@ -289,6 +292,20 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.commitChanges();
         });
 
+        this.classic = new UIToggle(UIKeys.FORMS_EDITORS_MODEL_IK_CLASSIC, (b) ->
+        {
+            if (this.syncingUI || this.selectedBone.isEmpty())
+            {
+                return;
+            }
+
+            IKData data = this.getOrCreateData(this.selectedBone);
+            data.classic = b.getValue();
+            this.updateLabels();
+            this.commitChanges();
+        });
+        this.classic.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_CLASSIC_TOOLTIP);
+
         UISection settings = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_SETTINGS);
 
         /* Blender's IK constraint order: target, then the pole group, chain
@@ -306,6 +323,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_CHAIN_LENGTH, this.chainLength),
             this.tipRotation,
             this.stretch,
+            this.classic,
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_SOFTNESS, this.softness),
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_WEIGHT, this.weight)
         );
@@ -463,6 +481,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.weight.setEnabled(enabled);
         this.tipRotation.setEnabled(enabled);
         this.stretch.setEnabled(enabled);
+        this.classic.setEnabled(enabled);
         this.setJointEnabled(enabled);
     }
 
@@ -558,6 +577,15 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.weight.setValue(data == null ? ModelIKConfig.DEFAULT_WEIGHT : data.weight);
             this.tipRotation.setValue(data != null && data.tipRotation);
             this.stretch.setValue(data != null && data.stretch);
+            this.classic.setValue(data != null && data.classic);
+
+            /* The classic toggle is loud about its fallback: a classic chain that
+             * is not exactly two bones, or shares a bone with another enabled
+             * chain, solves on the core instead — the label says so right where
+             * the box was ticked, no runtime surprise. */
+            boolean classicFallsBack = data != null && data.classic && this.classicFallsBack(data);
+
+            this.classic.label = classicFallsBack ? UIKeys.FORMS_EDITORS_MODEL_IK_CLASSIC_FALLBACK : UIKeys.FORMS_EDITORS_MODEL_IK_CLASSIC;
             this.enabled.setEnabled(this.bones.isEnabled() && !this.selectedBone.isEmpty());
             this.enabled.setValue(active);
 
@@ -603,6 +631,51 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.weight.setEnabled(canEdit);
         this.tipRotation.setEnabled(canEdit);
         this.stretch.setEnabled(canEdit);
+        this.classic.setEnabled(canEdit);
+    }
+
+    /**
+     * Whether the selected bone's classic-marked chain would actually solve on
+     * the core: wrong shape (not exactly two directed bones) or a bone shared
+     * with another enabled chain (overlapping chains merge into one core tree).
+     * Mirrors the applier's routing, computed statically from the config.
+     */
+    private boolean classicFallsBack(IKData data)
+    {
+        IModel model = this.model == null ? null : this.model.model;
+
+        if (model == null)
+        {
+            return false;
+        }
+
+        if (!ModelIKRuntime.isClassicShape(model, this.selectedBone, data.chainLength, data.tipRotation))
+        {
+            return true;
+        }
+
+        List<String> mine = ModelIKRuntime.chainBones(model, this.selectedBone, data.chainLength);
+
+        for (Map.Entry<String, IKData> entry : this.ikData.entrySet())
+        {
+            String tip = entry.getKey();
+            IKData other = entry.getValue();
+
+            if (tip.equals(this.selectedBone) || other == null || !other.enabled || other.target == null || other.target.isEmpty())
+            {
+                continue;
+            }
+
+            for (String bone : ModelIKRuntime.chainBones(model, tip, other.chainLength))
+            {
+                if (mine.contains(bone))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private IKData getOrCreateData(String bone)
@@ -675,6 +748,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
                 data.enabled = chain.enabled();
                 data.tipRotation = chain.tipRotation();
                 data.stretch = chain.stretch();
+                data.classic = chain.classic();
                 this.ikData.put(chain.tip(), data);
             }
         }
@@ -723,7 +797,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
                 continue;
             }
 
-            out.add(new ModelIKConfig.Chain(tip, data.target, data.chainLength, data.pole, data.poleTarget, data.poleAngle, data.softness, data.weight, data.enabled, data.tipRotation, data.stretch));
+            out.add(new ModelIKConfig.Chain(tip, data.target, data.chainLength, data.pole, data.poleTarget, data.poleAngle, data.softness, data.weight, data.enabled, data.tipRotation, data.stretch, data.classic));
         }
 
         Map<String, ModelIKConfig.JointDoF> joints = new HashMap<>();

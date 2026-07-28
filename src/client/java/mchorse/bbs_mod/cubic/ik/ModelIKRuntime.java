@@ -88,6 +88,45 @@ public final class ModelIKRuntime
     }
 
     /**
+     * Whether the chain ending at {@code tip} has the classic two-bone shape:
+     * exactly two directed bones after the auto-tail drop. A classic-marked
+     * chain of any other shape solves on the core — the panel uses this to mark
+     * the toggle so the fallback never surprises silently.
+     */
+    public static boolean isClassicShape(IModel model, String tip, int chainLength, boolean tipRotation)
+    {
+        if (model == null || tip == null || tip.isEmpty())
+        {
+            return false;
+        }
+
+        List<String> ids = ModelIKCache.chainIdsFor(model, tip, chainLength);
+        int size = ids.size();
+
+        if (tipRotation && ModelIKApplier.autoTailId(model, ids) != null)
+        {
+            size--;
+        }
+
+        return size == 3;
+    }
+
+    /**
+     * The bones the chain ending at {@code tip} spans, root to tip — the panel's
+     * overlap check (overlapping chains merge into one core tree, which kicks a
+     * classic chain off its analytic path).
+     */
+    public static List<String> chainBones(IModel model, String tip, int chainLength)
+    {
+        if (model == null || tip == null || tip.isEmpty())
+        {
+            return Collections.emptyList();
+        }
+
+        return ModelIKCache.chainIdsFor(model, tip, chainLength);
+    }
+
+    /**
      * Opens the IK solve dump for the duration of one transform gesture, so the
      * log holds exactly the drag being investigated — the transform editor calls
      * this when a drag begins and ends. A no-op unless the applier's debug flag

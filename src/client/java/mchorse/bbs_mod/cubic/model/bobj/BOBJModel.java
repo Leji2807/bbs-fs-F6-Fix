@@ -20,6 +20,7 @@ import org.joml.Vector3f;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,6 +34,9 @@ public class BOBJModel implements IModel
     private List<BOBJModelVAO> vaos = new ArrayList<>();
     private boolean simple;
 
+    /** Bone indices with at least one weighted vertex; lazily filled by {@link #boneDeformsMesh}. */
+    private Set<Integer> deformingBones;
+
     public BOBJModel(BOBJArmature armature, List<BOBJLoader.CompiledData> meshes, boolean simple)
     {
         this.armature = armature;
@@ -45,6 +49,34 @@ public class BOBJModel implements IModel
         return this.armature;
     }
 
+    /**
+     * Whether any mesh vertex is weighted to this bone. A bone with no skin is a bare reach marker
+     * (an end bone), so IK stretch ends the chain at the last deforming bone instead — the marker
+     * would otherwise pull the visible mesh short of the controller. Scans the weights once and caches.
+     */
+    public boolean boneDeformsMesh(int boneIndex)
+    {
+        if (this.deformingBones == null)
+        {
+            this.deformingBones = new HashSet<>();
+
+            for (BOBJLoader.CompiledData mesh : this.meshes)
+            {
+                int[] indices = mesh.boneIndexData;
+                float[] weights = mesh.weightData;
+
+                for (int i = 0; i < indices.length; i++)
+                {
+                    if (indices[i] >= 0 && weights[i] > 0F)
+                    {
+                        this.deformingBones.add(indices[i]);
+                    }
+                }
+            }
+        }
+
+        return this.deformingBones.contains(boneIndex);
+    }
 
     public List<BOBJModelVAO> getVaos()
     {

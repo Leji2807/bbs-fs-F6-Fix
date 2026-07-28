@@ -31,6 +31,7 @@ public final class ModelIKIO
     private static final String KEY_ENABLED = "enabled";
     private static final String KEY_TIP_ROTATION = "tip_rotation";
     private static final String KEY_STRETCH = "stretch";
+    private static final String KEY_CLASSIC = "classic";
 
     private static final String KEY_LOCK = "lock";
     private static final String KEY_LIMITED = "limited";
@@ -79,8 +80,9 @@ public final class ModelIKIO
             boolean enabled = entry.getBool(KEY_ENABLED, DEFAULT_ENABLED);
             boolean tipRotation = entry.getBool(KEY_TIP_ROTATION, ModelIKConfig.DEFAULT_TIP_ROTATION);
             boolean stretch = entry.getBool(KEY_STRETCH, ModelIKConfig.DEFAULT_STRETCH);
+            boolean classic = entry.getBool(KEY_CLASSIC, ModelIKConfig.DEFAULT_CLASSIC);
 
-            chains.add(new ModelIKConfig.Chain(tip, target, chainLength, pole, poleTarget, poleAngle, softness, weight, enabled, tipRotation, stretch));
+            chains.add(new ModelIKConfig.Chain(tip, target, chainLength, pole, poleTarget, poleAngle, softness, weight, enabled, tipRotation, stretch, classic));
         }
 
         Map<String, ModelIKConfig.JointDoF> bones = new HashMap<>();
@@ -169,6 +171,11 @@ public final class ModelIKIO
                 if (chain.stretch() != ModelIKConfig.DEFAULT_STRETCH)
                 {
                     entry.putBool(KEY_STRETCH, chain.stretch());
+                }
+
+                if (chain.classic() != ModelIKConfig.DEFAULT_CLASSIC)
+                {
+                    entry.putBool(KEY_CLASSIC, chain.classic());
                 }
 
                 chains.put(chain.tip(), entry);
