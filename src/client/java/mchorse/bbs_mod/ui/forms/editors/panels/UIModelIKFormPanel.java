@@ -191,6 +191,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
                 this.commitChanges();
             });
         });
+        this.target.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_TARGET);
 
         this.chainLength = new UITrackpad((v) ->
         {
@@ -239,6 +240,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
                 this.commitChanges();
             });
         });
+        this.poleTarget.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_POLE_TARGET);
 
         this.poleAngle = new UISliderTrackpad((v) ->
         {
@@ -527,6 +529,14 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     }
 
     @Override
+    protected float getDefaultOptionsWidth()
+    {
+        /* The per-axis joint rows and the chain preview want more air than the
+         * generic 20% column; the divider drag still overrides per session. */
+        return 0.3F;
+    }
+
+    @Override
     public void startEdit(ModelForm form)
     {
         super.startEdit(form);
@@ -662,11 +672,16 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 
         try
         {
-            this.target.label = UIKeys.FORMS_EDITORS_MODEL_IK_TARGET.format(this.formatBone(targetLabel) + (cyclicTarget ? UIKeys.FORMS_EDITORS_MODEL_IK_CYCLE.get() : ""));
+            String chain = this.chainPreviewText(data, targetLabel);
+
+            /* The pickers show the bare bone name (what they hold), not a
+             * prefixed sentence — the row label and tooltip already say what
+             * the picker means. */
+            this.target.label = IKey.constant(this.formatBone(targetLabel) + (cyclicTarget ? UIKeys.FORMS_EDITORS_MODEL_IK_CYCLE.get() : ""));
             this.chainLength.setValue(data == null ? ModelIKConfig.DEFAULT_CHAIN_LENGTH : data.chainLength);
-            this.chainPreview.label = IKey.constant(this.chainPreviewText(data, targetLabel));
+            this.chainPreview.label = chain.isEmpty() ? UIKeys.FORMS_EDITORS_MODEL_IK_CHAIN_EMPTY : IKey.constant(chain);
             this.pole.setValue(poleOn);
-            this.poleTarget.label = UIKeys.FORMS_EDITORS_MODEL_IK_POLE_TARGET.format(this.formatBone(data == null ? "" : data.poleTarget) + (cyclicPole ? UIKeys.FORMS_EDITORS_MODEL_IK_POLE_CYCLE.get() : ""));
+            this.poleTarget.label = IKey.constant(this.formatBone(data == null ? "" : data.poleTarget) + (cyclicPole ? UIKeys.FORMS_EDITORS_MODEL_IK_POLE_CYCLE.get() : ""));
             this.poleAngle.setValue(data == null ? ModelIKConfig.DEFAULT_POLE_ANGLE : data.poleAngle);
             this.softness.setValue(data == null ? ModelIKConfig.DEFAULT_SOFTNESS : data.softness);
             this.weight.setValue(data == null ? ModelIKConfig.DEFAULT_WEIGHT : data.weight);

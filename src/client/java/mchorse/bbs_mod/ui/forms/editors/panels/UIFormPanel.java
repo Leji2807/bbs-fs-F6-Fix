@@ -31,7 +31,7 @@ public abstract class UIFormPanel <T extends Form> extends UIElement
 
         this.options = UI.scrollView(UIConstants.MARGIN, UIConstants.SCROLL_PADDING);
         this.options.scroll.cancelScrolling();
-        this.options.relative(this).x(1F).w(widths.getOrDefault(this.getClass(), DEFAULT_OPTIONS_WIDTH)).minW(120).h(1F).anchorX(1F);
+        this.options.relative(this).x(1F).w(widths.getOrDefault(this.getClass(), this.getDefaultOptionsWidth())).minW(120).h(1F).anchorX(1F);
 
         this.draggable = new UIDraggable((context) ->
         {
@@ -47,6 +47,16 @@ public abstract class UIFormPanel <T extends Form> extends UIElement
         this.draggable.relative(this.options).x(0F).y(0.5F).w(6).h(40).anchor(0.5F, 0.5F);
 
         this.add(this.options, this.draggable);
+    }
+
+    /**
+     * The options column's default share of the panel width, used until the
+     * user drags the divider (their choice then wins for the session). Panels
+     * with denser controls (the IK panel's per-axis rows) override this.
+     */
+    protected float getDefaultOptionsWidth()
+    {
+        return DEFAULT_OPTIONS_WIDTH;
     }
 
     public void startEdit(T form)
