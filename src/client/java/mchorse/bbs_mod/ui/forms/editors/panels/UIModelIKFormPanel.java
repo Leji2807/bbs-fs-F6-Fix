@@ -414,8 +414,11 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 
         UIElement row = new UIElement();
 
+        /* The axis cell must be at least 10 wide: UILabel clips its text to
+         * (width - 4), so a narrower cell renders the letter as an EMPTY string
+         * — which reads as a mysterious dead gap at the row's left edge. */
         row.row(UIConstants.MARGIN).height(UIConstants.CONTROL_HEIGHT);
-        row.add(label.w(6), lock, limit.w(26), min, max, stiffness);
+        row.add(label.w(10), lock, limit.w(26), min, max, stiffness);
 
         return row;
     }
