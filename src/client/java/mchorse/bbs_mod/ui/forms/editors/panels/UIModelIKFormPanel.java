@@ -18,7 +18,6 @@ import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.UIElement;
 import mchorse.bbs_mod.ui.framework.elements.UISection;
 import mchorse.bbs_mod.ui.framework.elements.utils.UILabel;
-import mchorse.bbs_mod.ui.utils.Area;
 import mchorse.bbs_mod.utils.Direction;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
@@ -422,18 +421,12 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     }
 
     /**
-     * How far the padlock is pulled left of its cell. The lock glyph occupies
-     * columns 4..11 of its 16px tile (measured in the atlas), so 4px of the pull
-     * swallows the tile's transparent padding and the other 3px the row margin —
-     * the visible glyph lands flush after the axis letter.
-     */
-    private static final int LOCK_NUDGE = 7;
-
-    /**
      * The per-axis lock as a padlock icon: open when the axis solves freely,
      * closed when it is frozen at its FK value. The glyph IS the state, read
      * live from the selected bone's joint data — no value syncing; a locked
      * axis additionally gets the standard selection highlight behind the icon.
+     * A plain square icon button, rendered the way every other icon button is —
+     * glyph centered in its cell, highlight over the whole cell.
      */
     private UIIcon jointLock(IKey tooltip, Predicate<JointData> getter, BiConsumer<JointData, Boolean> setter)
     {
@@ -460,24 +453,17 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             protected void renderSkin(UIContext context)
             {
                 JointData data = UIModelIKFormPanel.this.jointData.get(UIModelIKFormPanel.this.selectedBone);
-                boolean locked = data != null && getter.test(data);
-                int x = this.area.x - LOCK_NUDGE;
 
-                /* The highlight hugs the visible glyph (tile columns 4..11), not
-                 * the tile — a tile-wide box would hang mostly over empty air. */
-                if (locked)
+                if (data != null && getter.test(data))
                 {
-                    Area.SHARED.set(x + 3, this.area.y, 10, this.area.h);
-                    UIDashboardPanels.renderHighlight(context.batcher, Area.SHARED, Direction.BOTTOM);
+                    UIDashboardPanels.renderHighlight(context.batcher, this.area, Direction.BOTTOM);
                 }
 
-                int color = this.isEnabled() ? (this.hover ? this.hoverColor : this.iconColor) : this.disabledColor;
-
-                context.batcher.icon(this.getIcon(), color, x, this.area.my(), 0F, 0.5F);
+                super.renderSkin(context);
             }
         };
 
-        icon.wh(12, UIConstants.CONTROL_HEIGHT);
+        icon.wh(UIConstants.CONTROL_HEIGHT, UIConstants.CONTROL_HEIGHT);
         icon.tooltip(tooltip);
 
         return icon;
