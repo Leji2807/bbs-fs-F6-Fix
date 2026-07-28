@@ -24,25 +24,25 @@ import java.util.function.Predicate;
 /**
  * Bone list that understands hierarchy. The backing list still holds plain string ids
  * (bone keys or attachment paths), so every {@link UIStringList} caller keeps working;
- * this class only adds per-id display metadata: indentation depth, a short label for
- * the tree view and a full label for search results (where the indentation context is
- * gone, e.g. an attachment bone needs its form's track name to stay recognizable).
+ * this class only adds per-id display metadata, drawn as outliner-style tree branches:
+ * a tee for a middle child, a corner for the last one, and pass-through verticals for
+ * every ancestor level that continues below. Search results render flat with a full
+ * label instead (an attachment bone keeps its form's track name to stay recognizable).
  *
- * <p>Two ways to feed it: {@link #fillBones}/{@link #fillAttachments} rebuild the list
- * and the metadata together (the picker), or {@link #setHierarchy} sets the metadata
- * alone while the host keeps managing the list contents itself (the pose editor's
+ * <p>Both fill flavors build the same intermediate node tree — {@link #fillBones} from
+ * a model's bone hierarchy, {@link #fillAttachments} from a form's attachment keys —
+ * so the connector math lives in one place. {@link #setHierarchy} emits only the
+ * metadata while the host keeps managing the list contents itself (the pose editor's
  * bone list, which refills on every search keystroke — the metadata survives because
  * {@code clear()} intentionally does not touch it).</p>
  */
 public class UIBoneTreeList extends UIStringList
 {
-    public static final int INDENT = 6;
+    public static final int INDENT = 8;
 
-    private static final int GUIDE_COLOR = Colors.A12 | 0xFFFFFF;
+    private static final int GUIDE_COLOR = Colors.A25 | 0xFFFFFF;
 
-    private final Map<String, Integer> depths = new HashMap<>();
-    private final Map<String, String> treeLabels = new HashMap<>();
-    private final Map<String, String> fullLabels = new HashMap<>();
+    private final Map<String, Meta> metas = new HashMap<>();
 
     private Predicate<String> disabled;
 
@@ -86,17 +86,8 @@ public class UIBoneTreeList extends UIStringList
     public void prepend(String id, String label)
     {
         this.list.add(0, id);
-        this.depths.put(id, 0);
-        this.treeLabels.put(id, label);
-        this.fullLabels.put(id, label);
+        this.metas.put(id, new Meta(0, 0, true, label, label));
         this.update();
-    }
-
-    private void resetMeta()
-    {
-        this.depths.clear();
-        this.treeLabels.clear();
-        this.fullLabels.clear();
     }
 
     /**
@@ -105,14 +96,11 @@ public class UIBoneTreeList extends UIStringList
      */
     public void setHierarchy(IModel model, Predicate<String> hidden)
     {
-        this.resetMeta();
+        this.metas.clear();
 
         if (model != null)
         {
-            for (String root : model.getRootGroupKeys())
-            {
-                this.walkBone(model, root, 0, hidden, false);
-            }
+            this.emit(boneNodes(model, model.getRootGroupKeys(), hidden), 0, 0, false);
         }
     }
 
@@ -124,39 +112,16 @@ public class UIBoneTreeList extends UIStringList
     public void fillBones(IModel model, Collection<String> hidden)
     {
         this.clear();
-        this.resetMeta();
+        this.metas.clear();
 
         if (model != null)
         {
             Predicate<String> predicate = hidden == null ? null : hidden::contains;
 
-            for (String root : model.getRootGroupKeys())
-            {
-                this.walkBone(model, root, 0, predicate, true);
-            }
+            this.emit(boneNodes(model, model.getRootGroupKeys(), predicate), 0, 0, true);
         }
 
         this.update();
-    }
-
-    private void walkBone(IModel model, String bone, int depth, Predicate<String> hidden, boolean fill)
-    {
-        boolean visible = hidden == null || !hidden.test(bone);
-
-        if (visible)
-        {
-            if (fill)
-            {
-                this.list.add(bone);
-            }
-
-            this.depths.put(bone, depth);
-        }
-
-        for (String child : model.getDirectChildrenKeys(bone))
-        {
-            this.walkBone(model, child, depth + (visible ? 1 : 0), hidden, fill);
-        }
     }
 
     /**
@@ -166,7 +131,7 @@ public class UIBoneTreeList extends UIStringList
     public void fillFlat(Collection<String> bones)
     {
         this.clear();
-        this.resetMeta();
+        this.metas.clear();
 
         this.list.addAll(bones);
         this.update();
@@ -182,13 +147,13 @@ public class UIBoneTreeList extends UIStringList
     public void fillAttachments(Form form, Collection<String> keys)
     {
         this.clear();
-        this.resetMeta();
+        this.metas.clear();
 
         Set<String> keySet = new HashSet<>(keys);
 
         if (form != null)
         {
-            this.walkForm(form, "", 0, keySet);
+            this.emit(formNodes(form, "", keySet), 0, 0, true);
         }
 
         /* Safety net: keys the static walk didn't reach (exotic renderers) go in flat,
@@ -209,18 +174,43 @@ public class UIBoneTreeList extends UIStringList
         this.update();
     }
 
-    private void walkForm(Form form, String path, int depth, Set<String> keys)
-    {
-        if (keys.contains(path))
-        {
-            String trackName = form.getTrackName("");
-            String label = trackName.isEmpty() ? form.getFormIdOrName() : trackName;
+    /* Building the intermediate node tree */
 
-            this.list.add(path);
-            this.depths.put(path, depth);
-            this.treeLabels.put(path, label);
-            this.fullLabels.put(path, label);
+    /** A bone (and its visible subtree); a hidden bone dissolves into its children in place. */
+    private static List<Node> boneNodes(IModel model, Collection<String> bones, Predicate<String> hidden)
+    {
+        List<Node> nodes = new ArrayList<>();
+
+        for (String bone : bones)
+        {
+            List<Node> children = boneNodes(model, model.getDirectChildrenKeys(bone), hidden);
+
+            if (hidden == null || !hidden.test(bone))
+            {
+                Node node = new Node(bone, bone, bone);
+
+                node.children.addAll(children);
+                nodes.add(node);
+            }
+            else
+            {
+                nodes.addAll(children);
+            }
         }
+
+        return nodes;
+    }
+
+    /**
+     * A form's representation at its parent's level: the form row (when its own key is
+     * in the set) with its model bones and sub-forms nested under it — or, for a form
+     * the matrix cache doesn't list, those children hoisted in place. The body part
+     * index must advance for every part, even form-less ones — that is how
+     * collectMatrices numbers the paths.
+     */
+    private static List<Node> formNodes(Form form, String path, Set<String> keys)
+    {
+        List<Node> children = new ArrayList<>();
 
         if (form instanceof ModelForm modelForm)
         {
@@ -228,73 +218,179 @@ public class UIBoneTreeList extends UIStringList
 
             if (instance != null && instance.model != null)
             {
-                for (String root : instance.model.getRootGroupKeys())
-                {
-                    this.walkFormBone(form, instance.model, root, path, depth + 1, keys);
-                }
+                children.addAll(formBoneNodes(form, instance.model, instance.model.getRootGroupKeys(), path, keys));
             }
         }
 
         int i = 0;
 
-        /* The index must advance for every part, even form-less ones — that is how
-         * collectMatrices numbers the paths. */
         for (BodyPart part : form.parts.getAllTyped())
         {
             Form child = part.getForm();
 
             if (child != null)
             {
-                this.walkForm(child, StringUtils.combinePaths(path, String.valueOf(i)), depth + 1, keys);
+                children.addAll(formNodes(child, StringUtils.combinePaths(path, String.valueOf(i)), keys));
             }
 
             i += 1;
         }
-    }
 
-    private void walkFormBone(Form owner, IModel model, String bone, String formPath, int depth, Set<String> keys)
-    {
-        String key = StringUtils.combinePaths(formPath, bone);
-
-        if (keys.contains(key))
+        if (!keys.contains(path))
         {
-            this.list.add(key);
-            this.depths.put(key, depth);
-            this.treeLabels.put(key, bone);
-            this.fullLabels.put(key, owner.getTrackName(key));
+            return children;
         }
 
-        for (String child : model.getDirectChildrenKeys(bone))
+        String trackName = form.getTrackName("");
+        String label = trackName.isEmpty() ? form.getFormIdOrName() : trackName;
+        Node node = new Node(path, label, label);
+
+        node.children.addAll(children);
+
+        return new ArrayList<>(List.of(node));
+    }
+
+    private static List<Node> formBoneNodes(Form owner, IModel model, Collection<String> bones, String formPath, Set<String> keys)
+    {
+        List<Node> nodes = new ArrayList<>();
+
+        for (String bone : bones)
         {
-            this.walkFormBone(owner, model, child, formPath, depth + 1, keys);
+            String key = StringUtils.combinePaths(formPath, bone);
+            List<Node> children = formBoneNodes(owner, model, model.getDirectChildrenKeys(bone), formPath, keys);
+
+            if (keys.contains(key))
+            {
+                Node node = new Node(key, bone, owner.getTrackName(key));
+
+                node.children.addAll(children);
+                nodes.add(node);
+            }
+            else
+            {
+                nodes.addAll(children);
+            }
+        }
+
+        return nodes;
+    }
+
+    /**
+     * Flatten the node tree into the list (pre-order) and compute each row's branch
+     * drawing: {@code lines} carries which ancestor columns still run a vertical
+     * (their node wasn't the last sibling), {@code last} picks corner over tee.
+     */
+    private void emit(List<Node> nodes, int depth, int lines, boolean fill)
+    {
+        for (int i = 0; i < nodes.size(); i++)
+        {
+            Node node = nodes.get(i);
+            boolean last = i == nodes.size() - 1;
+
+            this.metas.put(node.id, new Meta(depth, lines, last, node.treeLabel, node.fullLabel));
+
+            if (fill)
+            {
+                this.list.add(node.id);
+            }
+
+            /* This node's connector column keeps its vertical running through the
+             * whole subtree unless the node closed the level as its last sibling.
+             * Roots have no column, so nothing to continue. */
+            int childLines = !last && depth > 0 ? lines | (1 << (depth - 1)) : lines;
+
+            this.emit(node.children, depth + 1, childLines, fill);
         }
     }
 
     @Override
     protected String elementToString(UIContext context, int i, String element)
     {
-        return this.fullLabels.getOrDefault(element, element);
+        Meta meta = this.metas.get(element);
+
+        return meta == null ? element : meta.fullLabel;
     }
 
     @Override
     protected void renderElementPart(UIContext context, String element, int i, int x, int y, boolean hover, boolean selected)
     {
-        /* Search results render flat with their full label — indentation without the
-         * parent rows above it is just a lie about structure. */
+        /* Search results render flat with their full label — branches without the
+         * parent rows above them are just a lie about structure. */
         boolean filtering = this.flat || this.isFiltering();
-        int depth = filtering ? 0 : this.depths.getOrDefault(element, 0);
+        Meta meta = filtering ? null : this.metas.get(element);
+        int depth = meta == null ? 0 : meta.depth;
         int h = this.scroll.scrollItemSize;
 
-        for (int level = 1; level <= depth; level++)
+        if (meta != null && depth > 0)
         {
-            int lx = x + 4 + (level - 1) * INDENT + 2;
+            int mid = y + h / 2;
+            int textX = x + 4 + depth * INDENT;
 
-            context.batcher.box(lx, y, lx + 1, y + h, GUIDE_COLOR);
+            for (int level = 0; level < depth - 1; level++)
+            {
+                if ((meta.lines & (1 << level)) != 0)
+                {
+                    int lx = columnX(x, level);
+
+                    context.batcher.box(lx, y, lx + 1, y + h, GUIDE_COLOR);
+                }
+            }
+
+            /* The connector: a tee for a middle child, a corner for the last one. */
+            int lx = columnX(x, depth - 1);
+
+            context.batcher.box(lx, y, lx + 1, meta.last ? mid + 1 : y + h, GUIDE_COLOR);
+            context.batcher.box(lx + 1, mid, textX - 2, mid + 1, GUIDE_COLOR);
         }
 
-        String label = filtering ? this.fullLabels.getOrDefault(element, element) : this.treeLabels.getOrDefault(element, element);
+        String label = meta == null
+            ? (filtering ? this.elementToString(context, i, element) : element)
+            : meta.treeLabel;
         int color = this.isDisabled(element) ? Colors.GRAY : (hover ? Colors.HIGHLIGHT : Colors.WHITE);
 
         context.batcher.textShadow(label, x + 4 + depth * INDENT, y + (h - context.batcher.getFont().getHeight()) / 2, color);
+    }
+
+    private static int columnX(int x, int level)
+    {
+        return x + 4 + level * INDENT + 2;
+    }
+
+    private static class Node
+    {
+        public final String id;
+        public final String treeLabel;
+        public final String fullLabel;
+        public final List<Node> children = new ArrayList<>();
+
+        public Node(String id, String treeLabel, String fullLabel)
+        {
+            this.id = id;
+            this.treeLabel = treeLabel;
+            this.fullLabel = fullLabel;
+        }
+    }
+
+    private static class Meta
+    {
+        public final int depth;
+
+        /** Bit {@code i} — the vertical in ancestor column {@code i} runs through this row. */
+        public final int lines;
+
+        /** Last visible sibling — its connector is a corner instead of a tee. */
+        public final boolean last;
+
+        public final String treeLabel;
+        public final String fullLabel;
+
+        public Meta(int depth, int lines, boolean last, String treeLabel, String fullLabel)
+        {
+            this.depth = depth;
+            this.lines = lines;
+            this.last = last;
+            this.treeLabel = treeLabel;
+            this.fullLabel = fullLabel;
+        }
     }
 }
