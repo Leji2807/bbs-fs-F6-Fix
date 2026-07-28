@@ -71,9 +71,8 @@ public class UIModelFormPanel extends UIFormPanel<ModelForm>
         this.poseEditor.transform.barBackground();
         this.shapeKeys = new UIShapeKeys();
         this.shapeKeys.title.removeFromParent();
-        this.shapeKeysSection = new UISection(UIKeys.SHAPE_KEYS_TITLE);
+        this.shapeKeysSection = this.section(UIKeys.SHAPE_KEYS_TITLE, "model.shape_keys", false);
         this.shapeKeysSection.fields.add(this.shapeKeys);
-        this.shapeKeysSection.setExpanded(false);
         this.pick = new UIButton(UIKeys.FORMS_EDITOR_MODEL_PICK_TEXTURE, (b) ->
         {
             ModelInstance model = ModelFormRenderer.getModel(this.form);

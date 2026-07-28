@@ -20,6 +20,7 @@ import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
+import mchorse.bbs_mod.ui.utils.PickedBone;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.presets.UIDataContextMenu;
@@ -128,6 +129,8 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
         this.bones = new UIStringList((l) ->
         {
             this.selectedBone = l.isEmpty() ? "" : l.get(0);
+
+            PickedBone.set(this.selectedBone);
             this.updateFields();
         });
         this.bones.background().h(UIConstants.LIST_ITEM_HEIGHT * 8);
@@ -479,7 +482,7 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
             });
         });
 
-        UISection settings = new UISection(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_SETTINGS);
+        UISection settings = this.section(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_SETTINGS, "physics.settings", true);
 
         settings.fields.add(
             this.enabled,
@@ -494,7 +497,7 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_ITERATIONS, this.iterations)
         );
 
-        UISection collisionsSection = new UISection(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_COLLISIONS);
+        UISection collisionsSection = this.section(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_COLLISIONS, "physics.collisions", true);
 
         collisionsSection.fields.add(
             this.collisions,
@@ -503,7 +506,7 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
 
         /* Wind is one field for the whole model's physics, not bound to any bone, so the section is always
          * editable and does not depend on which bone is selected in the list. */
-        UISection windSection = new UISection(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_WIND);
+        UISection windSection = this.section(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_WIND, "physics.wind", true);
 
         windSection.fields.add(
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_PHYSICS_WIND_STRENGTH, this.windStrength),
@@ -567,7 +570,10 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
             this.bones.setList(this.availableBones);
             this.updateWindFields();
 
-            if (!this.availableBones.isEmpty())
+            /* The bone the animator is working on, when this model has it —
+             * the panel is rebuilt on many editor actions, and falling back to
+             * the first bone every time would keep yanking them to the root. */
+            if (!this.pickBoneInList(PickedBone.get()) && !this.availableBones.isEmpty())
             {
                 this.selectBone(this.availableBones.get(0));
             }
@@ -623,6 +629,7 @@ public class UIModelPhysicsFormPanel extends UIFormPanel<ModelForm>
         }
 
         this.selectBone(bone);
+        PickedBone.set(bone);
 
         return true;
     }

@@ -25,6 +25,7 @@ import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
+import mchorse.bbs_mod.ui.utils.PickedBone;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.presets.UIDataContextMenu;
@@ -150,6 +151,8 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.bones = new UIStringList((l) ->
         {
             this.selectedBone = l.isEmpty() ? "" : l.get(0);
+
+            PickedBone.set(this.selectedBone);
             this.updateLabels();
         });
         this.bones.background().h(UIConstants.LIST_ITEM_HEIGHT * 8);
@@ -322,7 +325,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         });
         this.classic.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_CLASSIC_TOOLTIP);
 
-        UISection settings = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_SETTINGS);
+        UISection settings = this.section(UIKeys.FORMS_EDITORS_MODEL_IK_SETTINGS, "ik.chain", true);
 
         /* The base covers 90% of chain authoring: target, pole, chain span.
          * enabled+target and pole+poleTarget each pair into one labelRow — the
@@ -337,7 +340,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.chainPreview
         );
 
-        UISection advanced = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_ADVANCED);
+        UISection advanced = this.section(UIKeys.FORMS_EDITORS_MODEL_IK_ADVANCED, "ik.advanced", false);
 
         advanced.fields.add(
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_POLE_ANGLE, this.poleAngle),
@@ -347,7 +350,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.stretch,
             this.classic
         );
-        advanced.setExpanded(false);
 
         /* The selected bone's JOINT freedom — per axis: lock, limit (degrees), stiffness.
          * Per BONE, not per chain: a bone shared by several chains has one set of joints. */
@@ -370,7 +372,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.stiffnessY = this.jointStiffness(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS.format("Y"), Colors.GREEN, (d, v) -> d.stiffnessY = v);
         this.stiffnessZ = this.jointStiffness(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS.format("Z"), Colors.BLUE, (d, v) -> d.stiffnessZ = v);
 
-        UISection joint = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT);
+        UISection joint = this.section(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT, "ik.joint", false);
 
         /* One row per axis: lock switch, limit switch, min, max, stiffness —
          * same freedom as the old 15-widget stack at a third of the height. The
@@ -382,7 +384,6 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.jointAxisRow(this.lockY, this.limitY, this.limitMinY, this.limitMaxY, this.stiffnessY),
             this.jointAxisRow(this.lockZ, this.limitZ, this.limitMinZ, this.limitMaxZ, this.stiffnessZ)
         );
-        joint.setExpanded(false);
 
         UIIcon debugSettings = new UIIcon(Icons.GEAR, (b) -> this.getContext().replaceContextMenu(new UIDebugOverlayContextMenu(BBSSettings.ikDebug)));
 
@@ -566,6 +567,11 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.setElementsEnabled(true);
 
             this.load();
+
+            /* Land on the bone the animator is working on — the panel is rebuilt
+             * on many editor actions, and the bone they came from another tab
+             * with is the one they mean here too. */
+            this.pickBoneInList(PickedBone.get());
         }
 
         this.updateLabels();
@@ -617,6 +623,8 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         }
 
         this.selectedBone = bone;
+
+        PickedBone.set(bone);
         this.bones.setCurrentScroll(bone);
         this.updateLabels();
 

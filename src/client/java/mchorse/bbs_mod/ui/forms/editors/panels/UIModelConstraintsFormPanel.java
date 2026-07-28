@@ -16,6 +16,7 @@ import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
+import mchorse.bbs_mod.ui.utils.PickedBone;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.presets.UIDataContextMenu;
@@ -61,6 +62,8 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
         this.bones = new UIStringList((l) ->
         {
             this.selectedBone = l.isEmpty() ? "" : l.get(0);
+
+            PickedBone.set(this.selectedBone);
             this.updateFields();
         });
         this.bones.background().h(UIConstants.LIST_ITEM_HEIGHT * 8);
@@ -100,7 +103,7 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
         this.maxZ = axisTrackpad((v) -> this.onFieldChanged(), Colors.BLUE, axis.format(UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_MAX, UIKeys.GENERAL_Z));
         this.applyToChildren = new UIButton(UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_APPLY_TO_CHILDREN, (b) -> this.applySelectedToChildren());
 
-        UISection params = new UISection(UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_SETTINGS);
+        UISection params = this.section(UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_SETTINGS, "constraints.settings", true);
 
         params.fields.add(
             this.enabled,
@@ -170,7 +173,13 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
             this.load(config);
         }
 
-        if (!bones.isEmpty())
+        /* Same as the other bone-list panels: keep the animator on the bone
+         * they are working on across a rebuild instead of resetting to the root. */
+        if (this.pickBoneInList(PickedBone.get()))
+        {
+            /* Already selected and filled in. */
+        }
+        else if (!bones.isEmpty())
         {
             this.selectBone(bones.get(0));
         }
@@ -192,6 +201,7 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
         }
 
         this.selectBone(bone);
+        PickedBone.set(bone);
 
         return true;
     }

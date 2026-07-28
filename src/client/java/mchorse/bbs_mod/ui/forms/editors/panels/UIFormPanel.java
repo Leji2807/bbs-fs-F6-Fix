@@ -1,9 +1,11 @@
 package mchorse.bbs_mod.ui.forms.editors.panels;
 
 import mchorse.bbs_mod.forms.forms.Form;
+import mchorse.bbs_mod.l10n.keys.IKey;
 import mchorse.bbs_mod.ui.forms.editors.forms.UIForm;
 import mchorse.bbs_mod.ui.framework.elements.UIElement;
 import mchorse.bbs_mod.ui.framework.elements.UIScrollView;
+import mchorse.bbs_mod.ui.framework.elements.UISection;
 import mchorse.bbs_mod.ui.framework.elements.utils.UIDraggable;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.UI;
@@ -18,6 +20,14 @@ public abstract class UIFormPanel <T extends Form> extends UIElement
     private static final float DEFAULT_OPTIONS_WIDTH = 0.2F;
 
     private static Map<Class, Float> widths = new HashMap<>();
+
+    /**
+     * Fold state per section id, for the session. Panels are rebuilt from
+     * scratch whenever the editor is (a viewport bone click alone does it), so
+     * a section built at its default every time would keep re-folding under the
+     * user; this remembers what they last left open.
+     */
+    private static final Map<String, Boolean> sectionFolds = new HashMap<>();
 
     protected UIForm editor;
     protected T form;
@@ -57,6 +67,21 @@ public abstract class UIFormPanel <T extends Form> extends UIElement
     protected float getDefaultOptionsWidth()
     {
         return DEFAULT_OPTIONS_WIDTH;
+    }
+
+    /**
+     * A collapsible section whose fold state outlives panel rebuilds: it opens
+     * as the user last left it ({@code defaultExpanded} only on first sight),
+     * keyed by {@code id} across the session.
+     */
+    protected UISection section(IKey title, String id, boolean defaultExpanded)
+    {
+        UISection section = new UISection(title);
+
+        section.setExpanded(sectionFolds.getOrDefault(id, defaultExpanded));
+        section.onToggle((s) -> sectionFolds.put(id, s.isExpanded()));
+
+        return section;
     }
 
     public void startEdit(T form)

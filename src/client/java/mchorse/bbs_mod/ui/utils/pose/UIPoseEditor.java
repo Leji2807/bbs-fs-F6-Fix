@@ -13,6 +13,7 @@ import mchorse.bbs_mod.ui.framework.elements.input.UIDeltaPropTransform;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
 import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
+import mchorse.bbs_mod.ui.utils.PickedBone;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.resizers.AutomaticResizer;
@@ -37,8 +38,6 @@ import java.util.function.Consumer;
 
 public class UIPoseEditor extends UIElement
 {
-    private static String lastLimb = "";
-
     /** The bone list never shrinks below this height when it gets stretched to fill the panel. */
     private static final int MIN_LIST_HEIGHT = UIStringList.DEFAULT_HEIGHT * 4;
 
@@ -287,7 +286,7 @@ public class UIPoseEditor extends UIElement
         this.transform.setVisible(hasBones);
 
         List<String> list = this.groups.list.getList();
-        int i = Math.max(reset ? 0 : list.indexOf(lastLimb), 0);
+        int i = Math.max(reset ? 0 : list.indexOf(PickedBone.get()), 0);
 
         this.groups.list.setCurrentScroll(CollectionUtils.getSafe(list, i));
         this.pickBones(this.groups.list.getCurrent());
@@ -311,7 +310,7 @@ public class UIPoseEditor extends UIElement
      */
     public void selectBone(String bone, boolean additive)
     {
-        lastLimb = bone;
+        PickedBone.set(bone);
 
         if (additive)
         {
@@ -417,7 +416,7 @@ public class UIPoseEditor extends UIElement
     {
         if (bones == null || bones.isEmpty())
         {
-            lastLimb = "";
+            PickedBone.set("");
             this.fix.setValue(0F);
             this.color.setColor(Colors.WHITE);
             this.lighting.setValue(false);
@@ -428,7 +427,7 @@ public class UIPoseEditor extends UIElement
 
         String primary = bones.get(0);
 
-        lastLimb = primary;
+        PickedBone.set(primary);
 
         PoseTransform poseTransform = this.pose.get(primary);
 

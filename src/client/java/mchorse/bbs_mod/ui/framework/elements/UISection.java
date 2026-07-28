@@ -12,6 +12,8 @@ import mchorse.bbs_mod.utils.colors.Colors;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.RotationAxis;
 
+import java.util.function.Consumer;
+
 /**
  * A collapsible section: a clickable header bar (a fold arrow and a title sitting
  * inside a tinted card) and a body of fields that toggles open and closed. Put any
@@ -27,6 +29,7 @@ public class UISection extends UIElement
     public UIElement fields;
 
     private boolean expanded = true;
+    private Consumer<UISection> callback;
 
     public UISection()
     {
@@ -61,6 +64,18 @@ public class UISection extends UIElement
         return this;
     }
 
+    /**
+     * Notified whenever the fold state changes, so an owner can remember it —
+     * panels are rebuilt from scratch on many editor actions, and a section
+     * that always came back at its default would undo the user's fold.
+     */
+    public UISection onToggle(Consumer<UISection> callback)
+    {
+        this.callback = callback;
+
+        return this;
+    }
+
     public boolean isExpanded()
     {
         return this.expanded;
@@ -87,6 +102,11 @@ public class UISection extends UIElement
         else
         {
             this.fields.removeFromParent();
+        }
+
+        if (this.callback != null)
+        {
+            this.callback.accept(this);
         }
 
         this.resizeParent();
