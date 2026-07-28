@@ -15,6 +15,7 @@ import mchorse.bbs_mod.ui.forms.editors.forms.UIForm;
 import mchorse.bbs_mod.ui.forms.editors.utils.UIDebugOverlayContextMenu;
 import mchorse.bbs_mod.ui.framework.elements.UIElement;
 import mchorse.bbs_mod.ui.framework.elements.UISection;
+import mchorse.bbs_mod.ui.framework.elements.utils.UILabel;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
@@ -25,6 +26,7 @@ import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.presets.UIDataContextMenu;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
+import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.pose.ModelIKManager;
 
 import java.util.ArrayList;
@@ -43,6 +45,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     public UIToggle enabled;
     public UIButton target;
     public UITrackpad chainLength;
+    public UILabel chainPreview;
     public UIToggle pole;
     public UIButton poleTarget;
     public UISliderTrackpad poleAngle;
@@ -194,10 +197,17 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 
             IKData data = this.getOrCreateData(this.selectedBone);
             data.chainLength = Math.max(0, (int) v.floatValue());
+            this.updateLabels();
             this.commitChanges();
         });
         this.chainLength.limit(0).integer();
         this.chainLength.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_CHAIN_LENGTH);
+
+        /* The live meaning of the chain length number: the bones the chain
+         * actually spans, root to tip — so "0 = up to the root" stops being
+         * folklore and the animator sees exactly what the solve will move. */
+        this.chainPreview = UI.label(IKey.EMPTY, UIConstants.LIST_ITEM_HEIGHT, Colors.LIGHTER_GRAY);
+        this.chainPreview.labelAnchor(0F, 0.5F);
 
         this.pole = new UIToggle(UIKeys.FORMS_EDITORS_MODEL_IK_POLE, (b) ->
         {
@@ -308,25 +318,30 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 
         UISection settings = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_SETTINGS);
 
-        /* Blender's IK constraint order: target, then the pole group, chain
-         * length, the tip/stretch toggles, and influence last (Blender puts the
-         * constraint's Influence slider at the very bottom). enabled/pole/softness
-         * stay — they are ours; softness rides just above influence as the other
-         * solve tuning scalar. enabled+target and pole+poleTarget each pair into
-         * one labelRow — the toggle names itself in the label slot, the bone picker
-         * pins to the shared value column (same grid as the pose editor's
-         * lighting+colour row). */
+        /* The base covers 90% of chain authoring: target, pole, chain span.
+         * enabled+target and pole+poleTarget each pair into one labelRow — the
+         * toggle names itself in the label slot, the bone picker pins to the
+         * shared value column (same grid as the pose editor's lighting+colour
+         * row). Everything the animator touches rarely lives in the collapsed
+         * "Advanced" section below, so the panel reads in one glance. */
         settings.fields.add(
             UI.labelRow(this.enabled, this.target),
             UI.labelRow(this.pole, this.poleTarget),
-            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_POLE_ANGLE, this.poleAngle),
             UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_CHAIN_LENGTH, this.chainLength),
+            this.chainPreview
+        );
+
+        UISection advanced = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_ADVANCED);
+
+        advanced.fields.add(
+            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_POLE_ANGLE, this.poleAngle),
+            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_SOFTNESS, this.softness),
+            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_WEIGHT, this.weight),
             this.tipRotation,
             this.stretch,
-            this.classic,
-            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_SOFTNESS, this.softness),
-            UI.labelRow(UIKeys.FORMS_EDITORS_MODEL_IK_WEIGHT, this.weight)
+            this.classic
         );
+        advanced.setExpanded(false);
 
         /* The selected bone's JOINT freedom — per axis: lock, limit (degrees), stiffness.
          * Per BONE, not per chain: a bone shared by several chains has one set of joints. */
@@ -351,14 +366,17 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 
         UISection joint = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT);
 
+        /* One row per axis: lock switch, limit switch, min, max, stiffness —
+         * same freedom as the old 15-widget stack at a third of the height. The
+         * switches carry their names as tooltips; the limit's min/max sit right
+         * next to their switch and light up when it flips, so the columns teach
+         * themselves in one click. */
         joint.fields.add(
-            this.lockX, this.lockY, this.lockZ,
-            this.limitX.marginTop(UIConstants.SECTION_GAP), UI.row(this.limitMinX, this.limitMaxX),
-            this.limitY.marginTop(UIConstants.SECTION_GAP), UI.row(this.limitMinY, this.limitMaxY),
-            this.limitZ.marginTop(UIConstants.SECTION_GAP), UI.row(this.limitMinZ, this.limitMaxZ),
-            UI.label(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS).marginTop(UIConstants.SECTION_GAP),
-            UI.row(this.stiffnessX, this.stiffnessY, this.stiffnessZ)
+            this.jointAxisRow("X", this.lockX, this.limitX, this.limitMinX, this.limitMaxX, this.stiffnessX),
+            this.jointAxisRow("Y", this.lockY, this.limitY, this.limitMinY, this.limitMaxY, this.stiffnessY),
+            this.jointAxisRow("Z", this.lockZ, this.limitZ, this.limitMinZ, this.limitMaxZ, this.stiffnessZ)
         );
+        joint.setExpanded(false);
 
         UIIcon debugSettings = new UIIcon(Icons.GEAR, (b) -> this.getContext().replaceContextMenu(new UIDebugOverlayContextMenu(BBSSettings.ikDebug)));
 
@@ -374,13 +392,33 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             debugRow,
             this.bones,
             settings,
+            advanced,
             joint
         );
     }
 
+    /**
+     * One joint axis as a single row: the axis letter, the lock and limit
+     * switches (name in the tooltip — the row has no room for labels and does
+     * not need them), then min/max/stiffness sharing the remaining width.
+     */
+    private UIElement jointAxisRow(String axis, UIToggle lock, UIToggle limit, UISliderTrackpad min, UISliderTrackpad max, UISliderTrackpad stiffness)
+    {
+        UILabel label = UI.label(IKey.constant(axis), UIConstants.CONTROL_HEIGHT);
+
+        label.labelAnchor(0F, 0.5F);
+
+        UIElement row = new UIElement();
+
+        row.row(UIConstants.MARGIN).height(UIConstants.CONTROL_HEIGHT);
+        row.add(label.w(8), lock.w(26), limit.w(26), min, max, stiffness);
+
+        return row;
+    }
+
     private UIToggle jointToggle(IKey label, BiConsumer<JointData, Boolean> setter)
     {
-        return new UIToggle(label, (b) ->
+        UIToggle toggle = new UIToggle(IKey.EMPTY, (b) ->
         {
             if (this.syncingUI || this.selectedBone.isEmpty())
             {
@@ -391,6 +429,10 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             this.updateLabels();
             this.commitChanges();
         });
+
+        toggle.tooltip(label);
+
+        return toggle;
     }
 
     private UISliderTrackpad jointDegrees(IKey tooltip, BiConsumer<JointData, Float> setter)
@@ -570,6 +612,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         {
             this.target.label = UIKeys.FORMS_EDITORS_MODEL_IK_TARGET.format(this.formatBone(targetLabel) + (cyclicTarget ? UIKeys.FORMS_EDITORS_MODEL_IK_CYCLE.get() : ""));
             this.chainLength.setValue(data == null ? ModelIKConfig.DEFAULT_CHAIN_LENGTH : data.chainLength);
+            this.chainPreview.label = IKey.constant(this.chainPreviewText(data, targetLabel));
             this.pole.setValue(poleOn);
             this.poleTarget.label = UIKeys.FORMS_EDITORS_MODEL_IK_POLE_TARGET.format(this.formatBone(data == null ? "" : data.poleTarget) + (cyclicPole ? UIKeys.FORMS_EDITORS_MODEL_IK_POLE_CYCLE.get() : ""));
             this.poleAngle.setValue(data == null ? ModelIKConfig.DEFAULT_POLE_ANGLE : data.poleAngle);
@@ -632,6 +675,23 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.tipRotation.setEnabled(canEdit);
         this.stretch.setEnabled(canEdit);
         this.classic.setEnabled(canEdit);
+    }
+
+    /**
+     * The bones the selected bone's chain spans, root to tip, as a readable
+     * arrow path — the live meaning of the chain length number. Empty when the
+     * bone has no chain (no target) or the model is missing.
+     */
+    private String chainPreviewText(IKData data, String target)
+    {
+        IModel model = this.model == null ? null : this.model.model;
+
+        if (data == null || target == null || target.isEmpty() || model == null || this.selectedBone.isEmpty())
+        {
+            return "";
+        }
+
+        return String.join(" → ", ModelIKRuntime.chainBones(model, this.selectedBone, data.chainLength));
     }
 
     /**

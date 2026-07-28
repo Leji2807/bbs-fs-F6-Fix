@@ -853,6 +853,7 @@
 	"bbs.ui.forms.editors.model.ik.weight": "Влияние",
 	"bbs.ui.forms.editors.model.ik.tip_rotation": "Кончик следует за целью",
     "bbs.ui.forms.editors.model.ik.stretch": "Растягиваться до цели",
+	"bbs.ui.forms.editors.model.ik.advanced": "Дополнительно",
 	"bbs.ui.forms.editors.model.ik.classic": "Классик-солвер (2 кости)",
 	"bbs.ui.forms.editors.model.ik.classic_fallback": "Классик-солвер (→ ядро!)",
 	"bbs.ui.forms.editors.model.ik.classic_tooltip": "Решать цепь аналитическим двухкостным солвером: точное решение, плавные провороты на 360° без пул-таргета. Только для цепи ровно из 2 костей без общих костей с другими цепями — иначе решает ядро (лейбл предупредит). Ограничения суставов игнорируются.",
