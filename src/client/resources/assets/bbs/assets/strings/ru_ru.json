@@ -1617,6 +1617,7 @@
 	"interpolations.sine_inout": "Синусоидальная In/out",
 	"interpolations.sine_out": "Синусоидальная Out",
 	"interpolations.step": "Лесенка",
+	"interpolations.step_tick": "Лесенка (тики)",
 	"interpolations.ui.context.copy": "Скопировать интерполяцию",
 	"interpolations.ui.context.paste": "Вставить интерполяцию",
 	"keybinds.config.all.title": "Общие",

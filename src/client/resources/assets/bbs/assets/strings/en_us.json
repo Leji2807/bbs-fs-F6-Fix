@@ -1634,6 +1634,7 @@
 	"interpolations.sine_inout": "Sine In/out",
 	"interpolations.sine_out": "Sine Out",
 	"interpolations.step": "Step",
+	"interpolations.step_tick": "Step (ticks)",
 	"interpolations.ui.context.copy": "Copy interpolation",
 	"interpolations.ui.context.paste": "Paste interpolation",
 	"keybinds.config.all.title": "General",
