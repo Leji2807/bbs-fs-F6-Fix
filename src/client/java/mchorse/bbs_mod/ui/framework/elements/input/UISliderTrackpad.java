@@ -409,7 +409,11 @@ public class UISliderTrackpad extends UINumericInput<UISliderTrackpad>
 
             FontRenderer font = context.batcher.getFont();
             String label = this.forcedLabel == null ? format(this.value) : this.forcedLabel.get();
-            int textColor = this.dragging ? Colors.WHITE : Colors.setA(Colors.WHITE, VALUE_ALPHA);
+
+            /* The value text follows the textbox's color (white by default), so a
+             * caller can axis-tint a slider the way transform trackpads are tinted. */
+            int base = this.textbox.getColor();
+            int textColor = this.dragging ? Colors.opaque(base) : Colors.setA(base, VALUE_ALPHA);
             int lx = this.area.ex() - 6 - font.getWidth(label);
             int ly = this.area.my() - font.getHeight() / 2;
 

@@ -357,16 +357,16 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         this.limitY = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LIMIT.format("Y"), (d, v) -> d.limitY = v);
         this.limitZ = this.jointToggle(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_LIMIT.format("Z"), (d, v) -> d.limitZ = v);
 
-        this.limitMinX = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MIN, (d, v) -> d.minX = v);
-        this.limitMaxX = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MAX, (d, v) -> d.maxX = v);
-        this.limitMinY = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MIN, (d, v) -> d.minY = v);
-        this.limitMaxY = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MAX, (d, v) -> d.maxY = v);
-        this.limitMinZ = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MIN, (d, v) -> d.minZ = v);
-        this.limitMaxZ = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MAX, (d, v) -> d.maxZ = v);
+        this.limitMinX = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MIN.format("X"), Colors.RED, (d, v) -> d.minX = v);
+        this.limitMaxX = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MAX.format("X"), Colors.RED, (d, v) -> d.maxX = v);
+        this.limitMinY = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MIN.format("Y"), Colors.GREEN, (d, v) -> d.minY = v);
+        this.limitMaxY = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MAX.format("Y"), Colors.GREEN, (d, v) -> d.maxY = v);
+        this.limitMinZ = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MIN.format("Z"), Colors.BLUE, (d, v) -> d.minZ = v);
+        this.limitMaxZ = this.jointDegrees(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_MAX.format("Z"), Colors.BLUE, (d, v) -> d.maxZ = v);
 
-        this.stiffnessX = this.jointStiffness((d, v) -> d.stiffnessX = v);
-        this.stiffnessY = this.jointStiffness((d, v) -> d.stiffnessY = v);
-        this.stiffnessZ = this.jointStiffness((d, v) -> d.stiffnessZ = v);
+        this.stiffnessX = this.jointStiffness(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS.format("X"), Colors.RED, (d, v) -> d.stiffnessX = v);
+        this.stiffnessY = this.jointStiffness(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS.format("Y"), Colors.GREEN, (d, v) -> d.stiffnessY = v);
+        this.stiffnessZ = this.jointStiffness(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS.format("Z"), Colors.BLUE, (d, v) -> d.stiffnessZ = v);
 
         UISection joint = new UISection(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT);
 
@@ -376,9 +376,9 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
          * next to their switch and light up when it flips, so the columns teach
          * themselves in one click. */
         joint.fields.add(
-            this.jointAxisRow("X", this.lockX, this.limitX, this.limitMinX, this.limitMaxX, this.stiffnessX),
-            this.jointAxisRow("Y", this.lockY, this.limitY, this.limitMinY, this.limitMaxY, this.stiffnessY),
-            this.jointAxisRow("Z", this.lockZ, this.limitZ, this.limitMinZ, this.limitMaxZ, this.stiffnessZ)
+            this.jointAxisRow(this.lockX, this.limitX, this.limitMinX, this.limitMaxX, this.stiffnessX),
+            this.jointAxisRow(this.lockY, this.limitY, this.limitMinY, this.limitMaxY, this.stiffnessY),
+            this.jointAxisRow(this.lockZ, this.limitZ, this.limitMinZ, this.limitMaxZ, this.stiffnessZ)
         );
         joint.setExpanded(false);
 
@@ -402,23 +402,17 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     }
 
     /**
-     * One joint axis as a single row: the axis letter, the lock icon, the limit
-     * switch (names in the tooltips — the row has no room for labels and does
-     * not need them), then min/max/stiffness sharing the remaining width.
+     * One joint axis as a single row: the lock icon, the limit switch, then
+     * min/max/stiffness sharing the remaining width. No axis letter — the axis
+     * lives in the value colors (X red, Y green, Z blue, like the transform
+     * trackpads) and in every control's tooltip.
      */
-    private UIElement jointAxisRow(String axis, UIIcon lock, UIToggle limit, UISliderTrackpad min, UISliderTrackpad max, UISliderTrackpad stiffness)
+    private UIElement jointAxisRow(UIIcon lock, UIToggle limit, UISliderTrackpad min, UISliderTrackpad max, UISliderTrackpad stiffness)
     {
-        UILabel label = UI.label(IKey.constant(axis), UIConstants.CONTROL_HEIGHT);
-
-        label.labelAnchor(0F, 0.5F);
-
         UIElement row = new UIElement();
 
-        /* The axis cell must be at least 10 wide: UILabel clips its text to
-         * (width - 4), so a narrower cell renders the letter as an EMPTY string
-         * — which reads as a mysterious dead gap at the row's left edge. */
         row.row(UIConstants.MARGIN).height(UIConstants.CONTROL_HEIGHT);
-        row.add(label.w(10), lock, limit.w(26), min, max, stiffness);
+        row.add(lock, limit.w(26), min, max, stiffness);
 
         return row;
     }
@@ -491,22 +485,24 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         return toggle;
     }
 
-    private UISliderTrackpad jointDegrees(IKey tooltip, BiConsumer<JointData, Float> setter)
+    private UISliderTrackpad jointDegrees(IKey tooltip, int color, BiConsumer<JointData, Float> setter)
     {
         UISliderTrackpad pad = new UISliderTrackpad(this.jointCallback(setter));
 
         pad.limit(-180D, 180D).increment(5D).values(1D, 0.5D, 5D);
         pad.tooltip(tooltip);
+        pad.textbox.setColor(color);
 
         return pad;
     }
 
-    private UISliderTrackpad jointStiffness(BiConsumer<JointData, Float> setter)
+    private UISliderTrackpad jointStiffness(IKey tooltip, int color, BiConsumer<JointData, Float> setter)
     {
         UISliderTrackpad pad = new UISliderTrackpad(this.jointCallback(setter));
 
         pad.limit(0D, 1D).increment(0.1D).values(0.1D, 0.05D, 0.2D);
-        pad.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_JOINT_STIFFNESS);
+        pad.tooltip(tooltip);
+        pad.textbox.setColor(color);
 
         return pad;
     }
