@@ -334,6 +334,7 @@
 	"bbs.ui.audio_editor.context.add": "Добавить цветовой код",
 	"bbs.ui.audio_editor.context.remove": "Удалить цветовой код",
 	"bbs.ui.audio_editor.title": "Аудио редактор",
+	"bbs.ui.bone_picker.click_bone": "Кликните на кость",
 	"bbs.ui.camera.clips.bbs:angle": "Угол",
 	"bbs.ui.camera.clips.bbs:attack": "Атака",
 	"bbs.ui.camera.clips.bbs:audio": "Аудио",

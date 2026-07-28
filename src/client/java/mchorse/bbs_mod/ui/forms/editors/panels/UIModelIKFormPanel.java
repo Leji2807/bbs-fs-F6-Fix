@@ -19,13 +19,15 @@ import mchorse.bbs_mod.ui.framework.elements.UIElement;
 import mchorse.bbs_mod.ui.framework.elements.UISection;
 import mchorse.bbs_mod.ui.framework.elements.utils.UILabel;
 import mchorse.bbs_mod.utils.Direction;
-import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
-import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
+import mchorse.bbs_mod.ui.framework.elements.input.list.UISearchList;
 import mchorse.bbs_mod.ui.utils.PickedBone;
+import mchorse.bbs_mod.ui.utils.bones.UIBonePicker;
+import mchorse.bbs_mod.ui.utils.bones.UIBonePickerContextMenu;
+import mchorse.bbs_mod.ui.utils.bones.UIBoneTreeList;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.presets.UIDataContextMenu;
@@ -34,7 +36,6 @@ import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.pose.ModelIKManager;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,15 +45,16 @@ import java.util.function.Predicate;
 
 public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 {
-    public UIStringList bones;
+    public UIBoneTreeList bones;
+    public UISearchList<String> bonesSearch;
 
     public UIToggle debug;
     public UIToggle enabled;
-    public UIButton target;
+    public UIBonePicker target;
     public UITrackpad chainLength;
     public UILabel chainPreview;
     public UIToggle pole;
-    public UIButton poleTarget;
+    public UIBonePicker poleTarget;
     public UISliderTrackpad poleAngle;
     public UISliderTrackpad softness;
     public UISliderTrackpad weight;
@@ -148,14 +150,17 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
     {
         super(editor);
 
-        this.bones = new UIStringList((l) ->
+        this.bones = new UIBoneTreeList((l) ->
         {
             this.selectedBone = l.isEmpty() ? "" : l.get(0);
 
             PickedBone.set(this.selectedBone);
             this.updateLabels();
         });
-        this.bones.background().h(UIConstants.LIST_ITEM_HEIGHT * 8);
+        this.bones.background();
+        this.bonesSearch = new UISearchList<>(this.bones);
+        this.bonesSearch.label(UIKeys.GENERAL_SEARCH);
+        this.bonesSearch.h(20 + UIConstants.LIST_ITEM_HEIGHT * 8);
         this.bones.context(() -> new UIDataContextMenu(ModelIKManager.INSTANCE, this.presetGroup, this::toPresetData, this::applyPresetData).tooltips("_CopyModelIK",
             UIKeys.FORMS_EDITORS_MODEL_IK_CONTEXT_COPY,
             UIKeys.FORMS_EDITORS_MODEL_IK_CONTEXT_PASTE,
@@ -182,18 +187,41 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         });
         this.enabled.h(UIConstants.CONTROL_HEIGHT);
 
-        this.target = new UIButton(IKey.EMPTY, (b) ->
+        this.target = new UIBonePicker((bone) ->
         {
-            if (this.selectedBone.isEmpty()) return;
+            if (this.selectedBone.isEmpty())
+            {
+                return;
+            }
 
             IKData data = this.getOrCreateData(this.selectedBone);
-            this.openBoneMenu(data.target, (bone) ->
+
+            /* The eyedropper bypasses the popup's graying, so the cycle gate sits
+             * on the shared callback — a cyclic pick is refused outright. */
+            if (this.isCyclic(data, bone))
             {
-                data.target = bone;
-                this.updateLabels();
-                this.commitChanges();
-            });
+                return;
+            }
+
+            data.target = bone;
+            this.updateLabels();
+            this.commitChanges();
         });
+
+        /* A target the chain itself drives never compiles — gray it out in the
+         * picker instead of letting the pick happen and flagging it after. */
+        this.target.menu((picker) ->
+        {
+            if (this.selectedBone.isEmpty())
+            {
+                return;
+            }
+
+            IKData data = this.getOrCreateData(this.selectedBone);
+
+            this.fillBoneMenu(picker, data.target, (bone) -> this.isCyclic(data, bone));
+        });
+        this.target.viewport(this.viewportBonePicking());
         this.target.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_TARGET);
 
         this.chainLength = new UITrackpad((v) ->
@@ -231,18 +259,32 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         });
         this.pole.h(UIConstants.CONTROL_HEIGHT);
 
-        this.poleTarget = new UIButton(IKey.EMPTY, (b) ->
+        this.poleTarget = new UIBonePicker((bone) ->
         {
-            if (this.selectedBone.isEmpty()) return;
+            if (this.selectedBone.isEmpty())
+            {
+                return;
+            }
 
             IKData data = this.getOrCreateData(this.selectedBone);
-            this.openBoneMenu(data.poleTarget, (bone) ->
-            {
-                data.poleTarget = bone;
-                this.updateLabels();
-                this.commitChanges();
-            });
+
+            data.poleTarget = bone;
+            this.updateLabels();
+            this.commitChanges();
         });
+
+        /* A pole on a chain bone is not fatal (the compiler falls back to the
+         * auto pole), so nothing is grayed out here. */
+        this.poleTarget.menu((picker) ->
+        {
+            if (this.selectedBone.isEmpty())
+            {
+                return;
+            }
+
+            this.fillBoneMenu(picker, this.getOrCreateData(this.selectedBone).poleTarget, null);
+        });
+        this.poleTarget.viewport(this.viewportBonePicking());
         this.poleTarget.tooltip(UIKeys.FORMS_EDITORS_MODEL_IK_POLE_TARGET);
 
         this.poleAngle = new UISliderTrackpad((v) ->
@@ -397,7 +439,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 
         this.options.add(
             debugRow,
-            this.bones,
+            this.bonesSearch,
             settings,
             advanced,
             joint
@@ -550,8 +592,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 
         if (model == null || model.model == null)
         {
-            this.bones.setList(Collections.emptyList());
-            this.bones.deselect();
+            this.bones.clear();
             this.selectedBone = "";
             this.ikData.clear();
             this.jointData.clear();
@@ -560,10 +601,11 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         }
         else
         {
-            List<String> bones = new ArrayList<>(model.model.getGroupKeysInHierarchyOrder());
-            bones.removeIf(model.getDisabledBones()::contains);
+            this.bones.fillBones(model.model, model.getDisabledBones());
 
-            this.bones.setList(bones);
+            /* The fill resets the list's filter state, but the search box keeps its
+             * text across startEdit — reapply so what you see matches the query. */
+            this.bones.filter(this.bonesSearch.search.getText());
             this.setElementsEnabled(true);
 
             this.load();
@@ -580,6 +622,7 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
 
     private void setElementsEnabled(boolean enabled)
     {
+        this.bonesSearch.setEnabled(enabled);
         this.bones.setEnabled(enabled);
         this.enabled.setEnabled(enabled);
         this.target.setEnabled(enabled);
@@ -631,26 +674,14 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
         return true;
     }
 
-    private void openBoneMenu(String current, Consumer<String> callback)
+    private void fillBoneMenu(UIBonePickerContextMenu picker, String current, Predicate<String> disabled)
     {
-        if (this.bones.getList().isEmpty())
+        if (this.model == null || this.model.model == null)
         {
             return;
         }
 
-        this.getContext().replaceContextMenu((menu) ->
-        {
-            boolean none = current == null || current.isEmpty();
-
-            menu.action(Icons.REMOVE, UIKeys.GENERAL_NONE, none, () -> callback.accept(""));
-
-            for (String bone : this.bones.getList())
-            {
-                boolean selected = bone.equals(current);
-
-                menu.action(Icons.LIMB, IKey.constant(bone), selected, () -> callback.accept(bone));
-            }
-        });
+        picker.bones(this.model.model, this.model.getDisabledBones()).none().disabled(disabled).set(current);
     }
 
     private void updateLabels()
@@ -685,11 +716,11 @@ public class UIModelIKFormPanel extends UIFormPanel<ModelForm>
             /* The pickers show the bare bone name (what they hold), not a
              * prefixed sentence — the row label and tooltip already say what
              * the picker means. */
-            this.target.label = IKey.constant(this.formatBone(targetLabel) + (cyclicTarget ? UIKeys.FORMS_EDITORS_MODEL_IK_CYCLE.get() : ""));
+            this.target.setLabel(IKey.constant(this.formatBone(targetLabel) + (cyclicTarget ? UIKeys.FORMS_EDITORS_MODEL_IK_CYCLE.get() : "")));
             this.chainLength.setValue(data == null ? ModelIKConfig.DEFAULT_CHAIN_LENGTH : data.chainLength);
             this.chainPreview.label = chain.isEmpty() ? UIKeys.FORMS_EDITORS_MODEL_IK_CHAIN_EMPTY : IKey.constant(chain);
             this.pole.setValue(poleOn);
-            this.poleTarget.label = IKey.constant(this.formatBone(data == null ? "" : data.poleTarget) + (cyclicPole ? UIKeys.FORMS_EDITORS_MODEL_IK_POLE_CYCLE.get() : ""));
+            this.poleTarget.setLabel(IKey.constant(this.formatBone(data == null ? "" : data.poleTarget) + (cyclicPole ? UIKeys.FORMS_EDITORS_MODEL_IK_POLE_CYCLE.get() : "")));
             this.poleAngle.setValue(data == null ? ModelIKConfig.DEFAULT_POLE_ANGLE : data.poleAngle);
             this.softness.setValue(data == null ? ModelIKConfig.DEFAULT_SOFTNESS : data.softness);
             this.weight.setValue(data == null ? ModelIKConfig.DEFAULT_WEIGHT : data.weight);

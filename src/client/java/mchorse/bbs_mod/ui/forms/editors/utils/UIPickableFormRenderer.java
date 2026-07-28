@@ -13,6 +13,7 @@ import mchorse.bbs_mod.forms.renderers.FormRenderingContext;
 import mchorse.bbs_mod.graphics.Draw;
 import mchorse.bbs_mod.graphics.texture.Texture;
 import mchorse.bbs_mod.resources.Link;
+import mchorse.bbs_mod.ui.UIKeys;
 import mchorse.bbs_mod.ui.forms.editors.UIFormEditor;
 import mchorse.bbs_mod.ui.framework.UIBaseMenu;
 import mchorse.bbs_mod.ui.framework.UIContext;
@@ -302,6 +303,13 @@ public class UIPickableFormRenderer extends UIFormRenderer implements GizmoViewp
 
         if (!this.stencil.hasPicked())
         {
+            /* An armed eyedropper over empty space explains itself at the cursor;
+             * over a bone the regular pick card below already names the catch. */
+            if (this.formEditor.isBonePicking() && this.area.isInside(context))
+            {
+                context.batcher.textCard(UIKeys.BONE_PICKER_CLICK_BONE.get(), context.mouseX + 12, context.mouseY + 8);
+            }
+
             return;
         }
 

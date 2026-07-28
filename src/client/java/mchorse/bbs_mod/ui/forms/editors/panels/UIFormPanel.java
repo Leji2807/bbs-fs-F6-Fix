@@ -2,6 +2,7 @@ package mchorse.bbs_mod.ui.forms.editors.panels;
 
 import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.l10n.keys.IKey;
+import mchorse.bbs_mod.ui.forms.editors.UIFormEditor;
 import mchorse.bbs_mod.ui.forms.editors.forms.UIForm;
 import mchorse.bbs_mod.ui.framework.elements.UIElement;
 import mchorse.bbs_mod.ui.framework.elements.UIScrollView;
@@ -9,11 +10,13 @@ import mchorse.bbs_mod.ui.framework.elements.UISection;
 import mchorse.bbs_mod.ui.framework.elements.utils.UIDraggable;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.UI;
+import mchorse.bbs_mod.ui.utils.bones.UIBonePicker;
 import mchorse.bbs_mod.utils.MathUtils;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 
 public abstract class UIFormPanel <T extends Form> extends UIElement
 {
@@ -105,5 +108,42 @@ public abstract class UIFormPanel <T extends Form> extends UIElement
     public boolean pickBoneInList(String bone)
     {
         return false;
+    }
+
+    /**
+     * Eyedropper backend for this panel's {@link UIBonePicker}s: arms the form editor's
+     * viewport stencil pick and accepts only bones of the form this panel edits — a
+     * click on another body part (or a miss) reports null, i.e. cancels.
+     */
+    protected UIBonePicker.Viewport viewportBonePicking()
+    {
+        return new UIBonePicker.Viewport()
+        {
+            @Override
+            public void startPicking(Consumer<String> callback)
+            {
+                UIFormEditor formEditor = UIFormPanel.this.getParent(UIFormEditor.class);
+
+                if (formEditor == null)
+                {
+                    callback.accept(null);
+
+                    return;
+                }
+
+                formEditor.startBonePicking((pair) -> callback.accept(pair != null && pair.a == UIFormPanel.this.form ? pair.b : null));
+            }
+
+            @Override
+            public void stopPicking()
+            {
+                UIFormEditor formEditor = UIFormPanel.this.getParent(UIFormEditor.class);
+
+                if (formEditor != null)
+                {
+                    formEditor.stopBonePicking();
+                }
+            }
+        };
     }
 }

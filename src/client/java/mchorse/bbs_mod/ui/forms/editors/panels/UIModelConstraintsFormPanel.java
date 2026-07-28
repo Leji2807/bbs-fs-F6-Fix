@@ -15,8 +15,9 @@ import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
-import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
+import mchorse.bbs_mod.ui.framework.elements.input.list.UISearchList;
 import mchorse.bbs_mod.ui.utils.PickedBone;
+import mchorse.bbs_mod.ui.utils.bones.UIBoneTreeList;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.presets.UIDataContextMenu;
@@ -35,7 +36,8 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
     private static final float DEFAULT_MIN = -180F;
     private static final float DEFAULT_MAX = 180F;
 
-    public UIStringList bones;
+    public UIBoneTreeList bones;
+    public UISearchList<String> bonesSearch;
 
     public UIToggle enabled;
     public UISliderTrackpad minX;
@@ -59,14 +61,17 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
 
         IKey axis = IKey.constant("%s (%s)");
 
-        this.bones = new UIStringList((l) ->
+        this.bones = new UIBoneTreeList((l) ->
         {
             this.selectedBone = l.isEmpty() ? "" : l.get(0);
 
             PickedBone.set(this.selectedBone);
             this.updateFields();
         });
-        this.bones.background().h(UIConstants.LIST_ITEM_HEIGHT * 8);
+        this.bones.background();
+        this.bonesSearch = new UISearchList<>(this.bones);
+        this.bonesSearch.label(UIKeys.GENERAL_SEARCH);
+        this.bonesSearch.h(20 + UIConstants.LIST_ITEM_HEIGHT * 8);
         this.bones.context(() -> new UIDataContextMenu(ModelConstraintsManager.INSTANCE, this.presetGroup, this::toPresetData, this::applyPresetData).tooltips("_CopyModelConstraints",
             UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_CONTEXT_COPY,
             UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_CONTEXT_PASTE,
@@ -118,7 +123,7 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
         );
 
         this.options.add(
-            this.bones,
+            this.bonesSearch,
             params
         );
     }
@@ -146,8 +151,7 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
         if (model == null || model.model == null)
         {
             this.availableBones = Collections.emptyList();
-            this.bones.setList(Collections.emptyList());
-            this.bones.deselect();
+            this.bones.clear();
             this.setElementsEnabled(false);
             this.setDefaults();
             this.enabled.setValue(false);
@@ -159,7 +163,11 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
         bones.removeIf(model.getDisabledBones()::contains);
         this.availableBones = bones;
 
-        this.bones.setList(bones);
+        this.bones.fillBones(model.model, model.getDisabledBones());
+
+        /* The fill resets the list's filter state, but the search box keeps its
+         * text across startEdit — reapply so what you see matches the query. */
+        this.bones.filter(this.bonesSearch.search.getText());
         this.setElementsEnabled(true);
 
         ModelConstraintsConfig config = null;
@@ -365,6 +373,7 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
 
     private void setElementsEnabled(boolean enabled)
     {
+        this.bonesSearch.setEnabled(enabled);
         this.bones.setEnabled(enabled);
         this.enabled.setEnabled(enabled);
         this.applyToChildren.setEnabled(enabled);

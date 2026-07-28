@@ -56,6 +56,7 @@ import mchorse.bbs_mod.ui.framework.elements.utils.UIRenderable;
 import mchorse.bbs_mod.ui.utils.Gizmo;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.ui.utils.StencilFormFramebuffer;
+import mchorse.bbs_mod.ui.utils.bones.UIBonePicker;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIUtils;
 import mchorse.bbs_mod.ui.utils.context.ContextMenuManager;
@@ -129,6 +130,9 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
     private int lastTick;
     private int cursor;
     private boolean playing;
+
+    /** Armed viewport eyedropper (see {@link #startBonePicking}); null when idle. */
+    private Consumer<Pair<Form, String>> bonePicking;
 
     static
     {
@@ -382,8 +386,71 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
         this.setUndoId("form_editor");
     }
 
+    /**
+     * Arm the viewport eyedropper: the next left click reports what the stencil has
+     * under the cursor — the picked (form, bone) pair, or null on a miss — instead
+     * of selecting it in the editor. One-shot; see {@link UIBonePicker.Viewport}.
+     */
+    public void startBonePicking(Consumer<Pair<Form, String>> callback)
+    {
+        this.stopBonePicking();
+        this.bonePicking = callback;
+    }
+
+    public boolean isBonePicking()
+    {
+        return this.bonePicking != null;
+    }
+
+    /** Cancel an armed eyedropper, delivering null so its owner can reset its state. */
+    public void stopBonePicking()
+    {
+        Consumer<Pair<Form, String>> callback = this.bonePicking;
+
+        this.bonePicking = null;
+
+        if (callback != null)
+        {
+            callback.accept(null);
+        }
+    }
+
     public boolean clickViewport(UIContext context, StencilFormFramebuffer stencil)
     {
+        /* An armed eyedropper wins over everything the click could otherwise do
+         * (gizmo, selection) — that is the whole point of the mode. A left click
+         * disarms it: a bone delivers, a miss cancels; right click just cancels. */
+        if (this.bonePicking != null)
+        {
+            if (context.mouseButton == 1)
+            {
+                this.stopBonePicking();
+
+                return true;
+            }
+
+            if (context.mouseButton == 0)
+            {
+                /* Shift+click keeps the editor's regular pick reachable while armed:
+                 * disarm first (the pick rebuilds the panels, which would orphan the
+                 * armed state), then fall through to the normal selection below. */
+                if (Window.isShiftPressed())
+                {
+                    this.stopBonePicking();
+                }
+                else
+                {
+                    Consumer<Pair<Form, String>> callback = this.bonePicking;
+                    Pair<Form, String> pair = stencil.hasPicked() ? stencil.getPicked() : null;
+
+                    this.bonePicking = null;
+                    callback.accept(pair);
+
+                    return true;
+                }
+            }
+        }
+
         if (this.renderer.getGizmoInteraction().mouseClicked(context))
         {
             return true;

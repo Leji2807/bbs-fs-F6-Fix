@@ -55,6 +55,7 @@ import mchorse.bbs_mod.ui.framework.elements.utils.UIDraggable;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.UIUtils;
+import mchorse.bbs_mod.ui.utils.bones.UIBonePicker;
 import mchorse.bbs_mod.ui.utils.context.ContextMenuManager;
 import mchorse.bbs_mod.ui.utils.icons.Icon;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
@@ -1343,38 +1344,33 @@ public class UIModelEditorPanel extends UIDataDashboardPanel<ModelConfig>
         return entry;
     }
 
-    private UIButton bonePicker(Supplier<String> get, Consumer<String> set, Runnable onChange)
+    private UIBonePicker bonePicker(Supplier<String> get, Consumer<String> set, Runnable onChange)
     {
-        UIButton[] ref = new UIButton[1];
-        UIButton button = new UIButton(this.boneLabel(get.get()), (b) ->
+        UIBonePicker[] ref = new UIBonePicker[1];
+        UIBonePicker picker = new UIBonePicker((bone) -> this.pickBone(ref[0], set, onChange, bone));
+
+        picker.setLabel(this.boneLabel(get.get()));
+        picker.menu((menu) ->
         {
             if (this.bound == null)
             {
                 return;
             }
 
-            String current = get.get();
-
-            this.getContext().replaceContextMenu((menu) ->
-            {
-                menu.action(Icons.REMOVE, UIKeys.GENERAL_NONE, current == null || current.isEmpty(), () -> this.pickBone(ref[0], set, onChange, ""));
-
-                for (String bone : this.bound.getModel().getGroupKeysInHierarchyOrder())
-                {
-                    menu.action(Icons.LIMB, IKey.constant(bone), bone.equals(current), () -> this.pickBone(ref[0], set, onChange, bone));
-                }
-            });
+            /* Welds are model config, so hidden bones stay pickable — same as the old menu.
+             * No viewport hook: the model editor's preview has no stencil picking. */
+            menu.bones(this.bound.getModel(), null).none().set(get.get());
         });
 
-        ref[0] = button;
+        ref[0] = picker;
 
-        return button;
+        return picker;
     }
 
-    private void pickBone(UIButton button, Consumer<String> set, Runnable onChange, String bone)
+    private void pickBone(UIBonePicker picker, Consumer<String> set, Runnable onChange, String bone)
     {
         set.accept(bone);
-        button.label = this.boneLabel(bone);
+        picker.setLabel(this.boneLabel(bone));
         onChange.run();
     }
 

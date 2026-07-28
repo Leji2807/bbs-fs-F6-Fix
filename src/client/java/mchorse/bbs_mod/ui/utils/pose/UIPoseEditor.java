@@ -241,6 +241,7 @@ public class UIPoseEditor extends UIElement
         this.model = null;
         this.flippedParts = null;
 
+        this.groups.list.setHierarchy(null, null);
         this.fillInGroups(groups, reset, true);
     }
 
@@ -253,6 +254,10 @@ public class UIPoseEditor extends UIElement
     {
         this.model = model;
         this.flippedParts = flippedParts;
+
+        /* The hierarchy metadata rides along so the list renders as a tree; the list
+         * contents themselves keep being refilled by UIBoneList's search filter. */
+        this.groups.list.setHierarchy(model, (bone) -> PoseBones.isHidden(disabledBones, bone));
 
         if (model == null)
         {

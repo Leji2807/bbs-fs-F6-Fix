@@ -806,6 +806,7 @@ public class UIKeys
     public static final IKey MODEL_EDITOR_LOOK_AT_LIMIT = L10n.lang("bbs.ui.model_editor.look_at.limit");
     public static final IKey MODEL_EDITOR_BONES = L10n.lang("bbs.ui.model_editor.bones");
     public static final IKey MODEL_EDITOR_PICK_BONE = L10n.lang("bbs.ui.model_editor.pick_bone");
+    public static final IKey BONE_PICKER_CLICK_BONE = L10n.lang("bbs.ui.bone_picker.click_bone");
     public static final IKey MODEL_EDITOR_FACE_FRONT = L10n.lang("bbs.ui.model_editor.face.front");
     public static final IKey MODEL_EDITOR_FACE_BACK = L10n.lang("bbs.ui.model_editor.face.back");
     public static final IKey MODEL_EDITOR_FACE_RIGHT = L10n.lang("bbs.ui.model_editor.face.right");

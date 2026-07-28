@@ -338,6 +338,7 @@
 	"bbs.ui.audio_editor.context.add": "Add color code",
 	"bbs.ui.audio_editor.context.remove": "Remove color code",
 	"bbs.ui.audio_editor.title": "Audio editor",
+	"bbs.ui.bone_picker.click_bone": "Click on a bone",
 	"bbs.ui.camera.clips.bbs:angle": "Angle",
 	"bbs.ui.camera.clips.bbs:attack": "Attack",
 	"bbs.ui.camera.clips.bbs:audio": "Audio",
