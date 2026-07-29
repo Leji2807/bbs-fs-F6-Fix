@@ -13,6 +13,7 @@ import mchorse.bbs_mod.entity.ActorEntity;
 import mchorse.bbs_mod.film.replays.FormControlKeys;
 import mchorse.bbs_mod.film.replays.PerLimbService;
 import mchorse.bbs_mod.film.replays.Replay;
+import mchorse.bbs_mod.film.replays.ReplayKeyframes;
 import mchorse.bbs_mod.forms.FormUtils;
 import mchorse.bbs_mod.forms.FormUtilsClient;
 import mchorse.bbs_mod.forms.renderers.FormRenderer;
@@ -967,11 +968,20 @@ public abstract class BaseFilmController
 
                             Vec3d pos = player.getPos();
 
-                            player.move(MovementType.SELF, new Vec3d(x - pos.x, y - pos.y, z - pos.z));
+                            /* Probe downwards so vanilla's collision registers the floor - see
+                             * ReplayKeyframes#GRAVITY_PROBE. */
+                            double dY = y - pos.y - (grounded ? ReplayKeyframes.GRAVITY_PROBE : 0D);
+
+                            player.move(MovementType.SELF, new Vec3d(x - pos.x, dY, z - pos.z));
                             player.setPosition(x, y, z);
 
                             player.setSneaking(sneaking);
                             player.setOnGround(grounded);
+
+                            /* The player's own tick overwrites this from the input every tick, but
+                             * baseTick (which spawns the sprinting particles) runs before it, so a
+                             * value written at the end of the world tick is the one vanilla sees. */
+                            player.setSprinting(replay.keyframes.sprinting.interpolate(ticks) > 0);
 
                             /* First person teleports the player from keyframes instead of walking it, so vanilla's
                              * stride distance (the view-bobbing amplitude) is computed from a zero velocity and stays
