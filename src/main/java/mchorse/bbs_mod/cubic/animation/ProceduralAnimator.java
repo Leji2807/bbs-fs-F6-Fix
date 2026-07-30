@@ -9,6 +9,8 @@ import mchorse.bbs_mod.cubic.data.model.Model;
 import mchorse.bbs_mod.cubic.data.model.ModelGroup;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
+import mchorse.bbs_mod.utils.pose.Transform;
 import mchorse.bbs_mod.utils.interps.Lerps;
 import net.minecraft.entity.EntityPose;
 import net.minecraft.entity.EquipmentSlot;
@@ -170,8 +172,12 @@ public class ProceduralAnimator implements IAnimator
                 {
                     if (target.isUsingRiptide())
                     {
-                        group.current.rotate.x = -90.0F - pitch;
-                        group.current.rotate2.y = age * -75.0F;
+                        /* Riptide spin was rotate.x·rotate2.y (a pitch then a Y spin
+                         * composed after); with rotate2 gone, hold that exact
+                         * composition as a quaternion (degrees for cubic current). */
+                        group.current.rotationMode = Transform.RotationMode.QUATERNION;
+                        group.current.quat.set(Matrices.toQuaternionZYXDegrees(-90.0F - pitch, 0F, 0F)
+                            .mul(Matrices.toQuaternionZYXDegrees(0F, age * -75.0F, 0F)));
                     }
 
                     if (target.isFallFlying())
@@ -311,8 +317,10 @@ public class ProceduralAnimator implements IAnimator
                 {
                     if (target.isUsingRiptide())
                     {
-                        bone.transform.rotate.x = MathUtils.toRad(-90.0F - pitch);
-                        bone.transform.rotate2.y = MathUtils.toRad(age * -75.0F);
+                        /* See the cubic riptide above; BOBJ channels are radians. */
+                        bone.transform.rotationMode = Transform.RotationMode.QUATERNION;
+                        bone.transform.quat.set(Matrices.toQuaternionZYXRadians(MathUtils.toRad(-90.0F - pitch), 0F, 0F)
+                            .mul(Matrices.toQuaternionZYXRadians(0F, MathUtils.toRad(age * -75.0F), 0F)));
                     }
 
                     if (target.isFallFlying())

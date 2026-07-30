@@ -103,7 +103,7 @@ public class FormUtilsClient
                 assignAllocator(layers, layer);
             }
 
-            customVertexConsumerProvider = new CustomVertexConsumerProvider(VertexConsumerProvider.immediate(layers, new BufferAllocator(1536)));
+            customVertexConsumerProvider = new CustomVertexConsumerProvider(new BufferAllocator(1536), layers);
         }
 
         return customVertexConsumerProvider;

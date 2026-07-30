@@ -48,6 +48,7 @@ import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.UIElement;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.framework.elements.overlay.UIOverlay;
 import mchorse.bbs_mod.ui.framework.elements.utils.EventPropagation;
 import mchorse.bbs_mod.ui.framework.elements.utils.UIDraggable;
@@ -55,6 +56,7 @@ import mchorse.bbs_mod.ui.framework.elements.utils.UIRenderable;
 import mchorse.bbs_mod.ui.utils.Gizmo;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
 import mchorse.bbs_mod.ui.utils.StencilFormFramebuffer;
+import mchorse.bbs_mod.ui.utils.bones.UIBonePicker;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIUtils;
 import mchorse.bbs_mod.ui.utils.context.ContextMenuManager;
@@ -128,6 +130,12 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
     private int lastTick;
     private int cursor;
     private boolean playing;
+
+    /** Armed viewport eyedropper (see {@link #startBonePicking}); null when idle. */
+    private Consumer<Pair<Form, String>> bonePicking;
+
+    /** Upper part of the sidebar (toolbar + forms list); shrinks by the body part editor's height. */
+    private UIElement listSection;
 
     static
     {
@@ -209,8 +217,9 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
                 return current != null && current.part != null;
             });
 
-        UIElement listSection = new UIElement();
-        listSection.relative(this.forms).w(1F).h(0.5F);
+        this.listSection = new UIElement();
+        this.listSection.relative(this.forms).w(1F).h(1F);
+        UIElement listSection = this.listSection;
         UIElement listToolbarBg = new UIElement()
         {
             @Override
@@ -262,8 +271,10 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
         this.formsList.relative(listSection).y(20).h(1F, -20).w(1F);
         listSection.add(listToolbarBg, listToolbar, this.formsList);
 
+        /* Pinned to the sidebar's bottom at content height (see resizeSidebar) —
+         * the forms list above takes whatever the editor doesn't need. */
         this.bodyPartEditor = new UIBodyPartEditor(this);
-        this.bodyPartEditor.relative(this.forms).w(1F).y(0.5F).h(0.5F);
+        this.bodyPartEditor.relative(this.forms).w(1F).y(1F).h(0).anchorY(1F);
 
         this.formEditor = new UIElement();
         this.formEditor.full(this);
@@ -381,8 +392,71 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
         this.setUndoId("form_editor");
     }
 
+    /**
+     * Arm the viewport eyedropper: the next left click reports what the stencil has
+     * under the cursor — the picked (form, bone) pair, or null on a miss — instead
+     * of selecting it in the editor. One-shot; see {@link UIBonePicker.Viewport}.
+     */
+    public void startBonePicking(Consumer<Pair<Form, String>> callback)
+    {
+        this.stopBonePicking();
+        this.bonePicking = callback;
+    }
+
+    public boolean isBonePicking()
+    {
+        return this.bonePicking != null;
+    }
+
+    /** Cancel an armed eyedropper, delivering null so its owner can reset its state. */
+    public void stopBonePicking()
+    {
+        Consumer<Pair<Form, String>> callback = this.bonePicking;
+
+        this.bonePicking = null;
+
+        if (callback != null)
+        {
+            callback.accept(null);
+        }
+    }
+
     public boolean clickViewport(UIContext context, StencilFormFramebuffer stencil)
     {
+        /* An armed eyedropper wins over everything the click could otherwise do
+         * (gizmo, selection) — that is the whole point of the mode. A left click
+         * disarms it: a bone delivers, a miss cancels; right click just cancels. */
+        if (this.bonePicking != null)
+        {
+            if (context.mouseButton == 1)
+            {
+                this.stopBonePicking();
+
+                return true;
+            }
+
+            if (context.mouseButton == 0)
+            {
+                /* Shift+click keeps the editor's regular pick reachable while armed:
+                 * disarm first (the pick rebuilds the panels, which would orphan the
+                 * armed state), then fall through to the normal selection below. */
+                if (Window.isShiftPressed())
+                {
+                    this.stopBonePicking();
+                }
+                else
+                {
+                    Consumer<Pair<Form, String>> callback = this.bonePicking;
+                    Pair<Form, String> pair = stencil.hasPicked() ? stencil.getPicked() : null;
+
+                    this.bonePicking = null;
+                    callback.accept(pair);
+
+                    return true;
+                }
+            }
+        }
+
         if (this.renderer.getGizmoInteraction().mouseClicked(context))
         {
             return true;
@@ -443,13 +517,22 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
 
         if (drag != null)
         {
+            /* Same frame GLOBAL is DRAWN in (UIPickableFormRenderer#renderAxes):
+             * the preview's scene axes, which the model block's immersive editing
+             * turns with the block. Both sides must read it from the renderer. */
+            drag.setGlobalAxes(this.renderer.getSceneAxes());
+            /* Sampled matrices live in the form's own frame, while the gizmo's
+             * origin and axes are read back out of the render matrix — which
+             * carries the renderer's transform. Lift the samples into the same
+             * frame (a no-op in a plain preview, the block's rotation inside an
+             * immersively edited model block) or the drag runs off the handles. */
             drag.setJacobian(GizmoDrag.computeTranslateJacobian(
                 transform.getTransform(),
                 () ->
                 {
                     Matrix4f origin = this.getOrigin(transition);
 
-                    return origin == null ? new Vector3f() : origin.getTranslation(new Vector3f());
+                    return origin == null ? new Vector3f() : this.renderer.toSceneMatrix(origin).getTranslation(new Vector3f());
                 }
             ));
             drag.setRotateAxes(GizmoDrag.computeRotateAxes(
@@ -463,12 +546,30 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
                      * collapses to identity. */
                     Matrix4f origin = this.getOriginMatrix(transition);
 
-                    return origin == null ? new Matrix4f() : MatrixStackUtils.stripScale(origin);
+                    return origin == null ? new Matrix4f() : MatrixStackUtils.stripScale(this.renderer.toSceneMatrix(origin));
                 }
             ));
+            drag.setAdditiveRotationBase(this.poseRotationBase(transform, transition));
         }
 
         return drag;
+    }
+
+    /**
+     * The additive euler base under the pose editor's channels for the picked
+     * bone ({@link UIModelForm#poseRotationBase}) — the model form's pose stack
+     * (and the animator's actions) sits under the pose track the panel edits.
+     * {@code null} (zero base) for every other transform editor here (body
+     * part, general form transform, states), whose values aren't pose-stacked.
+     */
+    private Vector3f poseRotationBase(UIPropTransform transform, float transition)
+    {
+        if (this.isBodyPartGizmoMode() || this.statesEditor.isVisible() || !(this.editor instanceof UIModelForm modelForm))
+        {
+            return null;
+        }
+
+        return modelForm.poseRotationBase(transform, transition);
     }
 
     public GizmoDrag buildHotkeyDrag(UIPropTransform transform)
@@ -673,6 +774,7 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
         if (entry == null)
         {
             this.bodyPartEditor.setVisible(false);
+            this.resizeSidebar();
             return;
         }
 
@@ -683,7 +785,28 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
             this.bodyPartEditor.setPart(entry.part, entry.form);
         }
 
+        this.resizeSidebar();
         this.switchEditor(entry.getForm());
+    }
+
+    /**
+     * Fit the sidebar around the body part editor's actual content: the editor hugs
+     * the bottom at exactly its content height (capped at half the sidebar, the rest
+     * scrolls), the forms list gets everything above. A hidden editor releases the
+     * whole sidebar to the list — no half reserved for nothing.
+     */
+    private void resizeSidebar()
+    {
+        int h = 0;
+
+        if (this.bodyPartEditor.isVisible())
+        {
+            h = Math.min((int) this.bodyPartEditor.scroll.scrollSize, this.forms.area.h / 2);
+        }
+
+        this.bodyPartEditor.h(h);
+        this.listSection.h(1F, -h);
+        this.forms.resize();
     }
 
     public void openFormList(Form current, Consumer<Form> callback)
@@ -715,6 +838,7 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
         form = FormUtils.copy(form);
 
         this.bodyPartEditor.setVisible(false);
+        this.resizeSidebar();
 
         if (this.switchEditor(form))
         {
@@ -841,6 +965,10 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
     public void resize()
     {
         super.resize();
+
+        /* Window/layout changes re-derive the sidebar split from the content height
+         * the pass above just computed. */
+        this.resizeSidebar();
         this.updateFormListButtons();
     }
 
@@ -949,6 +1077,23 @@ public class UIFormEditor extends UIElement implements IUIFormList, ICursor
         }
 
         return this.editor.getOrigin(transition);
+    }
+
+    /** The space the displayed gizmo should be drawn in, matching the active
+     *  editing panel (mirrors {@link #getOrigin(float)}'s dispatch). */
+    public TransformSpace getGizmoSpace()
+    {
+        if (this.statesEditor.isVisible())
+        {
+            return this.statesKeyframes.getGizmoSpace();
+        }
+
+        if (this.isBodyPartGizmoMode())
+        {
+            return this.bodyPartEditor.transform.getSpace();
+        }
+
+        return this.editor.getGizmoSpace();
     }
 
     /**

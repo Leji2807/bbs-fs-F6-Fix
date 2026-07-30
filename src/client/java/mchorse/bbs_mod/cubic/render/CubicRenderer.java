@@ -69,7 +69,13 @@ public class CubicRenderer
         return false;
     }
 
-    public static record PivotFrame(Vector3f position, Quaternionf parentRotation, Quaternionf worldRotation)
+    /**
+     * @param scale the accumulated scale the bone's frame sits under (its ancestors' bone scales).
+     * Rotations are captured normalized, so it drops out of everything the solve does — but a
+     * TRANSLATION written back into that frame (the IK stretch offset) is scaled by the renderer,
+     * so it has to be divided out to land the bone where the solve put it.
+     */
+    public static record PivotFrame(Vector3f position, Quaternionf parentRotation, Quaternionf worldRotation, Vector3f scale)
     {
     }
 
@@ -84,14 +90,14 @@ public class CubicRenderer
     }
 
     /**
-     * @param applyStretch when true, each bone's transient {@link ModelGroup#offset} (the IK stretch
-     * telescope) is folded into its frame exactly as {@link ICubicRenderer#applyGroupTransformations}
-     * folds it — offset first, in the parent frame — so a chain collected AFTER an ancestor chain has
-     * stretched reads the ancestor's shifted position, the same spot the renderer draws it. Off (the
-     * default) reads the un-stretched pose, which the debug overlay and a chain's OWN solve want: a
-     * chain's offset is not written until its own solve runs, so with this on a chain still only ever
-     * inherits ANCESTOR stretch, never its own. Offset is a pure translation, so it moves {@code
-     * position} only — {@code parentRotation}/{@code worldRotation} are untouched.
+     * @param applyStretch when true, each bone's transient {@link ModelGroup#offset} — the IK
+     * stretch — is folded into its frame exactly as {@link ICubicRenderer#applyGroupTransformations}
+     * folds it, offset first in the parent frame, so a chain collected AFTER an ancestor chain has
+     * stretched reads the ancestor at the spot the renderer will draw it. Off (the default) reads
+     * the un-stretched pose, which is what the debug overlay and a chain's OWN solve want: a chain
+     * writes its offsets only when its own solve runs, so even with this on a chain can only ever
+     * inherit ANCESTOR stretch, never its own. The offset is a pure translation, so it moves
+     * {@code position} only — {@code parentRotation}/{@code worldRotation} are untouched.
      */
     public static void collectPivotFrames(Model model, Set<String> wanted, Map<String, PivotFrame> out, Matrix4f baseTransform, boolean applyStretch)
     {
@@ -129,8 +135,6 @@ public class CubicRenderer
     {
         stack.push();
 
-        /* Offset leads, matching the renderer (ICubicRenderer.applyGroupTransformations), so a stretched
-         * ancestor shifts this bone and everything below it before its own pose — see the applyStretch note. */
         if (applyStretch)
         {
             ICubicRenderer.offsetGroup(stack, group);
@@ -142,6 +146,7 @@ public class CubicRenderer
         boolean store = wanted.contains(group.id);
         Vector3f pos;
         Quaternionf parentRot;
+        Vector3f scale;
 
         if (store)
         {
@@ -150,11 +155,13 @@ public class CubicRenderer
             Matrix4f mat = stack.peek().getPositionMatrix();
             pos = mat.getTranslation(new Vector3f());
             parentRot = mat.getUnnormalizedRotation(new Quaternionf());
+            scale = mat.getScale(new Vector3f());
         }
         else
         {
             pos = null;
             parentRot = null;
+            scale = null;
         }
 
         ICubicRenderer.rotateGroup(stack, group);
@@ -163,7 +170,7 @@ public class CubicRenderer
         {
             Matrix4f mat = stack.peek().getPositionMatrix();
             Quaternionf worldRot = mat.getUnnormalizedRotation(new Quaternionf());
-            out.put(group.id, new PivotFrame(pos, parentRot, worldRot));
+            out.put(group.id, new PivotFrame(pos, parentRot, worldRot, scale));
         }
 
         ICubicRenderer.scaleGroup(stack, group);
@@ -177,7 +184,15 @@ public class CubicRenderer
         stack.pop();
     }
 
-    public static void applyRotations(Model model, Quaternionf rootParentRotation, List<String> ids, Vector3f[] positions)
+    /**
+     * Directs a solved chain (physics, short IK) onto cubic bones: rebuilds each bone's local
+     * rotation from its solved segment (keeping the FK twist about the limb axis), blends it
+     * against the evaluated FK base by {@code weight}, and writes the result to
+     * {@link ModelGroup#orient} — the euler channels stay read-only FK truth (the constraint-stack
+     * contract). The parent frame advances by the applied (blended) rotation, the same frame the
+     * renderer establishes for children.
+     */
+    public static void applyRotations(Model model, Quaternionf rootParentRotation, List<String> ids, Vector3f[] positions, float weight)
     {
         if (model == null || rootParentRotation == null || ids == null || positions == null || ids.isEmpty() || positions.length < 2)
         {
@@ -250,56 +265,15 @@ public class CubicRenderer
 
             desiredDirLocal.normalize();
 
+            Quaternionf base = bone.evaluatedRotation();
             Quaternionf localRot = Matrices.fromToMirroredX(restDirLocal, desiredDirLocal);
-            localRot.mul(twistAround(bone.current.rotate, bone.current.rotate2, restDirLocal));
-            Vector3f eulerDeg = Matrices.toEulerZYXDegrees(localRot);
 
-            float rx = bone.current.rotate.x;
-            float ry = bone.current.rotate.y;
-            float rz = bone.current.rotate.z;
-            eulerDeg.x = wrapDegreesNear(eulerDeg.x, rx);
-            eulerDeg.y = wrapDegreesNear(eulerDeg.y, ry);
-            eulerDeg.z = wrapDegreesNear(eulerDeg.z, rz);
+            localRot.mul(Matrices.twistAbout(base, restDirLocal));
 
-            bone.current.rotate.set(eulerDeg);
-            bone.current.rotate2.set(0F, 0F, 0F);
+            Quaternionf applied = weight >= 1F - EPS ? localRot : new Quaternionf(base).slerp(localRot, weight);
 
-            /* This solve finalizes the bone in euler — drop any composed orientation so the renderer
-             * falls back to this euler (IK/physics own these bones, byte-identical to before). */
-            bone.orient = null;
-
-            parentWorld.mul(Matrices.toQuaternionZYXDegrees(eulerDeg.x, eulerDeg.y, eulerDeg.z));
+            bone.orient = applied;
+            parentWorld.mul(applied);
         }
-    }
-
-    private static Quaternionf twistAround(Vector3f rotate, Vector3f rotate2, Vector3f axisLocal)
-    {
-        Quaternionf local = Matrices.toQuaternionZYXDegrees(rotate.x, rotate.y, rotate.z);
-
-        if (rotate2.x != 0F || rotate2.y != 0F || rotate2.z != 0F)
-        {
-            local.mul(Matrices.toQuaternionZYXDegrees(rotate2.x, rotate2.y, rotate2.z));
-        }
-
-        return Matrices.twistAbout(local, axisLocal);
-    }
-
-    private static float wrapDegreesNear(float angle, float reference)
-    {
-        float delta = angle - reference;
-
-        while (delta > 180F)
-        {
-            angle -= 360F;
-            delta -= 360F;
-        }
-
-        while (delta < -180F)
-        {
-            angle += 360F;
-            delta += 360F;
-        }
-
-        return angle;
     }
 }

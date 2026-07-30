@@ -35,19 +35,20 @@ public class FilmBoneWorldProvider implements IWorldTransformProvider
     @Override
     public boolean getWorldMatrix(Matrix4f out)
     {
+        UIKeyframeEditor keyframeEditor = this.panel.replayEditor.keyframeEditor;
+        Pair<String, Boolean> bone = keyframeEditor == null ? null : keyframeEditor.getBone();
+
+        return bone != null && this.getWorldMatrix(bone.a, out);
+    }
+
+    /** The sample itself, by bone path — split out so the lookup above reads clean. */
+    private boolean getWorldMatrix(String bone, Matrix4f out)
+    {
         UIReplaysEditor replayEditor = this.panel.replayEditor;
-        UIKeyframeEditor keyframeEditor = replayEditor.keyframeEditor;
-
-        if (keyframeEditor == null)
-        {
-            return false;
-        }
-
-        Pair<String, Boolean> bone = keyframeEditor.getBone();
         Replay replay = replayEditor.getReplay();
         IEntity entity = this.panel.getController().getCurrentEntity();
 
-        if (bone == null || bone.a == null || replay == null || entity == null)
+        if (bone == null || replay == null || entity == null)
         {
             return false;
         }
@@ -65,7 +66,7 @@ public class FilmBoneWorldProvider implements IWorldTransformProvider
         }
 
         Matrix4f matrix = BaseFilmController.getBoneCompositeMatrix(
-            this.panel.getController().getEntities(), entity, replay, 0D, 0D, 0D, transition, bone.a, true
+            this.panel.getController().getEntities(), entity, replay, 0D, 0D, 0D, transition, bone, true
         );
 
         if (matrix == null)

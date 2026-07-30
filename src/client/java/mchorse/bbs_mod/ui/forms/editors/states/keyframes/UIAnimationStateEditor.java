@@ -34,12 +34,14 @@ import mchorse.bbs_mod.ui.utils.StencilFormFramebuffer;
 import mchorse.bbs_mod.l10n.keys.IKey;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.utils.MatrixStackUtils;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.utils.Pair;
 import mchorse.bbs_mod.utils.StringUtils;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 import mchorse.bbs_mod.utils.keyframes.factories.KeyframeFactories;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector2i;
 import org.lwjgl.glfw.GLFW;
@@ -354,6 +356,11 @@ public class UIAnimationStateEditor extends UIElement
         {
             float tick = this.editor.getSamplingTick();
 
+            /* The frame GLOBAL is drawn in — the preview's scene axes (see
+             * UIPickableFormRenderer#renderAxes); identity unless the form is
+             * being edited inside a rotated model block. */
+            drag.setGlobalAxes(this.editor.renderer.getSceneAxes());
+
             /* The bone matrices come from the previewed form, which only reflects a keyframe edit
              * once the animation state is re-applied. computeRotateAxes / computeTranslateJacobian
              * perturb the keyframe transform, so re-pose the form before each sample (mirroring the
@@ -367,7 +374,10 @@ public class UIAnimationStateEditor extends UIElement
 
                     Matrix4f origin = this.getOrigin(transition);
 
-                    return origin == null ? new Vector3f() : origin.getTranslation(new Vector3f());
+                    /* Into the frame the preview is drawn in, like UIFormEditor's
+                     * drag: the gizmo's own origin/axes come from the render
+                     * matrix and already carry the renderer's transform. */
+                    return origin == null ? new Vector3f() : this.editor.renderer.toSceneMatrix(origin).getTranslation(new Vector3f());
                 }
             ));
             drag.setRotateAxes(GizmoDrag.computeRotateAxes(
@@ -382,7 +392,7 @@ public class UIAnimationStateEditor extends UIElement
                      * collapse to identity. */
                     Matrix4f origin = this.getOriginMatrix(transition);
 
-                    return origin == null ? new Matrix4f() : MatrixStackUtils.stripScale(origin);
+                    return origin == null ? new Matrix4f() : MatrixStackUtils.stripScale(this.editor.renderer.toSceneMatrix(origin));
                 }
             ));
 
@@ -397,6 +407,19 @@ public class UIAnimationStateEditor extends UIElement
     public Matrix4f getOrigin(float transition)
     {
         return this.getOriginInternal(transition, false);
+    }
+
+    /**
+     * The space the states gizmo is drawn in — the active keyframe transform's
+     * own, exactly like the film reads it ({@code UIFilmController.getBoneSpace})
+     * and the form editor's pose panel. Hardcoding LOCAL here (as this editor
+     * did) left the gizmo drawn on the bone's axes while the drag ran in the
+     * picked space, so a GLOBAL X-drag slid along world X under an arrow
+     * pointing along the bone.
+     */
+    public TransformSpace getGizmoSpace()
+    {
+        return this.keyframeEditor == null ? TransformSpace.LOCAL : this.keyframeEditor.getBoneSpace();
     }
 
     /**
@@ -425,7 +448,15 @@ public class UIAnimationStateEditor extends UIElement
 
         Form root = FormUtils.getRoot(this.editor.form);
         MatrixCache map = FormUtilsClient.getRenderer(root).collectMatrices(this.editor.renderer.getTargetEntity(), transition);
-        Matrix4f matrix = (!forceMatrix && bone.b) ? map.get(bone.a).origin() : map.get(bone.a).matrix();
+
+        /* Placement flavour, THE shared convention (film's renderAxes, the form
+         * editor's pose and body-part paths): LOCAL sits on the bone's own frame
+         * (its full matrix), every other space on the origin flavour — the frame
+         * BEFORE the bone's own rotation, i.e. the parent frame, which PARENT
+         * keeps as-is and GLOBAL/VIEW reorient away from. This editor had the two
+         * swapped, so its LOCAL gizmo drew the parent's axes. forceMatrix keeps
+         * the rotation-bearing matrix for the axis sampler regardless. */
+        Matrix4f matrix = (forceMatrix || bone.b) ? map.get(bone.a).matrix() : map.get(bone.a).origin();
 
         return matrix == null ? Matrices.EMPTY_4F : matrix;
     }

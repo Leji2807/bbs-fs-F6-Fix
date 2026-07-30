@@ -15,6 +15,7 @@ import mchorse.bbs_mod.ui.forms.editors.panels.UIGeneralFormPanel;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.UIPanelBase;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.utils.UIUtils;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.utils.Direction;
@@ -22,6 +23,7 @@ import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.joml.Matrices;
 import org.joml.Matrix4f;
+import org.joml.Vector3f;
 
 public abstract class UIForm <T extends Form> extends UIPanelBase<UIFormPanel<T>>
 {
@@ -61,6 +63,12 @@ public abstract class UIForm <T extends Form> extends UIPanelBase<UIFormPanel<T>
         return this.getOrigin(transition, FormUtils.getPath(this.form), this.generalPanel != null && this.generalPanel.transform.isLocal());
     }
 
+    /** The space the gizmo should be drawn in (the active panel's transform space). */
+    public TransformSpace getGizmoSpace()
+    {
+        return this.generalPanel != null ? this.generalPanel.transform.getSpace() : TransformSpace.LOCAL;
+    }
+
     /**
      * Always returns the bone's full local matrix (including its own rotation),
      * irrespective of the LOCAL/GLOBAL UI toggle. Required for sampling-based
@@ -93,6 +101,18 @@ public abstract class UIForm <T extends Form> extends UIPanelBase<UIFormPanel<T>
         Matrix4f matrix = local ? map.get(path).matrix() : map.get(path).origin();
 
         return matrix == null ? Matrices.EMPTY_4F : matrix;
+    }
+
+    /**
+     * The bone's EVALUATED channel rotation (radians) from the same capture
+     * {@link #getOrigin(float, String, boolean)} reads, or {@code null} — feeds
+     * the gizmo's additive overlay-editing base.
+     */
+    protected Vector3f getEvaluatedRotation(float transition, String path)
+    {
+        Form root = FormUtils.getRoot(this.form);
+
+        return FormUtilsClient.getRenderer(root).collectMatrices(this.editor.renderer.getTargetEntity(), transition).get(path).evaluatedRotation();
     }
 
     protected void registerDefaultPanels()

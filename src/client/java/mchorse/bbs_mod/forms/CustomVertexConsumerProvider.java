@@ -2,19 +2,26 @@ package mchorse.bbs_mod.forms;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import mchorse.bbs_mod.forms.renderers.utils.RecolorVertexConsumer;
+import net.minecraft.client.gl.VertexBuffer;
+import net.minecraft.client.render.BufferBuilder;
+import net.minecraft.client.render.BuiltBuffer;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
+import net.minecraft.client.render.VertexFormats;
+import net.minecraft.client.util.BufferAllocator;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
 import org.lwjgl.opengl.GL11;
 
+import java.util.SequencedMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-public class CustomVertexConsumerProvider implements VertexConsumerProvider
+public class CustomVertexConsumerProvider extends VertexConsumerProvider.Immediate
 {
     private static Consumer<RenderLayer> runnables;
 
-    private final VertexConsumerProvider.Immediate delegate;
     private Function<VertexConsumer, VertexConsumer> substitute;
     private boolean ui;
 
@@ -36,9 +43,9 @@ public class CustomVertexConsumerProvider implements VertexConsumerProvider
         runnables = null;
     }
 
-    public CustomVertexConsumerProvider(VertexConsumerProvider.Immediate delegate)
+    public CustomVertexConsumerProvider(BufferAllocator allocator, SequencedMap<RenderLayer, BufferAllocator> layers)
     {
-        this.delegate = delegate;
+        super(allocator, layers);
     }
 
     public void setSubstitute(Function<VertexConsumer, VertexConsumer> substitute)
@@ -59,7 +66,7 @@ public class CustomVertexConsumerProvider implements VertexConsumerProvider
     @Override
     public VertexConsumer getBuffer(RenderLayer renderLayer)
     {
-        VertexConsumer buffer = this.delegate.getBuffer(renderLayer);
+        VertexConsumer buffer = super.getBuffer(renderLayer);
 
         if (this.substitute != null)
         {
@@ -74,9 +81,73 @@ public class CustomVertexConsumerProvider implements VertexConsumerProvider
         return buffer;
     }
 
+    /**
+     * Translucent layers of buffered forms (blocks, items) defer into the frame's sorted
+     * translucent queue instead of drawing immediately — otherwise their semi-transparent
+     * pixels write depth mid-frame and occlude forms drawn after them. Active only when the
+     * current form renderer published its sort origin (never in picking or UI paths).
+     */
+    @Override
+    public void draw(RenderLayer layer)
+    {
+        Vector3f origin = FormTranslucentQueue.getSortOrigin();
+
+        /* Text layers defer only inside a recorded group (labels): the group preserves the
+         * text-over-background order, and text keeps its depth writes there. */
+        boolean textLayer = FormTranslucentQueue.isGroupOpen() && layer.getVertexFormat() == VertexFormats.POSITION_COLOR_TEXTURE_LIGHT;
+
+        if (origin == null || !FormTranslucentQueue.isActive() || !(textLayer || isDeferrableTranslucent(layer)))
+        {
+            super.draw(layer);
+
+            return;
+        }
+
+        /* Same bookkeeping as the vanilla draw (claim the layer's pending builder, sort a
+         * translucent layer's quads, clear the current layer), except the built geometry is
+         * retained in our own vertex buffer and replayed by the queue instead of drawn now. */
+        BufferBuilder builder = this.pending.remove(layer);
+
+        if (builder == null)
+        {
+            return;
+        }
+
+        BuiltBuffer built = builder.endNullable();
+
+        if (built != null)
+        {
+            if (layer.isTranslucent())
+            {
+                built.sortQuads(this.layerBuffers.getOrDefault(layer, this.allocator), RenderSystem.getVertexSorting());
+            }
+
+            VertexBuffer buffer = new VertexBuffer(VertexBuffer.Usage.STATIC);
+
+            buffer.bind();
+            buffer.upload(built);
+            VertexBuffer.unbind();
+
+            FormTranslucentQueue.add(new FormTranslucentQueue.RenderLayerCommand(layer, buffer, new Matrix4f(RenderSystem.getModelViewMatrix()), new Vector3f(origin), textLayer));
+        }
+
+        if (layer.equals(this.currentLayer))
+        {
+            this.currentLayer = null;
+        }
+    }
+
+    private static boolean isDeferrableTranslucent(RenderLayer layer)
+    {
+        String name = layer.toString();
+
+        return name.contains("translucent") && !name.contains("glint");
+    }
+
+    @Override
     public void draw()
     {
-        this.delegate.draw();
+        super.draw();
 
         if (this.ui)
         {

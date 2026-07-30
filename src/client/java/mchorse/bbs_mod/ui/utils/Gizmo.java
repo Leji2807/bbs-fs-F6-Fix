@@ -12,6 +12,9 @@ import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.ui.framework.UIBaseMenu;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.DragStrategy;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformOp;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MatrixStackUtils;
@@ -119,11 +122,13 @@ public class Gizmo
     private boolean hasLastRenderMatrix;
 
     /* While an axis ring is dragged the whole gizmo is drawn from the
-     * orientation captured at grab time, so the ring stays put (only the pie
-     * sweeps) instead of writhing as the live rotation is recomposed from euler
-     * angles each frame — most visible in local/world space. */
+     * orientation captured at the gesture's first draw, so the ring stays put
+     * (only the pie sweeps) instead of writhing as the live rotation is
+     * recomposed from euler angles each frame — most visible in local/world
+     * space. Keyed to the gesture itself so it can never be forgotten by an
+     * edit entry point and re-freezes when the axis is switched mid-edit. */
     private final Matrix4f bakedRotationMatrix = new Matrix4f();
-    private boolean hasBakedRotation;
+    private DragStrategy bakedGesture;
 
     /* VBO caching for rotation rings to save resources */
     private VertexBuffer rotateRingVbo;
@@ -536,7 +541,7 @@ public class Gizmo
                 case MOVE:
                 case SCALE:
                 case ROTATE:
-                    transform.enableMode(handle.op.modeOrdinal, handle.axis, handle.axis2, drag);
+                    transform.enableMode(handle.op.transformOp, handle.axis, handle.axis2, drag);
                     break;
                 case SCALE_ALL:
                     transform.enableUniformScale(drag);
@@ -566,7 +571,7 @@ public class Gizmo
         if (this.currentTransform == transform)
         {
             this.currentTransform = null;
-            this.hasBakedRotation = false;
+            this.bakedGesture = null;
 
             if (this.index < STENCIL_X || this.index > STENCIL_MAX)
             {
@@ -770,7 +775,7 @@ public class Gizmo
     {
         UIPropTransform transform = this.currentTransform;
 
-        if (transform == null || !transform.isEditing() || transform.getMode() != Op.ROTATE.modeOrdinal)
+        if (transform == null || !transform.isEditing() || transform.getOp() != TransformOp.ROTATE)
         {
             return;
         }
@@ -1172,7 +1177,19 @@ public class Gizmo
         Vector3f axisX = this.currentTransform.getDrag().gizmoWorldAxes.getColumn(0, new Vector3f());
         Vector3f axisY = this.currentTransform.getDrag().gizmoWorldAxes.getColumn(1, new Vector3f());
         Vector3f axisZ = this.currentTransform.getDrag().gizmoWorldAxes.getColumn(2, new Vector3f());
-        Vector3f dragAxisDir = this.currentTransform.getDrag().rotateAxes.getColumn(axis.ordinal(), new Vector3f());
+        /* The ring's actual world rotation axis in the active space — the same
+         * basis the ring is drawn in (Gizmo.reorientForSpace) and the drag turns
+         * about. The axis comes from the GESTURE itself (its anchored turn axis),
+         * so the pie can never disagree with the rotation — the drawn frame axis
+         * and the real turn axis differ on the channel path (PARENT / the pole
+         * fallback), where cubic models flip the channels' X/Z response. */
+        DragStrategy ringGesture = this.ringDragGesture();
+        Vector3f dragAxisDir = ringGesture != null ? ringGesture.ringAxisDir() : null;
+
+        if (dragAxisDir == null)
+        {
+            dragAxisDir = this.currentTransform.getDrag().frameBasis(this.currentTransform.getSpace()).getColumn(axis.ordinal(), new Vector3f());
+        }
 
         float gx = initialVec.dot(axisX);
         float gy = initialVec.dot(axisY);
@@ -1312,10 +1329,10 @@ public class Gizmo
             return null;
         }
 
-        int op = transform.getMode();
+        TransformOp op = transform.getOp();
         Axis axis = transform.getAxis();
 
-        if (op == 2)
+        if (op == TransformOp.ROTATE)
         {
             if (transform.isSphereRotate()) return Handle.TRACKBALL;
             if (transform.isViewRotate()) return Handle.VIEW;
@@ -1326,17 +1343,17 @@ public class Gizmo
             return null;
         }
 
-        if (op == 0 && transform.isScreenTranslate())
+        if (op == TransformOp.TRANSLATE && transform.isScreenTranslate())
         {
             return Handle.SCREEN;
         }
 
-        if (op == 1 && transform.isScaleAll())
+        if (op == TransformOp.SCALE && transform.isScaleAll())
         {
             return Handle.SCALE_ALL;
         }
 
-        Op handleOp = op == 1 ? Op.SCALE : Op.MOVE;
+        Op handleOp = op == TransformOp.SCALE ? Op.SCALE : Op.MOVE;
         Axis axis2 = transform.getAxis2();
 
         for (Handle handle : Handle.values())
@@ -1378,15 +1395,20 @@ public class Gizmo
          * {@link #renderSphereHighlight}. Depth state is owned by the caller
          * ({@link #drawOccludedGizmo}) so the handles sort against each other. */
 
+        /* IK owns this bone's rotation: the rings render washed-out as the
+         * visible "not yours to turn" cue, matching the rotation strategies'
+         * refusal to start there (the pads still edit the FK channels). */
+        boolean constrained = this.currentTransform != null && this.currentTransform.isRotationConstrained();
+
         if (!BBSSettings.rotateHideRings.get())
         {
             float scale = BBSSettings.axesScale.get();
             float radius = 0.22F * scale;
             float ringThickness = 0.02F * scale * BBSSettings.axesThickness.get();
 
-            if (active == null || active == Handle.ROTATE_Z) this.drawOccludedRing(stack, Axis.Z, radius, ringThickness, Colors.getR(Colors.BLUE), Colors.getG(Colors.BLUE), Colors.getB(Colors.BLUE));
-            if (active == null || active == Handle.ROTATE_X) this.drawOccludedRing(stack, Axis.X, radius, ringThickness, Colors.getR(Colors.RED), Colors.getG(Colors.RED), Colors.getB(Colors.RED));
-            if (active == null || active == Handle.ROTATE_Y) this.drawOccludedRing(stack, Axis.Y, radius, ringThickness, Colors.getR(Colors.GREEN), Colors.getG(Colors.GREEN), Colors.getB(Colors.GREEN));
+            if (active == null || active == Handle.ROTATE_Z) this.drawOccludedRing(stack, Axis.Z, radius, ringThickness, dimmed(Colors.getR(Colors.BLUE), constrained), dimmed(Colors.getG(Colors.BLUE), constrained), dimmed(Colors.getB(Colors.BLUE), constrained));
+            if (active == null || active == Handle.ROTATE_X) this.drawOccludedRing(stack, Axis.X, radius, ringThickness, dimmed(Colors.getR(Colors.RED), constrained), dimmed(Colors.getG(Colors.RED), constrained), dimmed(Colors.getB(Colors.RED), constrained));
+            if (active == null || active == Handle.ROTATE_Y) this.drawOccludedRing(stack, Axis.Y, radius, ringThickness, dimmed(Colors.getR(Colors.GREEN), constrained), dimmed(Colors.getG(Colors.GREEN), constrained), dimmed(Colors.getB(Colors.GREEN), constrained));
         }
 
         /* The screen-space (billboard) view-rotation ring is intentionally excluded from the
@@ -1394,11 +1416,18 @@ public class Gizmo
         if (active == null || active == Handle.VIEW)
         {
             int color = Colors.LIGHTEST_GRAY;
+            float alpha = Colors.getA(color) * BBSSettings.gizmoOpacity.get() * (constrained ? 0.35F : 1F);
 
             /* This VBO ring sets the shader colour itself, so the opacity modulator
              * doesn't reach it — fold it into the alpha here instead. */
-            this.drawCachedRingBillboard(stack, this.rotateRingVbo, Colors.getR(color), Colors.getG(color), Colors.getB(color), Colors.getA(color) * BBSSettings.gizmoOpacity.get());
+            this.drawCachedRingBillboard(stack, this.rotateRingVbo, Colors.getR(color), Colors.getG(color), Colors.getB(color), alpha);
         }
+    }
+
+    /** Washes a ring colour channel toward flat gray for IK-owned rotations. */
+    private static float dimmed(float channel, boolean constrained)
+    {
+        return constrained ? channel * 0.25F + 0.3F : channel;
     }
 
     private void drawAxes(MatrixStack stack, float axisSize, float axisOffset)
@@ -1605,51 +1634,86 @@ public class Gizmo
     }
 
     /**
-     * Freeze the gizmo orientation at grab time while an axis ring is dragged:
-     * the drawing stack is rewound to {@link #bakedRotationMatrix} (the live
-     * {@link #lastRenderMatrix} is left untouched for pick/projection helpers).
-     * The origin is unchanged by a rotation, so only the orientation is pinned.
+     * Bake a transform-space reorientation into the gizmo's drawing frame, in
+     * place, BEFORE it is captured &mdash; so the visual ({@link #renderInterface})
+     * and the pick stencil, both rebuilt from the captured frame, stay in
+     * lockstep. The frame's origin (its translation) is kept and only its axes
+     * are replaced with {@link GizmoDrag#stackBasisForSpace} &mdash; the drawn
+     * twin of the frame the drags slide/turn in ({@link GizmoDrag#frameBasis}).
+     * {@link TransformSpace#LOCAL} leaves the bone's own axes untouched, and
+     * {@link TransformSpace#PARENT} keeps the placed frame too: the non-local
+     * placement matrix is the cache's origin flavour &mdash; the bone's frame
+     * BEFORE its own rotation, which is exactly the parent frame. Call right
+     * after the gizmo origin is multiplied onto the stack and before
+     * {@link #render}/{@link #renderStencil}/{@link #captureVisual}.
      *
-     * <p>{@link #bakedRotationMatrix} is the full world model-view (the
-     * camera-consistent frame {@link #modelView} produces in every editor). The
-     * gizmo is drawn in two passes with different camera conventions — the visual
-     * pass keeps the camera in {@link RenderSystem}'s global model-view while the
-     * stencil pass bakes it into the stack — so we strip the pass's current
-     * model-view here and let it be re-applied once when the handles draw. Plugging
-     * the baked model-view in raw would double the camera in the visual pass and
-     * drift the whole gizmo (most visible in world editors).
+     * <p>{@code globalAxes} is what {@link TransformSpace#GLOBAL} aligns to
+     * (see {@link GizmoDrag#globalWorldAxes}); pass the same axes the drag gets
+     * or the handles would be drawn off the frame they slide in. {@code null}
+     * is the plain world axes, which is what the hosts without a scene use.
      */
-    private void applyBakedRotation(MatrixStack stack)
+    public void reorientForSpace(MatrixStack stack, TransformSpace space, Matrix4f cameraView, Matrix3f globalAxes)
     {
-        if (this.isBakingRotation())
+        if (space == null || space == TransformSpace.LOCAL || space == TransformSpace.PARENT || cameraView == null)
         {
-            Matrix4f local = new Matrix4f(RenderSystem.getModelViewMatrix()).invert().mul(this.bakedRotationMatrix);
-
-            stack.peek().getPositionMatrix().set(local);
+            return;
         }
+
+        Matrix4f matrix = stack.peek().getPositionMatrix();
+        Vector3f translation = matrix.getTranslation(new Vector3f());
+
+        matrix.set(new Matrix4f(GizmoDrag.stackBasisForSpace(space, cameraView, globalAxes)).setTranslation(translation));
     }
 
     /**
-     * Snapshot the current render orientation so the ring stays put for the
-     * coming drag. Called when an axis ring rotation begins.
+     * Freeze the gizmo orientation while an axis ring is dragged. The first
+     * draw of a gesture snapshots the stack — still at the grab orientation,
+     * since the drag hasn't written anything by then — and every later draw
+     * (visual and stencil alike) rewinds to that snapshot. Keying the snapshot
+     * to the gesture makes the freeze self-maintaining: no edit entry point
+     * has to remember to bake, and switching the axis mid-edit re-freezes at
+     * the restored orientation. The live {@link #lastRenderMatrix} is left
+     * untouched for pick/projection helpers.
      */
-    public void bakeRotation()
+    private void applyBakedRotation(MatrixStack stack)
     {
-        if (this.hasLastRenderMatrix)
+        DragStrategy gesture = this.ringDragGesture();
+
+        if (gesture == null)
         {
-            this.bakedRotationMatrix.set(this.lastRenderMatrix);
-            this.hasBakedRotation = true;
+            this.bakedGesture = null;
+
+            return;
         }
+
+        if (this.bakedGesture != gesture)
+        {
+            this.bakedRotationMatrix.set(stack.peek().getPositionMatrix());
+            this.bakedGesture = gesture;
+        }
+
+        stack.peek().getPositionMatrix().set(this.bakedRotationMatrix);
     }
 
-    private boolean isBakingRotation()
+    /**
+     * The live rotation gesture the gizmo should freeze its rings for, or
+     * {@code null} when none: the sphere and the view ring own their whole
+     * orientation and want the live frame instead.
+     */
+    private DragStrategy ringDragGesture()
     {
-        return this.hasBakedRotation
-            && this.currentTransform != null
-            && this.currentTransform.isEditing()
-            && this.currentTransform.getMode() == Op.ROTATE.modeOrdinal
-            && !this.currentTransform.isSphereRotate()
-            && !this.currentTransform.isViewRotate();
+        UIPropTransform transform = this.currentTransform;
+
+        if (transform == null
+            || !transform.isEditing()
+            || transform.getOp() != TransformOp.ROTATE
+            || transform.isSphereRotate()
+            || transform.isViewRotate())
+        {
+            return null;
+        }
+
+        return transform.getStrategy();
     }
 
     private void drawAxes(MatrixStack stack, StencilMap map, float axisSize, float axisOffset)
@@ -1777,21 +1841,27 @@ public class Gizmo
     }
 
     /**
-     * Kind of transform a handle drives. {@link #modeOrdinal} matches the
-     * {@code mode} argument {@link UIPropTransform#enableMode(int, Axis, Axis, GizmoDrag)}
-     * expects (0 translate, 1 scale, 2 rotate); VIEW and TRACKBALL are rotate
-     * variants routed through their own enable* calls, and SCALE_ALL is the
-     * uniform (three-axis) scale variant routed through its own enable call.
+     * Kind of transform a handle drives. {@link #transformOp} is the operation
+     * {@link UIPropTransform#enableMode(TransformOp, Axis, Axis, GizmoDrag)}
+     * expects; VIEW and TRACKBALL are rotate variants routed through their own
+     * enable* calls, and SCALE_ALL is the uniform (three-axis) scale variant
+     * routed through its own enable call.
      */
     public static enum Op
     {
-        MOVE(0), SCALE(1), SCALE_ALL(1), ROTATE(2), VIEW(2), TRACKBALL(2), SCREEN(0);
+        MOVE(TransformOp.TRANSLATE),
+        SCALE(TransformOp.SCALE),
+        SCALE_ALL(TransformOp.SCALE),
+        ROTATE(TransformOp.ROTATE),
+        VIEW(TransformOp.ROTATE),
+        TRACKBALL(TransformOp.ROTATE),
+        SCREEN(TransformOp.TRANSLATE);
 
-        public final int modeOrdinal;
+        public final TransformOp transformOp;
 
-        Op(int modeOrdinal)
+        Op(TransformOp transformOp)
         {
-            this.modeOrdinal = modeOrdinal;
+            this.transformOp = transformOp;
         }
     }
 
