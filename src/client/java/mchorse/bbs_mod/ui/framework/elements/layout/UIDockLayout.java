@@ -29,7 +29,8 @@ import java.util.function.UnaryOperator;
 /**
  * Reusable dockable-panel layout. Owns a set of registered panels and arranges them per an
  * {@link EditorLayoutNode} tree provided by an {@link ILayoutSource}: resizable splitters,
- * drag-to-dock with edge/center drop zones, tab/stack grouping, lock toggle and reset.
+ * tab/stack grouping, lock toggle and reset, and drag-to-dock against either a single panel or
+ * the whole layout depending on how close to the dock's rim the panel is dropped.
  *
  * <p>Panels are registered with {@link #addPanel} and become direct children of this element.
  * Film- or particle-specific behavior (which panels exist, default tree, frameless preview,
@@ -45,7 +46,14 @@ public class UIDockLayout extends UIElement
     private static final int SPLITTER_HANDLE_LINE_PX = 1;
     private static final int SPLITTER_LINK_HITBOX_PADDING_PX = 8;
     private static final int DROP_ZONE_CENTER = -1;
-    private static final float DROP_EDGE_MARGIN = 0.2F;
+    /** Outermost band of the dock: dropping here splits against the whole layout, not one panel. */
+    private static final int DROP_EDITOR_EDGE_PX = 16;
+    /** Edge band of a panel, in pixels so the gesture feels the same on a narrow and a wide panel. */
+    private static final int DROP_PANEL_EDGE_PX = 48;
+    /** ...but never more than this share of the panel, so the centre stays reachable when it is tiny. */
+    private static final float DROP_PANEL_EDGE_MAX = 0.25F;
+    /** Share a panel takes when dropped against the whole layout: a side column, not a half. */
+    private static final float DROP_ROOT_RATIO = 0.25F;
     private static final int DOCK_STACK_TABS_HEIGHT_PX = 20;
     private static final int PANEL_GAP_PX = 4;
     private static final float PANEL_EDGE_EPS = 0.001F;
@@ -67,7 +75,9 @@ public class UIDockLayout extends UIElement
 
     private boolean layoutLocked = true;
     private String draggingPanelId;
+    /** Panel the drag would land on, or null when {@link #dropTargetIsRoot} aims at the whole layout. */
     private String dropTargetPanelId;
+    private boolean dropTargetIsRoot;
     private int dropTargetZone = DROP_ZONE_CENTER;
 
     /* Configuration */
@@ -967,16 +977,38 @@ public class UIDockLayout extends UIElement
     private void clearPanelDragState()
     {
         this.draggingPanelId = null;
+        this.clearDropTarget();
+    }
+
+    private void clearDropTarget()
+    {
         this.dropTargetPanelId = null;
+        this.dropTargetIsRoot = false;
         this.dropTargetZone = DROP_ZONE_CENTER;
+    }
+
+    private boolean hasDropTarget()
+    {
+        return this.dropTargetIsRoot || this.dropTargetPanelId != null;
     }
 
     private void applyPanelDropResult(String dragId, String targetId, int zone)
     {
         EditorLayoutNode root = this.layoutRoot();
-        EditorLayoutNode newRoot = zone == DROP_ZONE_CENTER
-            ? EditorLayoutNode.copyWithInsertStackAt(root, targetId, dragId)
-            : EditorLayoutNode.copyWithInsertSplitAt(root, targetId, dragId, zone);
+        EditorLayoutNode newRoot;
+
+        if (targetId == null)
+        {
+            newRoot = EditorLayoutNode.copyWithInsertSplitAtRoot(root, dragId, zone, DROP_ROOT_RATIO);
+        }
+        else if (zone == DROP_ZONE_CENTER)
+        {
+            newRoot = EditorLayoutNode.copyWithInsertStackAt(root, targetId, dragId);
+        }
+        else
+        {
+            newRoot = EditorLayoutNode.copyWithInsertSplitAt(root, targetId, dragId, zone);
+        }
 
         if (newRoot != null && newRoot != root)
         {
@@ -994,9 +1026,9 @@ public class UIDockLayout extends UIElement
                 this.draggingPanelId = panelId;
             }
 
-            this.dropTargetPanelId = null;
-            this.dropTargetZone = DROP_ZONE_CENTER;
+            this.clearDropTarget();
 
+            /* Tabs are the smallest target, so they win over the bands around them. */
             for (UIDockStackTabs tabs : this.dockStackTabs)
             {
                 if (tabs.isVisible() && tabs.area.isInside(context.mouseX, context.mouseY))
@@ -1006,13 +1038,24 @@ public class UIDockLayout extends UIElement
                     if (targetPanelId != null)
                     {
                         this.dropTargetPanelId = targetPanelId;
-                        this.dropTargetZone = DROP_ZONE_CENTER;
 
                         return;
                     }
 
                     break;
                 }
+            }
+
+            /* The dock's own rim comes next: right at the screen edge you dock against everything,
+             * a little further in against the panel you are over. */
+            int editorEdge = nearestEdge(this.area, context.mouseX, context.mouseY, DROP_EDITOR_EDGE_PX, DROP_EDITOR_EDGE_PX);
+
+            if (editorEdge != DROP_ZONE_CENTER)
+            {
+                this.dropTargetIsRoot = true;
+                this.dropTargetZone = editorEdge;
+
+                return;
             }
 
             /* Slots never overlap, so the first hit is the only hit. */
@@ -1032,13 +1075,13 @@ public class UIDockLayout extends UIElement
 
         handle.dragEnd(() ->
         {
-            if (this.draggingPanelId == null || this.dropTargetPanelId == null || this.draggingPanelId.equals(this.dropTargetPanelId))
+            boolean ontoItself = this.draggingPanelId != null && this.draggingPanelId.equals(this.dropTargetPanelId);
+
+            if (this.draggingPanelId != null && this.hasDropTarget() && !ontoItself)
             {
-                this.clearPanelDragState();
-                return;
+                this.applyPanelDropResult(this.draggingPanelId, this.dropTargetPanelId, this.dropTargetZone);
             }
 
-            this.applyPanelDropResult(this.draggingPanelId, this.dropTargetPanelId, this.dropTargetZone);
             this.clearPanelDragState();
         });
         handle.hoverOnly().cursors(GLFW.GLFW_HAND_CURSOR, GLFW.GLFW_HAND_CURSOR).rendering((context) -> this.renderPanelDragHandle(context, handle));
@@ -1057,34 +1100,57 @@ public class UIDockLayout extends UIElement
 
     private int computeDropZone(Area area, int mouseX, int mouseY)
     {
-        int ax = area.x;
-        int ay = area.y;
-        int aw = area.w;
-        int ah = area.h;
-        float nx = aw <= 0 ? 0.5F : (mouseX - ax) / (float) aw;
-        float ny = ah <= 0 ? 0.5F : (mouseY - ay) / (float) ah;
+        return nearestEdge(area, mouseX, mouseY, panelEdgeBand(area.w), panelEdgeBand(area.h));
+    }
 
-        if (nx < DROP_EDGE_MARGIN)
+    private static int panelEdgeBand(int size)
+    {
+        return Math.min(DROP_PANEL_EDGE_PX, (int) (size * DROP_PANEL_EDGE_MAX));
+    }
+
+    /**
+     * The edge whose band the cursor is in, picked by distance rather than by which check runs
+     * first &mdash; near a corner the closer edge is the one the user is aiming at.
+     */
+    private static int nearestEdge(Area area, int mouseX, int mouseY, int bandX, int bandY)
+    {
+        int left = mouseX - area.x;
+        int right = area.ex() - 1 - mouseX;
+        int top = mouseY - area.y;
+        int bottom = area.ey() - 1 - mouseY;
+
+        if (left < 0 || right < 0 || top < 0 || bottom < 0)
         {
-            return EditorLayoutNode.EDGE_LEFT;
+            return DROP_ZONE_CENTER;
         }
 
-        if (nx > 1F - DROP_EDGE_MARGIN)
+        int zone = DROP_ZONE_CENTER;
+        int best = Integer.MAX_VALUE;
+
+        if (left < bandX && left < best)
         {
-            return EditorLayoutNode.EDGE_RIGHT;
+            best = left;
+            zone = EditorLayoutNode.EDGE_LEFT;
         }
 
-        if (ny < DROP_EDGE_MARGIN)
+        if (right < bandX && right < best)
         {
-            return EditorLayoutNode.EDGE_TOP;
+            best = right;
+            zone = EditorLayoutNode.EDGE_RIGHT;
         }
 
-        if (ny > 1F - DROP_EDGE_MARGIN)
+        if (top < bandY && top < best)
         {
-            return EditorLayoutNode.EDGE_BOTTOM;
+            best = top;
+            zone = EditorLayoutNode.EDGE_TOP;
         }
 
-        return DROP_ZONE_CENTER;
+        if (bottom < bandY && bottom < best)
+        {
+            zone = EditorLayoutNode.EDGE_BOTTOM;
+        }
+
+        return zone;
     }
 
     /* Rendering */
@@ -1100,50 +1166,64 @@ public class UIDockLayout extends UIElement
         this.area.render(context.batcher, BBSSettings.baseSurface());
     }
 
+    /**
+     * Previews where the panel would land: the highlight covers the share it will actually take,
+     * so an edge drop against the whole dock reads differently from one against a single panel.
+     */
     private void renderDropZoneHighlight(UIContext context)
     {
-        if (this.layoutLocked || this.draggingPanelId == null || this.dropTargetPanelId == null)
+        if (this.layoutLocked || this.draggingPanelId == null || !this.hasDropTarget())
         {
             return;
         }
 
-        UIDockSlot target = this.slotById.get(this.dropTargetPanelId);
+        Area a = this.area;
+        float ratio = DROP_ROOT_RATIO;
 
-        if (target == null)
+        if (!this.dropTargetIsRoot)
         {
-            return;
+            UIDockSlot target = this.slotById.get(this.dropTargetPanelId);
+
+            if (target == null)
+            {
+                return;
+            }
+
+            a = target.area;
+            ratio = EditorLayoutNode.SPLIT_RATIO;
         }
 
-        Area a = target.area;
         int border = BBSSettings.primaryColor(Colors.A50);
         int fill = BBSSettings.primaryColor(Colors.A25);
 
         if (this.dropTargetZone == DROP_ZONE_CENTER)
         {
             this.renderDropZoneRect(context, a, border, fill);
+
             return;
         }
 
-        float m = DROP_EDGE_MARGIN;
+        int w = (int) (a.w * ratio);
+        int h = (int) (a.h * ratio);
         int strip = 2;
 
         switch (this.dropTargetZone)
         {
             case EditorLayoutNode.EDGE_LEFT:
-                context.batcher.box(a.x, a.y, a.x + (int) (a.w * m), a.ey(), fill);
-                context.batcher.box(a.x + (int) (a.w * m) - strip, a.y, a.x + (int) (a.w * m) + strip, a.ey(), border);
+                context.batcher.box(a.x, a.y, a.x + w, a.ey(), fill);
+                context.batcher.box(a.x + w - strip, a.y, a.x + w + strip, a.ey(), border);
                 break;
             case EditorLayoutNode.EDGE_RIGHT:
-                context.batcher.box(a.ex() - (int) (a.w * m), a.y, a.ex(), a.ey(), fill);
-                context.batcher.box(a.ex() - (int) (a.w * m) - strip, a.y, a.ex() - (int) (a.w * m) + strip, a.ey(), border);
+                context.batcher.box(a.ex() - w, a.y, a.ex(), a.ey(), fill);
+                context.batcher.box(a.ex() - w - strip, a.y, a.ex() - w + strip, a.ey(), border);
                 break;
             case EditorLayoutNode.EDGE_TOP:
-                context.batcher.box(a.x, a.y, a.ex(), a.y + (int) (a.h * m), fill);
-                context.batcher.box(a.x, a.y + (int) (a.h * m) - strip, a.ex(), a.y + (int) (a.h * m) + strip, border);
+                context.batcher.box(a.x, a.y, a.ex(), a.y + h, fill);
+                context.batcher.box(a.x, a.y + h - strip, a.ex(), a.y + h + strip, border);
                 break;
             case EditorLayoutNode.EDGE_BOTTOM:
-                context.batcher.box(a.x, a.ey() - (int) (a.h * m), a.ex(), a.ey(), fill);
-                context.batcher.box(a.x, a.ey() - (int) (a.h * m) - strip, a.ex(), a.ey() - (int) (a.h * m) + strip, border);
+                context.batcher.box(a.x, a.ey() - h, a.ex(), a.ey(), fill);
+                context.batcher.box(a.x, a.ey() - h - strip, a.ex(), a.ey() - h + strip, border);
                 break;
             default:
                 this.renderDropZoneRect(context, a, border, fill);
