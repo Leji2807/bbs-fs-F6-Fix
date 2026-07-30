@@ -11,20 +11,22 @@ import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UIColor;
 import mchorse.bbs_mod.ui.framework.elements.input.UIDeltaPropTransform;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
-import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
+import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
+import mchorse.bbs_mod.ui.utils.PickedBone;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.resizers.AutomaticResizer;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.ui.utils.presets.UIDataContextMenu;
-import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.CollectionUtils;
 import mchorse.bbs_mod.utils.colors.Colors;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Pose;
 import mchorse.bbs_mod.utils.pose.PoseManager;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
 import mchorse.bbs_mod.utils.pose.Transform;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -36,13 +38,11 @@ import java.util.function.Consumer;
 
 public class UIPoseEditor extends UIElement
 {
-    private static String lastLimb = "";
-
     /** The bone list never shrinks below this height when it gets stretched to fill the panel. */
     private static final int MIN_LIST_HEIGHT = UIStringList.DEFAULT_HEIGHT * 4;
 
     public UIBoneList groups;
-    public UITrackpad fix;
+    public UISliderTrackpad fix;
     public UIColor color;
     public UIToggle lighting;
     public UIPropTransform transform;
@@ -67,7 +67,7 @@ public class UIPoseEditor extends UIElement
 
             return menu;
         });
-        this.fix = new UITrackpad((v) -> this.applyFixToSelection(v.floatValue()));
+        this.fix = new UISliderTrackpad((v) -> this.applyFixToSelection(v.floatValue()));
         this.fix.limit(0D, 1D).increment(0.1D).values(0.1, 0.05D, 0.2D);
         this.fix.tooltip(UIKeys.POSE_CONTEXT_FIX_TOOLTIP);
         this.fix.context((menu) ->
@@ -101,7 +101,16 @@ public class UIPoseEditor extends UIElement
         this.keys().register(Keys.TRANSFORMATIONS_TOGGLE_FIX, this::toggleFix).category(UIKeys.TRANSFORMS_KEYS_CATEGORY);
 
         this.column().vertical().stretch();
-        this.add(this.groups, UI.labelRow(UIKeys.POSE_CONTEXT_FIX, this.fix), UI.row(this.color, this.lighting), this.transform.marginTop(4));
+        /* Both rows ride the same labelRow grid, so the fix trackpad and the colour
+         * swatch pin to one divider column. The lighting toggle keeps its own name
+         * and takes the label slot of its row — it used to sit in a bare row that
+         * spanned the full width and ignored that column. */
+        this.add(
+            this.groups,
+            UI.labelRow(UIKeys.POSE_CONTEXT_FIX, this.fix),
+            UI.labelRow(this.lighting, this.color),
+            this.transform
+        );
     }
 
     @Override
@@ -176,7 +185,9 @@ public class UIPoseEditor extends UIElement
             return;
         }
 
-        for (String bone : this.groups.list.getCurrent())
+        /* Snapshot: getCurrent() is a shared, reused buffer and the consumer can
+         * re-enter it (film setFix notifies the keyframe) — see forEachSelectedPose. */
+        for (String bone : new ArrayList<>(this.groups.list.getCurrent()))
         {
             Collection<String> keys = this.model.getAllChildrenKeys(bone);
 
@@ -230,6 +241,7 @@ public class UIPoseEditor extends UIElement
         this.model = null;
         this.flippedParts = null;
 
+        this.groups.list.setHierarchy(null, null);
         this.fillInGroups(groups, reset, true);
     }
 
@@ -242,6 +254,10 @@ public class UIPoseEditor extends UIElement
     {
         this.model = model;
         this.flippedParts = flippedParts;
+
+        /* The hierarchy metadata rides along so the list renders as a tree; the list
+         * contents themselves keep being refilled by UIBoneList's search filter. */
+        this.groups.list.setHierarchy(model, (bone) -> PoseBones.isHidden(disabledBones, bone));
 
         if (model == null)
         {
@@ -275,7 +291,7 @@ public class UIPoseEditor extends UIElement
         this.transform.setVisible(hasBones);
 
         List<String> list = this.groups.list.getList();
-        int i = Math.max(reset ? 0 : list.indexOf(lastLimb), 0);
+        int i = Math.max(reset ? 0 : list.indexOf(PickedBone.get()), 0);
 
         this.groups.list.setCurrentScroll(CollectionUtils.getSafe(list, i));
         this.pickBones(this.groups.list.getCurrent());
@@ -299,7 +315,7 @@ public class UIPoseEditor extends UIElement
      */
     public void selectBone(String bone, boolean additive)
     {
-        lastLimb = bone;
+        PickedBone.set(bone);
 
         if (additive)
         {
@@ -381,19 +397,13 @@ public class UIPoseEditor extends UIElement
             {
                 t.translate.set(0F, 0F, 0F);
                 t.scale.set(1F, 1F, 1F);
-                t.rotate.set(0F, 0F, 0F);
+                t.resetRotation();
             });
             this.postCallback();
 
             this.syncTargetTransform();
         }
 
-        @Override
-        public void setR2(Axis axis, double x, double y, double z)
-        {
-            super.setR2(axis, x, y, z);
-            this.syncTargetTransform();
-        }
     }
 
     protected void pickBone(String bone)
@@ -411,7 +421,7 @@ public class UIPoseEditor extends UIElement
     {
         if (bones == null || bones.isEmpty())
         {
-            lastLimb = "";
+            PickedBone.set("");
             this.fix.setValue(0F);
             this.color.setColor(Colors.WHITE);
             this.lighting.setValue(false);
@@ -422,7 +432,7 @@ public class UIPoseEditor extends UIElement
 
         String primary = bones.get(0);
 
-        lastLimb = primary;
+        PickedBone.set(primary);
 
         PoseTransform poseTransform = this.pose.get(primary);
 
@@ -434,7 +444,11 @@ public class UIPoseEditor extends UIElement
 
     private void forEachSelectedPose(Consumer<? super PoseTransform> consumer)
     {
-        for (String bone : this.groups.list.getCurrent())
+        /* Snapshot the selection: getCurrent() hands back a shared, reused buffer,
+         * and the consumer can re-enter it (the film editor's setFix notifies the
+         * keyframe, which re-reads the selection) — iterating the live buffer would
+         * then throw ConcurrentModificationException. Same guard as flipPose/pastePose. */
+        for (String bone : new ArrayList<>(this.groups.list.getCurrent()))
         {
             consumer.accept(this.pose.get(bone));
         }
@@ -528,15 +542,16 @@ public class UIPoseEditor extends UIElement
 
     /**
      * Applies the edit to one bone: reflecting it across the model's symmetry when
-     * {@code edit.mirror} (the same negation as {@link Pose#flip}), and/or flipping
-     * its rotation when {@code edit.invert}. Both are involutions wrapped around the
-     * write, so whatever the edit does to that channel is reflected/inverted.
+     * {@code edit.mirror} (the shared {@link Transform#mirrorX} convention, same as
+     * {@link Pose#flip}), and/or flipping its rotation when {@code edit.invert}.
+     * Both are involutions wrapped around the write, so whatever the edit does to
+     * that channel is reflected/inverted.
      */
     public void applyToBone(BoneEdit edit, PoseTransform pt, Consumer<Transform> consumer)
     {
         if (edit.mirror)
         {
-            mirrorTransform(pt);
+            pt.mirrorX();
         }
 
         if (edit.invert)
@@ -553,19 +568,27 @@ public class UIPoseEditor extends UIElement
 
         if (edit.mirror)
         {
-            mirrorTransform(pt);
+            pt.mirrorX();
         }
-    }
-
-    private static void mirrorTransform(Transform transform)
-    {
-        transform.translate.mul(-1F, 1F, 1F);
-        transform.rotate.mul(1F, -1F, -1F);
     }
 
     private static void negateRotation(Transform transform)
     {
-        transform.rotate.mul(-1F, -1F, -1F);
+        /* The invert convention is per-CHANNEL negation (not the true inverse
+         * rotation — Rz(-z)·Ry(-y)·Rx(-x) ≠ R⁻¹ on multi-axis poses), so a
+         * quaternion bone must run the same convention on its decomposed
+         * angles; quat.conjugate() would be a different involution and the
+         * inverted partners would diverge from their euler siblings. */
+        if (transform.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            Vector3f euler = Matrices.toEulerZYXRadians(transform.quat, new Vector3f());
+
+            transform.quat.set(Matrices.toQuaternionZYXRadians(-euler.x, -euler.y, -euler.z));
+        }
+        else
+        {
+            transform.rotate.mul(-1F, -1F, -1F);
+        }
     }
 
     private void applyFixToSelection(float value)

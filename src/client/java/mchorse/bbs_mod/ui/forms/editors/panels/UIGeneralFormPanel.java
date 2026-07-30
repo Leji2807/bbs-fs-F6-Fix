@@ -13,6 +13,7 @@ import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UIKeybind;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
+import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframeSheet;
 import mchorse.bbs_mod.ui.framework.elements.input.text.UITextbox;
@@ -44,8 +45,8 @@ public class UIGeneralFormPanel extends UIFormPanel
     public UIToggle hitbox;
     public UITrackpad hitboxWidth;
     public UITrackpad hitboxHeight;
-    public UITrackpad hitboxSneakMultiplier;
-    public UITrackpad hitboxEyeHeight;
+    public UISliderTrackpad hitboxSneakMultiplier;
+    public UISliderTrackpad hitboxEyeHeight;
 
     public UITrackpad hp;
     public UITrackpad speed;
@@ -87,9 +88,9 @@ public class UIGeneralFormPanel extends UIFormPanel
         this.hitboxWidth.limit(0).tooltip(UIKeys.FORMS_EDITORS_GENERAL_HITBOX_WIDTH);
         this.hitboxHeight = new UITrackpad((v) -> this.form.hitboxHeight.set(v.floatValue()));
         this.hitboxHeight.limit(0).tooltip(UIKeys.FORMS_EDITORS_GENERAL_HITBOX_HEIGHT);
-        this.hitboxSneakMultiplier = new UITrackpad((v) -> this.form.hitboxSneakMultiplier.set(v.floatValue()));
+        this.hitboxSneakMultiplier = new UISliderTrackpad((v) -> this.form.hitboxSneakMultiplier.set(v.floatValue()));
         this.hitboxSneakMultiplier.limit(0, 1);
-        this.hitboxEyeHeight = new UITrackpad((v) -> this.form.hitboxEyeHeight.set(v.floatValue()));
+        this.hitboxEyeHeight = new UISliderTrackpad((v) -> this.form.hitboxEyeHeight.set(v.floatValue()));
         this.hitboxEyeHeight.limit(0, 1);
 
         this.hp = new UITrackpad((v) -> this.form.hp.set(v.floatValue()));

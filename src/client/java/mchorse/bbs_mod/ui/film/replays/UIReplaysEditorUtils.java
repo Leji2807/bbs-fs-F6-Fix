@@ -47,9 +47,12 @@ import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UIPoseTra
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UITransformKeyframeFactory;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.graphs.IUIKeyframeGraph;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
+import mchorse.bbs_mod.utils.MatrixStackUtils;
 import mchorse.bbs_mod.utils.Pair;
+import mchorse.bbs_mod.utils.StringUtils;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.settings.values.core.ValueLink;
+import mchorse.bbs_mod.settings.values.core.ValuePose;
 import mchorse.bbs_mod.settings.values.core.ValueTransform;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
@@ -60,6 +63,7 @@ import mchorse.bbs_mod.settings.values.base.BaseValue;
 import mchorse.bbs_mod.settings.values.base.BaseValueBasic;
 import mchorse.bbs_mod.utils.pose.Pose;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -727,6 +731,44 @@ public class UIReplaysEditorUtils
         boolean pose = panel.replayEditor.keyframeEditor.editor instanceof UIPoseKeyframeFactory;
 
         transform.worldTransform(pose ? new FilmBoneWorldProvider(panel) : null);
+        transform.rotationConstrained(pose ? () -> isFilmBoneRotationConstrained(panel) : null);
+    }
+
+    /**
+     * Whether the film pose editor's current bone rotation is owned by an
+     * enabled IK chain of its (possibly nested) model form — the gizmo then
+     * refuses rotation gestures and dims its rings (see
+     * {@link ModelIKRuntime#isRotationConstrained}).
+     */
+    private static boolean isFilmBoneRotationConstrained(UIFilmPanel panel)
+    {
+        UIKeyframeEditor keyframeEditor = panel.replayEditor.keyframeEditor;
+
+        if (keyframeEditor == null || !(keyframeEditor.editor instanceof UIPoseKeyframeFactory))
+        {
+            return false;
+        }
+
+        IEntity entity = panel.getController().getCurrentEntity();
+        Pair<String, Boolean> bone = keyframeEditor.getBone();
+
+        if (entity == null || bone == null || bone.a == null)
+        {
+            return false;
+        }
+
+        UIKeyframeSheet sheet = keyframeEditor.getSheet(keyframeEditor.editor.getKeyframe());
+        BaseValueBasic property = sheet == null ? null : FormUtils.getProperty(entity.getForm(), sheet.id);
+        Form owner = property == null ? null : FormUtils.getForm(property);
+
+        if (!(owner instanceof ModelForm modelForm))
+        {
+            return false;
+        }
+
+        ModelInstance instance = ModelFormRenderer.getModel(modelForm);
+
+        return instance != null && ModelIKRuntime.isRotationConstrained(instance.model, modelForm, StringUtils.fileName(bone.a));
     }
 
     /**
@@ -735,7 +777,9 @@ public class UIReplaysEditorUtils
      * {@link GizmoDrag#computeRotateAxes} / {@link GizmoDrag#computeTranslateJacobian}
      * driven by the composite bone matrix {@code target.mul(bone)} so replay
      * {@code bodyYaw}, anchor parents, and other film-only transforms match
-     * {@link BaseFilmController#renderEntity}.
+     * {@link BaseFilmController#renderEntity}. Also the one place the film's
+     * GLOBAL frame is set on the drag &mdash; the replay's own facing
+     * ({@link BaseFilmController#getReplayWorldAxes}).
      */
     public static GizmoDrag buildFilmGizmoDrag(
         UIFilmPanel panel,
@@ -747,7 +791,21 @@ public class UIReplaysEditorUtils
     {
         GizmoDrag drag = GizmoDrag.fromRenderedGizmo(camera, viewport);
 
-        if (drag == null || transform == null || transform.getTransform() == null || panel == null)
+        if (drag == null || panel == null)
+        {
+            return drag;
+        }
+
+        IEntity entity = panel.getController().getCurrentEntity();
+
+        /* The GLOBAL frame of a film edit is the edited replay's own facing, not
+         * the map's axes — set before any early return, since it is the gizmo's
+         * frame for every track (it doesn't depend on the bone or the sampled
+         * matrices below). The drawn handles get the same axes in
+         * BaseFilmController#renderAxes; the two must not drift apart. */
+        drag.setGlobalAxes(BaseFilmController.getReplayWorldAxes(entity, transition));
+
+        if (transform == null || transform.getTransform() == null)
         {
             return drag;
         }
@@ -761,7 +819,6 @@ public class UIReplaysEditorUtils
 
         Pair<String, Boolean> bone = keyframeEditor.getBone();
         Replay replay = panel.replayEditor.getReplay();
-        IEntity entity = panel.getController().getCurrentEntity();
 
         if (bone == null || bone.a == null || replay == null || entity == null)
         {
@@ -807,7 +864,6 @@ public class UIReplaysEditorUtils
             transform.getTransform(),
             () -> matrixSampler.get().getTranslation(new Vector3f())
         ));
-
         /* Restore the form to its unperturbed state */
         Form form = entity.getForm();
         if (form != null)
@@ -816,7 +872,49 @@ public class UIReplaysEditorUtils
             replay.properties.applyProperties(form, tick);
         }
 
+        /* After the restore, so the evaluated channels the base reads reflect
+         * the unperturbed pose (the helper re-collects the capture itself). */
+        drag.setAdditiveRotationBase(filmPoseRotationBase(keyframeEditor, entity, transition, bone.a));
+
         return drag;
+    }
+
+    /**
+     * The additive euler base under the edited pose/overlay track's channels for
+     * the current bone ({@link FormUtils#additivePoseRotationBase}): the pose
+     * stack merges per-channel, so an overlay's drag deltas must compose at the
+     * bone's EFFECTIVE angles, not the overlay's own near-zero channels. The
+     * total comes from the bone's EVALUATED channels in the render capture
+     * ({@link BaseFilmController#getGizmoBoneEvaluatedRotation}) — folding the
+     * animator's actions and the model's rest rotation in — with the edited
+     * track resolved through the sheet's property path on the LIVE form and its
+     * own contribution subtracted. {@code null} (zero base) when the track isn't
+     * a pose one or the merge for this bone isn't purely additive.
+     */
+    private static Vector3f filmPoseRotationBase(UIKeyframeEditor keyframeEditor, IEntity entity, float transition, String bonePath)
+    {
+        if (!(keyframeEditor.editor instanceof UIPoseKeyframeFactory))
+        {
+            return null;
+        }
+
+        UIKeyframeSheet sheet = keyframeEditor.getSheet(keyframeEditor.editor.getKeyframe());
+
+        if (sheet == null)
+        {
+            return null;
+        }
+
+        BaseValueBasic property = FormUtils.getProperty(entity.getForm(), sheet.id);
+
+        if (!(property instanceof ValuePose valuePose))
+        {
+            return null;
+        }
+
+        Vector3f evaluated = BaseFilmController.getGizmoBoneEvaluatedRotation(entity, transition, bonePath);
+
+        return FormUtils.additivePoseRotationBase(valuePose, StringUtils.fileName(bonePath), evaluated);
     }
 
     /**
@@ -866,7 +964,6 @@ public class UIReplaysEditorUtils
             transform.getTransform(),
             () -> matrixSampler.get().getTranslation(new Vector3f())
         ));
-
         /* Restore the form to its unperturbed state */
         Form form = entity.getForm();
         if (form != null)

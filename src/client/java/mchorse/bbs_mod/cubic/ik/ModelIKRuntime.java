@@ -2,8 +2,6 @@ package mchorse.bbs_mod.cubic.ik;
 
 import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.ModelInstance;
-import mchorse.bbs_mod.cubic.constraints.ModelConstraintsConfig.BoneConstraint;
-import mchorse.bbs_mod.cubic.constraints.ModelConstraintsRuntime;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.forms.forms.ModelForm;
 import org.joml.Vector3f;
@@ -58,7 +56,6 @@ public final class ModelIKRuntime
             return;
         }
 
-        Map<String, BoneConstraint> boneLimits = ModelConstraintsRuntime.getBones(instance);
         Map<String, IKControl> controlOverrides = null;
         Map<String, Float> targetWeights = null;
         Map<String, Float> poleWeights = null;
@@ -70,7 +67,136 @@ public final class ModelIKRuntime
             poleWeights = form.poleTargetWeights;
         }
 
-        ModelIKApplier.apply(model, chains, controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides, boneLimits);
+        ModelIKApplier.apply(model, chains, compiled.bones(), controllerTargets, poleTargets, targetWeights, poleWeights, controlOverrides);
+    }
+
+    /**
+     * Whether pointing the chain that ends at {@code tip} (spanning {@code
+     * chainLength} bones up) at {@code target} is cyclic — the target is one of
+     * the chain's own bones, so the solve's variables would move the very point
+     * it chases. Such a chain does not compile; the panel uses this to mark the
+     * pick loudly.
+     */
+    public static boolean isCyclicTarget(IModel model, String tip, int chainLength, String target)
+    {
+        if (model == null || tip == null || tip.isEmpty() || target == null || target.isEmpty())
+        {
+            return false;
+        }
+
+        return ModelIKCache.chainIdsFor(model, tip, chainLength).contains(target);
+    }
+
+    /**
+     * Whether the chain ending at {@code tip} has the classic two-bone shape:
+     * exactly two directed bones after the auto-tail drop. A classic-marked
+     * chain of any other shape solves on the core — the panel uses this to mark
+     * the toggle so the fallback never surprises silently.
+     */
+    public static boolean isClassicShape(IModel model, String tip, int chainLength, boolean tipRotation)
+    {
+        if (model == null || tip == null || tip.isEmpty())
+        {
+            return false;
+        }
+
+        List<String> ids = ModelIKCache.chainIdsFor(model, tip, chainLength);
+        int size = ids.size();
+
+        if (tipRotation && ModelIKApplier.autoTailId(model, ids) != null)
+        {
+            size--;
+        }
+
+        return size == 3;
+    }
+
+    /**
+     * The bones the chain ending at {@code tip} spans, root to tip — the panel's
+     * overlap check (overlapping chains merge into one core tree, which kicks a
+     * classic chain off its analytic path).
+     */
+    public static List<String> chainBones(IModel model, String tip, int chainLength)
+    {
+        if (model == null || tip == null || tip.isEmpty())
+        {
+            return Collections.emptyList();
+        }
+
+        return ModelIKCache.chainIdsFor(model, tip, chainLength);
+    }
+
+    /**
+     * Opens the IK solve dump for the duration of one transform gesture, so the
+     * log holds exactly the drag being investigated — the transform editor calls
+     * this when a drag begins and ends. A no-op unless the applier's debug flag
+     * is compiled on, so the call sites cost nothing in a normal build.
+     */
+    public static void logGesture(boolean active)
+    {
+        ModelIKApplier.setLogging(active);
+    }
+
+    /**
+     * Whether the bone's ROTATION is owned by an enabled IK chain: the render
+     * follows the solved orientation there, so an FK rotation gesture has no
+     * honest response to offer — the gizmo refuses those and dims its rings.
+     * The FK channels stay editable through the pads (they remain the blend
+     * base and the pose IK falls back to when it's off). The chain tip counts
+     * only when the chain also solves tip rotation; a chain whose weight is
+     * zeroed (config, or the film's per-tick override on the form) doesn't
+     * constrain anything.
+     */
+    public static boolean isRotationConstrained(IModel model, ModelForm form, String bone)
+    {
+        if (model == null || form == null || bone == null || bone.isEmpty())
+        {
+            return false;
+        }
+
+        if (!(form.ik.get() instanceof MapType map))
+        {
+            return false;
+        }
+
+        ModelIKCache.Compiled compiled = ModelIKCache.getFromData(model, map);
+
+        if (compiled == null || compiled.chains() == null)
+        {
+            return false;
+        }
+
+        for (ModelIKCache.CompiledChain chain : compiled.chains())
+        {
+            if (chain == null || chain.weight() <= 0F || chain.chainRootToEffector() == null)
+            {
+                continue;
+            }
+
+            /* A chain the film disabled or zeroed for this tick — its per-tick `ik`
+             * track override — no longer owns any rotation, so its bones become
+             * FK-editable again. That override lives in ikControlOverrides keyed by
+             * the tip (the same one resolveChain reads), NOT in ikTargetWeights,
+             * which is only the target's position-fade weight and never reaches 0. */
+            IKControl override = form.ikControlOverrides == null ? null : form.ikControlOverrides.get(chain.tip());
+
+            if (override != null && (!override.enabled || override.weight <= 0F))
+            {
+                continue;
+            }
+
+            if (!chain.chainRootToEffector().contains(bone))
+            {
+                continue;
+            }
+
+            if (!bone.equals(chain.tip()) || chain.tipRotation())
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static List<String> getControllers(ModelInstance instance)

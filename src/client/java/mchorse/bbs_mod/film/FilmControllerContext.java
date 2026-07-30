@@ -3,8 +3,10 @@ package mchorse.bbs_mod.film;
 import io.netty.util.collection.IntObjectMap;
 import mchorse.bbs_mod.film.replays.Replay;
 import mchorse.bbs_mod.forms.entities.IEntity;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.colors.Colors;
+import org.joml.Matrix4f;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.render.VertexConsumerProvider;
@@ -29,6 +31,11 @@ public class FilmControllerContext
     public String bone;
     public boolean local;
 
+    /** The reference frame the bone gizmo is drawn in, and the film camera's
+     *  world&rarr;camera rotation used to reorient it (null keeps LOCAL). */
+    public TransformSpace space = TransformSpace.LOCAL;
+    public Matrix4f gizmoView;
+
     public String bone2;
     public boolean local2;
 
@@ -49,6 +56,10 @@ public class FilmControllerContext
         this.color = Colors.WHITE;
         this.bone = null;
         this.local = false;
+        this.space = TransformSpace.LOCAL;
+        this.gizmoView = null;
+        this.bone2 = null;
+        this.local2 = false;
         this.anchorGizmo = false;
         this.anchorLocal = false;
         this.nameTag = "";
@@ -124,6 +135,15 @@ public class FilmControllerContext
     {
         this.bone = bone;
         this.local = local;
+
+        return this;
+    }
+
+    /** Set the space and camera view used to reorient the bone gizmo (Phase C). */
+    public FilmControllerContext gizmoSpace(TransformSpace space, Matrix4f view)
+    {
+        this.space = space;
+        this.gizmoView = view;
 
         return this;
     }

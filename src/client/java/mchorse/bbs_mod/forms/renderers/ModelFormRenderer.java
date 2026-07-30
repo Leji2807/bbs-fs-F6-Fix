@@ -22,6 +22,7 @@ import mchorse.bbs_mod.cubic.model.ArmorType;
 import mchorse.bbs_mod.cubic.model.bobj.BOBJModel;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.forms.CustomVertexConsumerProvider;
+import mchorse.bbs_mod.forms.FormTranslucentQueue;
 import mchorse.bbs_mod.forms.FormUtilsClient;
 import mchorse.bbs_mod.forms.ITickable;
 import mchorse.bbs_mod.forms.entities.IEntity;
@@ -48,6 +49,7 @@ import mchorse.bbs_mod.utils.pose.PoseTransform;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.ShaderProgram;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
+import mchorse.bbs_mod.graphics.texture.Texture;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.LightmapTextureManager;
 import net.minecraft.client.render.OverlayTexture;
@@ -188,15 +190,13 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             {
                 poseTransform.translate.lerp(value.translate, value.fix);
                 poseTransform.scale.lerp(value.scale, value.fix);
-                poseTransform.rotate.lerp(value.rotate, value.fix);
-                poseTransform.rotate2.lerp(value.rotate2, value.fix);
+                poseTransform.lerpRotation(value, value.fix);
             }
             else
             {
                 poseTransform.translate.add(value.translate);
                 poseTransform.scale.add(value.scale).sub(1, 1, 1);
-                poseTransform.rotate.add(value.rotate);
-                poseTransform.rotate2.add(value.rotate2);
+                poseTransform.addRotation(value);
             }
         }
     }
@@ -205,6 +205,20 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
     {
         this.animator = null;
         this.lastModel = null;
+    }
+
+    /**
+     * The channels phase of the bone pipeline (rest &rarr; actions &rarr; pose): resets every bone
+     * to its bind pose, applies the animator's actions, then the form's pose stack. After this the
+     * channels are the FK truth; the constraint stages (IK &rarr; physics &rarr; limits) run on top
+     * of it separately (render: the apply*Once trio; matrix capture: its explicit IK solve) and
+     * write only evaluated orientations, never the channels.
+     */
+    private void evaluateChannels(IEntity entity, ModelInstance model, float transition)
+    {
+        model.model.resetPose();
+        this.animator.applyActions(entity, model, transition);
+        model.model.applyPose(this.getPose());
     }
 
     public void ensureAnimator(float transition)
@@ -275,10 +289,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             Color formColor = this.form.color.get();
             float scale = this.form.uiScale.get() * model.getUiScale();
 
-            model.model.resetPose();
-
-            this.animator.applyActions(null, model, context.getTransition());
-            model.model.applyPose(this.getPose());
+            this.evaluateChannels(null, model, context.getTransition());
 
             MatrixStackUtils.multiply(stack, uiMatrix);
             stack.scale(scale, scale, scale);
@@ -527,8 +538,15 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
             CustomVertexConsumerProvider.hijackVertexFormat((l) -> RenderSystem.enableBlend());
 
+            /* Translucent armor layers ride the deferred sorted pass (see
+             * CustomVertexConsumerProvider#draw(RenderLayer)); only reached outside picking. */
+            Vector3f armorOrigin = stack.peek().getPositionMatrix().getTranslation(new Vector3f());
+
+            FormTranslucentQueue.setSortOrigin(new Matrix4f(RenderSystem.getModelViewMatrix()).transformPosition(armorOrigin));
+
             ActorEntityRenderer.armorRenderer.renderArmorSlot(stack, consumers, target, type.slot, type, light);
             consumers.draw();
+            FormTranslucentQueue.setSortOrigin(null);
 
             CustomVertexConsumerProvider.clearRunnables();
 
@@ -565,6 +583,12 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
                 CustomVertexConsumerProvider.hijackVertexFormat((l) -> RenderSystem.enableBlend());
 
+                /* Translucent item layers (potions, glass blocks in hand) ride the deferred
+                 * sorted pass; only reached outside picking. */
+                Vector3f itemOrigin = stack.peek().getPositionMatrix().getTranslation(new Vector3f());
+
+                FormTranslucentQueue.setSortOrigin(new Matrix4f(RenderSystem.getModelViewMatrix()).transformPosition(itemOrigin));
+
                 consumers.setSubstitute(BBSRendering.getColorConsumer(color));
 
                 /* For some reason, due to Sodium and my color consumer, in some cases items like Trident,
@@ -582,6 +606,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
                 MinecraftClient.getInstance().getItemRenderer().renderItem(null, itemStack, mode, mode == ModelTransformationMode.THIRD_PERSON_LEFT_HAND, stack, consumers, target.getWorld(), light, overlay, 0);
                 consumers.draw();
                 consumers.setSubstitute(null);
+                FormTranslucentQueue.setSortOrigin(null);
 
                 CustomVertexConsumerProvider.clearRunnables();
 
@@ -693,10 +718,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
                 formColor = Color.white();
                 additive = false;
             }
-            model.model.resetPose();
-
-            this.animator.applyActions(context.entity, model, context.getTransition());
-            model.model.applyPose(this.getPose());
+            this.evaluateChannels(context.entity, model, context.getTransition());
 
             context.stack.multiply(RotationAxis.POSITIVE_Y.rotation(MathUtils.PI));
             if (context.world != null)
@@ -706,12 +728,62 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
             BBSModClient.getTextures().bindTexture(texture);
 
-            Supplier<ShaderProgram> mainShader = (BBSRendering.isIrisShadersEnabled() && BBSRendering.isRenderingWorld()) || !model.isVAORendered()
-                ? GameRenderer::getRenderTypeEntityTranslucentCullProgram
-                : BBSShaders::getModel;
+            Texture textureObject = BBSModClient.getTextures().getTexture(texture);
+            boolean irisWorld = BBSRendering.isIrisShadersEnabled() && BBSRendering.isRenderingWorld();
+
+            /* Under shaders we can't split opaque/translucent per pixel (Iris strips our PassMode),
+             * so a texture with semi-transparent texels would either hide what's behind it or drop
+             * the whole model out of Photon's translucent handling. Degrade gracefully to alpha
+             * cutout: the cutout program's baked alpha test turns fully-transparent texels into
+             * proper holes and draws the rest as a solid, normally-shaded entity. Only for texture
+             * translucency at full colour — a uniform colour fade must stay translucent, or the
+             * cutout test would erase the whole faded model. */
+            boolean cutout = irisWorld && textureObject != null && textureObject.hasTranslucency()
+                && contextColor.a >= 1F && formColor.a >= 1F && !additive;
+
+            Supplier<ShaderProgram> mainShader = cutout
+                ? GameRenderer::getRenderTypeEntityCutoutProgram
+                : (irisWorld || !model.isVAORendered())
+                    ? GameRenderer::getRenderTypeEntityTranslucentCullProgram
+                    : BBSShaders::getModel;
             Supplier<ShaderProgram> shader = this.getShader(context, mainShader, BBSShaders::getPickerModelsProgram);
 
-            this.renderModel(context.entity, shader, context.stack, model, context.light, context.overlay, contextColor, formColor, additive, false, context.stencilMap, context.getTransition(), context.world);
+            boolean wasActive = false;
+
+            if (irisWorld)
+            {
+                /* Under Iris the model always draws right now, in the phase its program is meant
+                 * for. The end-of-frame replay runs after a deferred pack's shading composite —
+                 * Photon never shades it and the model vanishes (a 1% colour fade used to fall
+                 * into that path). Vanilla translucent entities don't sort either: vanilla-level
+                 * blending is the ceiling under shaders, the sorted queue stays a no-shader
+                 * feature. */
+                wasActive = FormTranslucentQueue.suspend();
+            }
+
+            if (cutout)
+            {
+                /* Blend off to match the vanilla cutout render type: semi-transparent texels
+                 * draw solid instead of smearing over the gbuffer. */
+                RenderSystem.disableBlend();
+            }
+
+            try
+            {
+                this.renderModel(context.entity, shader, context.stack, model, context.light, context.overlay, contextColor, formColor, additive, false, context.stencilMap, context.getTransition(), context.world);
+            }
+            finally
+            {
+                if (cutout)
+                {
+                    RenderSystem.enableBlend();
+                }
+
+                if (irisWorld)
+                {
+                    FormTranslucentQueue.restore(wasActive);
+                }
+            }
         }
     }
 
@@ -818,10 +890,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
         /* Collect bones and add them to matrix list */
         if (this.animator != null && model != null)
         {
-            model.model.resetPose();
-
-            this.animator.applyActions(entity, model, transition);
-            model.model.applyPose(this.getPose());
+            this.evaluateChannels(entity, model, transition);
 
             /* Solve IK here too, so a bone anchored to an IK-driven bone (a head pinned to
              * body_upper) rides the solved pose — these matrices feed the anchor system, the
@@ -851,7 +920,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             o.set(stack.peek().getPositionMatrix());
             stack.pop();
 
-            matrices.put(StringUtils.combinePaths(prefix, entry.getKey()), matrix, o);
+            matrices.put(StringUtils.combinePaths(prefix, entry.getKey()), matrix, o, entry.getValue().evaluatedRotation());
         }
 
         int i = 0;
@@ -960,12 +1029,13 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             this.applyTransforms(stack, false, transition);
         }
 
-        model.model.resetPose();
-
-        if (!rest && this.animator != null)
+        if (rest || this.animator == null)
         {
-            this.animator.applyActions(entity, model, transition);
-            model.model.applyPose(this.getPose());
+            model.model.resetPose();
+        }
+        else
+        {
+            this.evaluateChannels(entity, model, transition);
         }
 
         stack.multiply(RotationAxis.POSITIVE_Y.rotation(MathUtils.PI));

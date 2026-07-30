@@ -21,21 +21,27 @@ import mchorse.bbs_mod.cubic.render.CubicVAOBuilderRenderer;
 import mchorse.bbs_mod.cubic.render.CubicVAORenderer;
 import mchorse.bbs_mod.cubic.render.vao.BOBJModelVAO;
 import mchorse.bbs_mod.cubic.render.vao.ModelVAO;
+import mchorse.bbs_mod.cubic.render.vao.ModelVAORenderer;
 import mchorse.bbs_mod.cubic.weld.ModelWeld;
 import mchorse.bbs_mod.cubic.weld.WeldBinding;
 import mchorse.bbs_mod.data.types.MapType;
+import mchorse.bbs_mod.forms.FormTranslucentQueue;
 import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.forms.forms.ModelForm;
+import mchorse.bbs_mod.graphics.texture.Texture;
 import mchorse.bbs_mod.forms.renderers.utils.MatrixCache;
 import mchorse.bbs_mod.obj.shapes.ShapeKeys;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.colors.Color;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Pose;
+import mchorse.bbs_mod.utils.pose.Transform;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.GlUniform;
 import net.minecraft.client.gl.ShaderProgram;
+import net.minecraft.client.gl.VertexBuffer;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.BufferRenderer;
 import net.minecraft.client.render.Tessellator;
@@ -45,6 +51,7 @@ import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.RotationAxis;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
@@ -395,7 +402,8 @@ public class ModelInstance implements IModelInstance
                     group.initial.translate.z / 16
                 );
                 origin.rotateY(MathUtils.PI);
-                bones.put(group.id, matrix, origin);
+
+                bones.put(group.id, matrix, origin, evaluatedChannelRotation(group.current, group.orient, true));
             }
         }
         else if (this.model instanceof BOBJModel model)
@@ -409,9 +417,49 @@ public class ModelInstance implements IModelInstance
 
                 matrix.rotateY(MathUtils.PI).mul(orderedBone.mat);
                 origin.rotateY(MathUtils.PI).mul(orderedBone.originMat);
-                bones.put(orderedBone.name, matrix, origin);
+
+                bones.put(orderedBone.name, matrix, origin, evaluatedChannelRotation(orderedBone.transform, orderedBone.orient, false));
             }
         }
+    }
+
+    /**
+     * The bone's EVALUATED channel rotation (ZYX euler radians) for the gizmo's
+     * additive overlay-editing base, or {@code null} when the render doesn't
+     * follow the channels additively: quaternion mode composes multiplicatively,
+     * and a composed {@code orient} counts only while it still EQUALS the
+     * channel rotation — the first composed layer seeds it FROM the channels
+     * (identical by construction), but stacked layers multiply and diverge,
+     * and then the additive base model doesn't apply.
+     */
+    private static Vector3f evaluatedChannelRotation(Transform current, Quaternionf orient, boolean degrees)
+    {
+        if (current.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            return null;
+        }
+
+        Vector3f radians = degrees
+            ? new Vector3f(
+                MathUtils.toRad(current.rotate.x),
+                MathUtils.toRad(current.rotate.y),
+                MathUtils.toRad(current.rotate.z)
+            )
+            : new Vector3f(current.rotate);
+
+        if (orient != null)
+        {
+            Quaternionf channels = Matrices.toQuaternionZYXRadians(radians.x, radians.y, radians.z);
+
+            /* |dot| = cos(θ/2) between the two rotations (double cover); anything
+             * under ~1.6° apart means a genuinely multiplicative stack. */
+            if (Math.abs(channels.dot(orient)) < 0.9999F)
+            {
+                return null;
+            }
+        }
+
+        return radians;
     }
 
     /**
@@ -487,6 +535,7 @@ public class ModelInstance implements IModelInstance
          * per material as they draw, so remember the caller's default texture and restore it for the CPU draw
          * (matches the old all-CPU path, which drew the welded cubes with that same default). */
         int defaultTexture = RenderSystem.getShaderTexture(0);
+        Texture defaultTextureObject = BBSModClient.getTextures().getLastBound();
 
         /* Open the shared CPU buffer only if some group actually renders on the CPU (a visible bending welded
          * bone, or a visible bone with geometry but no VAO) — drawing an empty buffer would fail. */
@@ -515,7 +564,69 @@ public class ModelInstance implements IModelInstance
                 }
             }
 
+            this.drawImmediate(builder, drawShader, stack, explicitWeld ? WELD_NORMAL_MAT : null, stencilMap, defaultTextureObject, color.a);
+        }
+    }
+
+    /**
+     * Draw immediate-path geometry (its vertices carry the full camera-space transform baked in)
+     * with two-pass translucency when needed: the opaque texels draw now and write depth, the
+     * semi-transparent ones replay from a retained vertex buffer when the frame's translucent
+     * queue flushes. Single-pass draws keep the old direct path.
+     */
+    private void drawImmediate(BufferBuilder builder, ShaderProgram shader, MatrixStack stack, Matrix3f normalMat, StencilMap stencilMap, Texture texture, float alpha)
+    {
+        boolean split = FormTranslucentQueue.needsSplit(shader, stencilMap, texture, alpha);
+        boolean whole = !split && FormTranslucentQueue.needsWholeDefer(shader, stencilMap, alpha);
+
+        if (!split && !whole)
+        {
             BufferRenderer.drawWithGlobalProgram(builder.end());
+
+            return;
+        }
+
+        /* Both passes (and the deferred flush) need the geometry, so it's retained in our own
+         * vertex buffer — drawWithGlobalProgram would consume it. The command owns the buffer
+         * and frees it after the flush. */
+        VertexBuffer buffer = new VertexBuffer(VertexBuffer.Usage.STATIC);
+
+        buffer.bind();
+        buffer.upload(builder.end());
+
+        Matrix4f modelView = new Matrix4f(RenderSystem.getModelViewMatrix());
+
+        if (split)
+        {
+            /* Immediate opaque pass: the solid texels draw now and write depth. (The whole-defer
+             * case skips this — it replays the entire mesh with depth at flush instead.) */
+            if (normalMat != null)
+            {
+                GlUniform normalUniform = shader.getUniform("NormalMat");
+
+                if (normalUniform != null)
+                {
+                    normalUniform.set(normalMat);
+                }
+            }
+
+            FormTranslucentQueue.setPassMode(shader, FormTranslucentQueue.PASS_OPAQUE);
+            buffer.draw(modelView, RenderSystem.getProjectionMatrix(), shader);
+            FormTranslucentQueue.setPassMode(shader, FormTranslucentQueue.PASS_SINGLE);
+        }
+
+        VertexBuffer.unbind();
+
+        Vector3f origin = modelView.transformPosition(stack.peek().getPositionMatrix().getTranslation(new Vector3f()));
+
+        if (split)
+        {
+            FormTranslucentQueue.add(new FormTranslucentQueue.VertexBufferCommand(buffer, () -> shader, texture, modelView, normalMat, origin, this.isCulling(), null, null));
+        }
+        else
+        {
+            /* Uniform colour fade: defer the whole mesh with depth on so it self-occludes. */
+            FormTranslucentQueue.add(new FormTranslucentQueue.VertexBufferCommand(buffer, () -> shader, FormTranslucentQueue.PASS_SINGLE, true, texture, modelView, normalMat, origin, this.isCulling(), null, null));
         }
     }
 
@@ -572,7 +683,7 @@ public class ModelInstance implements IModelInstance
 
                 builder.begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL);
                 CubicRenderer.processRenderModel(renderProcessor, builder, stack, model);
-                BufferRenderer.drawWithGlobalProgram(builder.end());
+                this.drawImmediate(builder, shader, stack, null, stencilMap, BBSModClient.getTextures().getLastBound(), color.a);
             }
         }
         else if (this.model instanceof BOBJModel model)
@@ -589,18 +700,51 @@ public class ModelInstance implements IModelInstance
                 /* One draw per mesh; bind that mesh's resolved texture (mesh name = material). */
                 for (BOBJModelVAO vao : vaos)
                 {
+                    Texture texture = null;
+
                     if (textureResolver != null)
                     {
                         Link link = textureResolver.apply(vao.data.mesh.name);
 
                         if (link != null)
                         {
-                            BBSModClient.getTextures().bindTexture(link);
+                            texture = BBSModClient.getTextures().getTexture(link);
+                            BBSModClient.getTextures().bindTexture(texture);
                         }
                     }
 
+                    if (texture == null)
+                    {
+                        /* No per-mesh override — the draw uses the form's base texture bound earlier. */
+                        texture = BBSModClient.getTextures().getLastBound();
+                    }
+
                     vao.updateMesh(stencilMap);
-                    vao.render(shader, stack, color.r, color.g, color.b, color.a, stencilMap, light, overlay);
+
+                    if (FormTranslucentQueue.needsSplit(shader, stencilMap, texture, color.a))
+                    {
+                        Matrix4f modelView = ModelVAORenderer.captureModelView(stack);
+                        Matrix3f normalMat = new Matrix3f(stack.peek().getNormalMatrix());
+
+                        FormTranslucentQueue.setPassMode(shader, FormTranslucentQueue.PASS_OPAQUE);
+                        vao.render(shader, modelView, normalMat, color.r, color.g, color.b, color.a, stencilMap, light, overlay);
+                        FormTranslucentQueue.setPassMode(shader, FormTranslucentQueue.PASS_SINGLE);
+
+                        FormTranslucentQueue.add(new FormTranslucentQueue.BOBJCommand(vao, vao.snapshotArmature(), vao.getUploadCount(), texture, modelView, normalMat, color.r, color.g, color.b, color.a, light, overlay, this.isCulling()));
+                    }
+                    else if (FormTranslucentQueue.needsWholeDefer(shader, stencilMap, color.a))
+                    {
+                        /* A uniform colour fade defers the whole draw into the sorted end-of-frame
+                         * pass with depth kept on, so the faded model still self-occludes. */
+                        Matrix4f modelView = ModelVAORenderer.captureModelView(stack);
+                        Matrix3f normalMat = new Matrix3f(stack.peek().getNormalMatrix());
+
+                        FormTranslucentQueue.add(new FormTranslucentQueue.BOBJCommand(vao, () -> shader, FormTranslucentQueue.PASS_SINGLE, true, vao.snapshotArmature(), vao.getUploadCount(), texture, modelView, normalMat, color.r, color.g, color.b, color.a, light, overlay, this.isCulling()));
+                    }
+                    else
+                    {
+                        vao.render(shader, stack, color.r, color.g, color.b, color.a, stencilMap, light, overlay);
+                    }
                 }
 
                 stack.pop();

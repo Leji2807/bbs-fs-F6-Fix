@@ -3,14 +3,19 @@ package mchorse.bbs_mod.cubic.render;
 import mchorse.bbs_mod.cubic.data.model.Model;
 import mchorse.bbs_mod.cubic.data.model.ModelGroup;
 import mchorse.bbs_mod.utils.MatrixStackUtils;
-import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
+import mchorse.bbs_mod.utils.pose.Transform;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.math.RotationAxis;
 import org.joml.Vector3f;
 
 public interface ICubicRenderer
 {
+    /**
+     * The bone's transient constraint-stack shift (today: the IK stretch),
+     * applied in its PARENT's frame ahead of everything the bone itself does,
+     * so it carries the bone and its whole subtree without disturbing the pose.
+     */
     public static void offsetGroup(MatrixStack stack, ModelGroup group)
     {
         Vector3f offset = group.offset;
@@ -45,13 +50,21 @@ public interface ICubicRenderer
             return;
         }
 
-        if (group.current.rotate.z != 0F) stack.multiply(RotationAxis.POSITIVE_Z.rotation(MathUtils.toRad(group.current.rotate.z)));
-        if (group.current.rotate.y != 0F) stack.multiply(RotationAxis.POSITIVE_Y.rotation(MathUtils.toRad(group.current.rotate.y)));
-        if (group.current.rotate.x != 0F) stack.multiply(RotationAxis.POSITIVE_X.rotation(MathUtils.toRad(group.current.rotate.x)));
+        if (group.current.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            stack.multiply(group.current.quat);
 
-        if (group.current.rotate2.z != 0F) stack.multiply(RotationAxis.POSITIVE_Z.rotation(MathUtils.toRad(group.current.rotate2.z)));
-        if (group.current.rotate2.y != 0F) stack.multiply(RotationAxis.POSITIVE_Y.rotation(MathUtils.toRad(group.current.rotate2.y)));
-        if (group.current.rotate2.x != 0F) stack.multiply(RotationAxis.POSITIVE_X.rotation(MathUtils.toRad(group.current.rotate2.x)));
+            return;
+        }
+
+        Vector3f rotate = group.current.rotate;
+
+        /* Rest bones (all angles zero — the common case in a big model) skip
+         * the trig entirely; cubic model channels are degrees. */
+        if (rotate.x != 0F || rotate.y != 0F || rotate.z != 0F)
+        {
+            stack.multiply(Matrices.toLocalRotationZYXDegrees(rotate));
+        }
     }
 
     public static void scaleGroup(MatrixStack stack, ModelGroup group)

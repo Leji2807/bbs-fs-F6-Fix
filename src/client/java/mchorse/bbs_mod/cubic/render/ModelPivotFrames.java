@@ -19,7 +19,7 @@ public final class ModelPivotFrames
 
     public static void collect(IModel model, Set<String> wanted, Map<String, CubicRenderer.PivotFrame> out)
     {
-        collect(model, wanted, out, null, false);
+        collect(model, wanted, out, null);
     }
 
     public static void collect(IModel model, Set<String> wanted, Map<String, CubicRenderer.PivotFrame> out, Matrix4f baseTransform)
@@ -28,10 +28,9 @@ public final class ModelPivotFrames
     }
 
     /**
-     * @param applyStretch fold each bone's IK stretch offset into the frames, so a chain collected after
-     * an ancestor chain has stretched reads the ancestor's shifted position (see {@link
-     * CubicRenderer#collectPivotFrames}). Cubic only: a BOBJ stretch rides the skinning matrix and leaves
-     * the skeleton frames (originMat/mat) nominal, so there is nothing to fold in for a BOBJ model.
+     * @param applyStretch see {@link CubicRenderer#collectPivotFrames(Model, Set, Map, Matrix4f,
+     * boolean)}. Ignored for BOBJ: a BOBJ stretch rides the skinning matrix and leaves the skeleton
+     * frames ({@code originMat}/{@code mat}) nominal by construction, so there is nothing to fold in.
      */
     public static void collect(IModel model, Set<String> wanted, Map<String, CubicRenderer.PivotFrame> out, Matrix4f baseTransform, boolean applyStretch)
     {
@@ -79,6 +78,7 @@ public final class ModelPivotFrames
             Vector3f position = bone.originMat.getTranslation(new Vector3f());
             Quaternionf parentRotation = bone.originMat.getUnnormalizedRotation(new Quaternionf());
             Quaternionf worldRotation = bone.mat.getUnnormalizedRotation(new Quaternionf());
+            Vector3f scale = bone.originMat.getScale(new Vector3f());
 
             if (baseRotation != null && baseTranslation != null)
             {
@@ -89,7 +89,7 @@ public final class ModelPivotFrames
                 worldRotation = new Quaternionf(baseRotation).mul(worldRotation);
             }
 
-            out.put(bone.name, new CubicRenderer.PivotFrame(position, parentRotation, worldRotation));
+            out.put(bone.name, new CubicRenderer.PivotFrame(position, parentRotation, worldRotation, scale));
         }
     }
 }

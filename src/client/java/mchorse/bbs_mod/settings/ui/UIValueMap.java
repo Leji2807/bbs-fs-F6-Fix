@@ -23,7 +23,7 @@ import mchorse.bbs_mod.ui.framework.elements.input.UIColor;
 import mchorse.bbs_mod.ui.framework.elements.input.UIKeybind;
 import mchorse.bbs_mod.ui.framework.elements.input.UIOrder;
 import mchorse.bbs_mod.ui.framework.elements.input.UITexturePicker;
-import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
+import mchorse.bbs_mod.ui.framework.elements.input.UINumericInput;
 import mchorse.bbs_mod.ui.framework.elements.context.UIInterpolationContextMenu;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.shapes.IKeyframeShapeRenderer;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.shapes.KeyframeShapeRenderers;
@@ -66,7 +66,7 @@ public class UIValueMap
 
         register(ValueDouble.class, (value, ui) ->
         {
-            UITrackpad trackpad = UIValueFactory.doubleUI(value, null);
+            UINumericInput<?> trackpad = UIValueFactory.doubleUI(value, null);
 
             trackpad.w(90);
 
@@ -75,7 +75,7 @@ public class UIValueMap
 
         register(ValueFloat.class, (value, ui) ->
         {
-            UITrackpad trackpad = UIValueFactory.floatUI(value, null);
+            UINumericInput<?> trackpad = UIValueFactory.floatUI(value, null);
 
             trackpad.w(90);
 
@@ -156,7 +156,7 @@ public class UIValueMap
                 return Arrays.asList(UIValueFactory.column(button, value));
             }
 
-            UITrackpad trackpad = UIValueFactory.intUI(value, null);
+            UINumericInput<?> trackpad = UIValueFactory.intUI(value, null);
 
             trackpad.w(90);
 

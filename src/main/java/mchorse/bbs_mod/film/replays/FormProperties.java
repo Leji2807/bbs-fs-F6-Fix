@@ -299,9 +299,19 @@ public class FormProperties extends ValueGroup
         {
             BaseValueBasic property = FormUtils.getProperty(form, value.getId());
 
+            /* Skip, don't abort: a channel whose path no longer resolves on this form (a removed body part,
+             * a state authored against another form, or a pose-bone/material channel, which is not a plain
+             * property at all) used to end the whole reset, leaving every property after it stuck at its
+             * runtime value — i.e. the state never turned off. Which properties survived depended on the
+             * HashMap iteration order, so it was never stable behaviour to begin with.
+             *
+             * Note the pose-bone and per-material channels still aren't undone here: applyProperty writes
+             * those into the model form's pose/material runtime values, and only the plain-property branch
+             * has a counterpart below. Left alone deliberately — undoing them changes how a state with bone
+             * channels releases, which wants a look in-game first. */
             if (property == null)
             {
-                return;
+                continue;
             }
 
             property.setRuntimeValue(null);

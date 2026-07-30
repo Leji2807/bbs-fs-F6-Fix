@@ -28,6 +28,7 @@ import mchorse.bbs_mod.ui.framework.elements.UIScrollView;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.events.UIRemovedEvent;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
 import mchorse.bbs_mod.ui.framework.elements.utils.FontRenderer;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
@@ -324,7 +325,7 @@ public class UIModelBlockPanel extends UIDashboardPanel implements IFlightSuppor
             ));
             drag.setRotateAxes(GizmoDrag.computeRotateAxes(
                 transform,
-                () -> MatrixStackUtils.stripScale(new Matrix4f(transform.createMatrix()))
+                () -> MatrixStackUtils.stripScale(transform.createMatrix())
             ));
         }
 
@@ -372,6 +373,21 @@ public class UIModelBlockPanel extends UIDashboardPanel implements IFlightSuppor
          * and stencil (both read Gizmo#lastRenderMatrix) draw at the right place. */
         stack.push();
         this.applyGizmoOrigin(stack, cameraPos);
+        /* Reorient into the active space (GLOBAL world axes / VIEW screen axes);
+         * LOCAL keeps the block rotation applied above. The block's transform
+         * composes straight onto the world, so its parent frame IS the world
+         * frame — PARENT maps to GLOBAL here (bone editors instead keep their
+         * placement frame, which carries the real parent frame). One capture
+         * feeds both the visual and the pick stencil, so they stay in lockstep. */
+        TransformSpace space = this.transform.getSpace();
+
+        /* This gizmo edits the BLOCK's own transform, which composes straight
+         * onto the world, so GLOBAL keeps meaning the plain world axes (null) —
+         * turning the block must not turn the frame its own rotation is edited
+         * in. The form INSIDE the block is a different story: it is drawn under
+         * this transform, so its editor takes GLOBAL from the preview's scene
+         * axes (UIModelRenderer#getSceneAxes) and follows the block. */
+        Gizmo.INSTANCE.reorientForSpace(stack, space == TransformSpace.PARENT ? TransformSpace.GLOBAL : space, this.gizmoCamera.view, null);
         Gizmo.INSTANCE.captureVisual(stack);
         stack.pop();
     }
@@ -455,7 +471,7 @@ public class UIModelBlockPanel extends UIDashboardPanel implements IFlightSuppor
             Transform transform = this.modelBlock.getProperties().getTransform().copy();
 
             transform.translate.set(0F, 0F, 0F);
-            palette.editor.renderer.setTransform(new Matrix4f(transform.createMatrix()));
+            palette.editor.renderer.setTransform(transform.createMatrix());
         }
     }
 

@@ -20,6 +20,7 @@ import com.mojang.blaze3d.systems.VertexSorter;
 
 import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.collection.IntObjectMap;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.actions.ActionState;
@@ -134,6 +135,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
     private final GizmoInteraction gizmo = new GizmoInteraction(this);
 
     public final OrbitFilmCameraController orbit = new OrbitFilmCameraController(this);
+    public final OrbitViewGizmo orbitGizmo = new OrbitViewGizmo(this);
     private int pov;
     private boolean paused;
 
@@ -163,6 +165,11 @@ public class UIFilmController extends UIElement implements GizmoViewport
             this.toggleOrbitAttachment();
             UIUtils.playClick();
         }).strict().active(() -> this.getPovMode() == CAMERA_MODE_ORBIT).category(category);
+        this.keys().register(Keys.FILM_CONTROLLER_TOGGLE_ORTHO, () ->
+        {
+            this.orbit.toggleOrtho();
+            UIUtils.playClick();
+        }).strict().active(() -> this.getPovMode() == CAMERA_MODE_ORBIT).category(category);
         this.keys().register(Keys.FILM_CONTROLLER_TOGGLE_REPLAY_MENU, this::toggleReplayMenu).category(category);
         this.keys().register(Keys.FILM_CONTROLLER_MOVE_REPLAY_TO_CURSOR, () ->
         {
@@ -171,10 +178,13 @@ public class UIFilmController extends UIElement implements GizmoViewport
             World world = MinecraftClient.getInstance().world;
             Camera camera = this.panel.getCamera();
 
+            Vector3f rayOffset = new Vector3f();
+            Vector3f rayDirection = camera.getMouseRay(context.mouseX, context.mouseY, area.x, area.y, area.w, area.h, rayOffset);
+
             HitResult result = RayTracing.rayTrace(
                 world,
-                RayTracing.fromVector3d(camera.position),
-                RayTracing.fromVector3f(camera.getMouseDirection(context.mouseX, context.mouseY, area.x, area.y, area.w, area.h)),
+                RayTracing.fromVector3d(new Vector3d(camera.position).add(rayOffset.x, rayOffset.y, rayOffset.z)),
+                RayTracing.fromVector3f(rayDirection),
                 512F
             );
 
@@ -786,6 +796,8 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
         boolean consumed = this.gizmo.mouseReleased(context);
 
+        consumed = this.orbitGizmo.mouseReleased(context) || consumed;
+
         this.stopGizmoInteraction();
 
         this.panel.replayEditor.releaseViewport(context, this.orbit.wasDragged());
@@ -1352,6 +1364,8 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
         this.renderPickingPreview(context, area);
 
+        this.orbitGizmo.render(context, area);
+
         this.orbit.handleOrbiting(context);
     }
 
@@ -1579,6 +1593,20 @@ public class UIFilmController extends UIElement implements GizmoViewport
         return keyframeEditor != null ? keyframeEditor.getBone() : null;
     }
 
+    /** The space the bone gizmo should be drawn in (active transform's space). */
+    public TransformSpace getBoneSpace()
+    {
+        UIKeyframeEditor keyframeEditor = this.panel.replayEditor.keyframeEditor;
+
+        return keyframeEditor != null ? keyframeEditor.getBoneSpace() : TransformSpace.LOCAL;
+    }
+
+    /** The film camera's world&rarr;camera rotation, for reorienting the gizmo into a space. */
+    public Matrix4f getGizmoView()
+    {
+        return this.panel.getCamera().view;
+    }
+
     /** Whether the selected keyframe is the form's anchor track, so its transform gets a gizmo. */
     public boolean isAnchorGizmo()
     {
@@ -1664,6 +1692,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
                     filmContext
                         .bone(bone == null ? null : bone.a, bone != null && bone.b)
+                        .gizmoSpace(this.getBoneSpace(), this.getGizmoView())
                         .anchorGizmo(this.isAnchorGizmo(), this.getAnchorLocal());
                 }
                 else
@@ -1688,6 +1717,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
                 .stencil(this.stencilMap)
                 .relative(replay.relative.get())
                 .bone(bone == null ? null : bone.a, bone != null && bone.b)
+                .gizmoSpace(this.getBoneSpace(), this.getGizmoView())
                 .anchorGizmo(this.isAnchorGizmo(), this.getAnchorLocal()));
         }
 

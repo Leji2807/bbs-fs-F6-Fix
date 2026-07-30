@@ -72,6 +72,43 @@ public abstract class UIModelRenderer extends UIElement
         this.transform = transform;
     }
 
+    /**
+     * The orthonormal axes of the frame the preview is actually drawn in &mdash;
+     * what {@link mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace#GLOBAL}
+     * means for anything rendered here. {@link #transform} is multiplied onto the
+     * stack before the model AND before the grid ({@link #renderModel}), so it is
+     * that frame, not the camera's, that reads as "the world" to the user: the
+     * floor grid turns with it. Identity in a plain preview, so GLOBAL stays the
+     * flat scene axes there; the model block's immersive editing sets it to the
+     * BLOCK's own transform, and then GLOBAL follows the block the way the film's
+     * follows the replay. Scale is divided out &mdash; these are directions, and
+     * a scaled block must not stretch the gizmo's frame.
+     */
+    public Matrix3f getSceneAxes()
+    {
+        return MatrixStackUtils.stripScale(this.transform).get3x3(new Matrix3f());
+    }
+
+    /**
+     * Lift a matrix out of the previewed form's own frame into the frame the
+     * preview is drawn in &mdash; i.e. apply {@link #transform}, exactly as
+     * {@link #renderModel} does before the model reaches the stack.
+     *
+     * <p>The gizmo needs this because its two halves are recovered from
+     * different places: the drawn origin and axes come back out of the RENDER
+     * matrix (so they already carry the transform), while the drag's Jacobian
+     * and rotation axes are SAMPLED from the editor's own bone matrices (which
+     * do not). With a plain preview the transform is the identity and the two
+     * agree by accident; inside a rotated model block they would disagree by
+     * the block's rotation, and every drag would run off the handles. Scale is
+     * deliberately kept &mdash; a Jacobian must map local units to the scene's
+     * real distances.
+     */
+    public Matrix4f toSceneMatrix(Matrix4f matrix)
+    {
+        return new Matrix4f(this.transform).mul(matrix);
+    }
+
     public void setRotation(float yaw, float pitch)
     {
         this.camera.rotation.y = MathUtils.toRad(yaw);

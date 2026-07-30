@@ -45,7 +45,6 @@ public class UISimpleTransform extends UITransform
             this.fillT(0, 0, 0);
             this.fillS(1, 1, 1);
             this.fillR(0, 0, 0);
-            this.fillR2(0, 0, 0);
 
             return;
         }
@@ -53,7 +52,6 @@ public class UISimpleTransform extends UITransform
         this.fillT(transform.translate.x, transform.translate.y, transform.translate.z);
         this.fillS(transform.scale.x, transform.scale.y, transform.scale.z);
         this.fillR(MathUtils.toDeg(transform.rotate.x), MathUtils.toDeg(transform.rotate.y), MathUtils.toDeg(transform.rotate.z));
-        this.fillR2(MathUtils.toDeg(transform.rotate2.x), MathUtils.toDeg(transform.rotate2.y), MathUtils.toDeg(transform.rotate2.z));
     }
 
     private void changed()
@@ -113,16 +111,5 @@ public class UISimpleTransform extends UITransform
         }
 
         this.edit(() -> this.transform.rotate.set(MathUtils.toRad((float) x), MathUtils.toRad((float) y), MathUtils.toRad((float) z)));
-    }
-
-    @Override
-    public void setR2(Axis axis, double x, double y, double z)
-    {
-        if (this.transform == null)
-        {
-            return;
-        }
-
-        this.edit(() -> this.transform.rotate2.set(MathUtils.toRad((float) x), MathUtils.toRad((float) y), MathUtils.toRad((float) z)));
     }
 }

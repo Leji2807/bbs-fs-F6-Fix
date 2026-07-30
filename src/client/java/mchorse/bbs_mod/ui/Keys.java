@@ -129,7 +129,12 @@ public class Keys
     public static final KeyCombo TRANSFORMATIONS_Z = new KeyCombo("z", UIKeys.GENERAL_Z, GLFW.GLFW_KEY_Z).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_TOGGLE_AXES = new KeyCombo("toggle_axes", UIKeys.TRANSFORMS_KEYS_TOGGLE_AXES, GLFW.GLFW_KEY_F8).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_HIDE_GIZMO = new KeyCombo("hide_gizmo", UIKeys.TRANSFORMS_KEYS_HIDE_GIZMO, GLFW.GLFW_KEY_LEFT_ALT).categoryKey("transformations");
-    public static final KeyCombo TRANSFORMATIONS_TOGGLE_LOCAL = new KeyCombo("toggle_local", UIKeys.TRANSFORMS_CONTEXT_SWITCH_LOCAL, GLFW.GLFW_KEY_Q).categoryKey("transformations");
+    /* The combo id is the settings key a custom binding is stored under, so it stays
+     * "toggle_local" — the name this key had when it toggled the local flag — even
+     * though it now opens the space list. Renaming it would silently reset everyone's
+     * rebound key to the default. */
+    public static final KeyCombo TRANSFORMATIONS_SPACE_MENU = new KeyCombo("toggle_local", UIKeys.TRANSFORMS_SPACE_OPEN, GLFW.GLFW_KEY_Q).categoryKey("transformations");
+    public static final KeyCombo TRANSFORMATIONS_ROTATION_MODE = new KeyCombo("rotation_mode", UIKeys.TRANSFORMS_KEYS_ROTATION_MODE, GLFW.GLFW_KEY_Q, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_TOGGLE_FIX = new KeyCombo("toggle_fix", UIKeys.TRANSFORMS_KEYS_TOGGLE_FIX, GLFW.GLFW_KEY_Y).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_MIRROR_EDIT = new KeyCombo("mirror_edit", UIKeys.TRANSFORMS_KEYS_MIRROR_EDIT, GLFW.GLFW_KEY_F, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_COPY_WORLD = new KeyCombo("copy_world", UIKeys.TRANSFORMS_CONTEXT_COPY_WORLD, GLFW.GLFW_KEY_C, GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_LEFT_SHIFT, GLFW.GLFW_KEY_LEFT_ALT).categoryKey("transformations");
@@ -140,6 +145,7 @@ public class Keys
     public static final KeyCombo FILM_CONTROLLER_INSERT_FRAME = new KeyCombo("insert_frame", UIKeys.FILM_CONTROLLER_KEYS_INSERT_FRAME, GLFW.GLFW_KEY_I).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_TOGGLE_CONTROL = new KeyCombo("toggle_control", UIKeys.FILM_CONTROLLER_KEYS_TOGGLE_CONTROL, GLFW.GLFW_KEY_H).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_TOGGLE_ORBIT_MODE = new KeyCombo("toggle_orbit_mode", UIKeys.FILM_CONTROLLER_KEYS_CHANGE_CAMERA_MODE, GLFW.GLFW_KEY_F3).categoryKey("film_controller");
+    public static final KeyCombo FILM_CONTROLLER_TOGGLE_ORTHO = new KeyCombo("toggle_ortho", UIKeys.FILM_CONTROLLER_KEYS_TOGGLE_ORTHO, GLFW.GLFW_KEY_KP_5).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_TELEPORT_ORBIT = new KeyCombo("teleport_orbit_record", UIKeys.FILM_CONTROLLER_KEYS_TELEPORT_ORBIT, GLFW.GLFW_KEY_C).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_ATTACH_ORBIT = new KeyCombo("attach_orbit_record", UIKeys.FILM_CONTROLLER_KEYS_ATTACH_ORBIT, GLFW.GLFW_KEY_Z, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_TOGGLE_REPLAY_MENU = new KeyCombo("toggle_replay_menu", UIKeys.FILM_CONTROLLER_KEYS_OPEN_REPLAYS, GLFW.GLFW_KEY_F4).categoryKey("film_controller");

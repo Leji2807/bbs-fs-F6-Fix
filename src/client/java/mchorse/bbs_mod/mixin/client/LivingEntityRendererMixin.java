@@ -9,6 +9,7 @@ import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.entity.LivingEntityRenderer;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.LivingEntity;
+import org.joml.Vector3f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -38,15 +39,13 @@ public abstract class LivingEntityRendererMixin
                 {
                     poseTransform.translate.lerp(value.translate, value.fix);
                     poseTransform.scale.lerp(value.scale, value.fix);
-                    poseTransform.rotate.lerp(value.rotate, value.fix);
-                    poseTransform.rotate2.lerp(value.rotate2, value.fix);
+                    poseTransform.lerpRotation(value, value.fix);
                 }
                 else
                 {
                     poseTransform.translate.add(value.translate);
                     poseTransform.scale.add(value.scale).sub(1, 1, 1);
-                    poseTransform.rotate.add(value.rotate);
-                    poseTransform.rotate2.add(value.rotate2);
+                    poseTransform.addRotation(value);
                 }
             }
 
@@ -74,12 +73,17 @@ public abstract class LivingEntityRendererMixin
                         transform.scale.y = value.yScale;
                         transform.scale.z = value.zScale;
 
+                        /* Vanilla ModelPart holds euler pitch/yaw/roll only, so a
+                         * quaternion pose bone is decomposed to its euler equivalent
+                         * here instead of reading the stale rotate triple. */
+                        Vector3f rotation = poseTransform.getEulerRotation(new Vector3f());
+
                         value.pivotX += poseTransform.translate.x;
                         value.pivotY += poseTransform.translate.y;
                         value.pivotZ += poseTransform.translate.z;
-                        value.pitch += poseTransform.rotate.x;
-                        value.yaw += poseTransform.rotate.y;
-                        value.roll += poseTransform.rotate.z;
+                        value.pitch += rotation.x;
+                        value.yaw += rotation.y;
+                        value.roll += rotation.z;
                         value.xScale += poseTransform.scale.x - 1F;
                         value.yScale += poseTransform.scale.y - 1F;
                         value.zScale += poseTransform.scale.z - 1F;

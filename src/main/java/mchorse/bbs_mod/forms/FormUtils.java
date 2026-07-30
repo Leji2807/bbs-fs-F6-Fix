@@ -6,12 +6,18 @@ import mchorse.bbs_mod.data.types.ListType;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.forms.forms.BodyPart;
 import mchorse.bbs_mod.forms.forms.Form;
+import mchorse.bbs_mod.forms.forms.MobForm;
+import mchorse.bbs_mod.forms.forms.ModelForm;
 import mchorse.bbs_mod.forms.states.AnimationState;
 import mchorse.bbs_mod.settings.values.base.BaseValue;
 import mchorse.bbs_mod.settings.values.base.BaseValueBasic;
+import mchorse.bbs_mod.settings.values.core.ValuePose;
 import mchorse.bbs_mod.utils.CollectionUtils;
 import mchorse.bbs_mod.utils.StringUtils;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
+import mchorse.bbs_mod.utils.pose.PoseTransform;
+import mchorse.bbs_mod.utils.pose.Transform;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,6 +36,96 @@ public class FormUtils
             || name.startsWith("pose")
             || name.startsWith("pose_overlay")
             || name.startsWith("shape_keys");
+    }
+
+    /**
+     * The euler rotation the renderer sums UNDER one pose track's channels for
+     * {@code bone} — the contributions of every OTHER pose-valued track of the
+     * same form (the pose stack merges per-channel additively; see the model
+     * form renderer's pose merge). Feeds the gizmo's
+     * {@code GizmoDrag.additiveRotationBase}, so editing an overlay composes
+     * its drag deltas at the bone's EFFECTIVE angles instead of the overlay's
+     * own near-zero channels. The animator's action channels are not included —
+     * like the rest of the drag capture, they are treated as static for the
+     * duration of an edit.
+     *
+     * @return the summed base in radians, or {@code null} when there is no
+     *         purely additive base to speak of: {@code editedTrack} doesn't
+     *         belong to a pose-stacked form, or any involved bone transform
+     *         merges multiplicatively (a non-zero {@code fix} weight lerps, a
+     *         quaternion contributor turns the merge into a quaternion product)
+     *         — those compositions the drag's parent-frame recovery absorbs on
+     *         its own, so a zero base is exactly right for them.
+     */
+    public static Vector3f additivePoseRotationBase(ValuePose editedTrack, String bone)
+    {
+        return additivePoseRotationBase(editedTrack, bone, null);
+    }
+
+    /**
+     * The overload fed by the renderer's EVALUATED channel rotation for the bone
+     * (radians, rest + actions + pose): the base is then simply
+     * {@code evaluated − the edited track's own contribution}, which folds the
+     * animator's actions and the model's rest rotation in — the pose-track sum
+     * of the two-argument form can't see those. Falls back to the track sum when
+     * {@code evaluatedRadians} is {@code null} (no model bone entry). The
+     * additivity guards stay either way: any multiplicative contributor means
+     * the whole additive-base model doesn't apply.
+     */
+    public static Vector3f additivePoseRotationBase(ValuePose editedTrack, String bone, Vector3f evaluatedRadians)
+    {
+        Form form = getForm(editedTrack);
+        List<ValuePose> tracks = new ArrayList<>();
+
+        if (form instanceof ModelForm modelForm)
+        {
+            tracks.add(modelForm.pose);
+            tracks.add(modelForm.poseOverlay);
+            tracks.addAll(modelForm.additionalOverlays);
+        }
+        else if (form instanceof MobForm mobForm)
+        {
+            tracks.add(mobForm.pose);
+            tracks.add(mobForm.poseOverlay);
+        }
+        else
+        {
+            return null;
+        }
+
+        if (!tracks.contains(editedTrack))
+        {
+            return null;
+        }
+
+        Vector3f trackSum = new Vector3f();
+        Vector3f editedContribution = new Vector3f();
+
+        for (ValuePose track : tracks)
+        {
+            PoseTransform transform = track.get().transforms.get(bone);
+
+            if (transform == null)
+            {
+                continue;
+            }
+
+            if (transform.rotationMode == Transform.RotationMode.QUATERNION || transform.fix != 0F)
+            {
+                return null;
+            }
+
+            if (track == editedTrack)
+            {
+                editedContribution.set(transform.rotate);
+            }
+            else
+            {
+                trackSum.add(transform.rotate);
+            }
+        }
+
+        return evaluatedRadians == null ? trackSum : new Vector3f(evaluatedRadians).sub(editedContribution);
     }
 
     public static Form fromData(BaseType data)

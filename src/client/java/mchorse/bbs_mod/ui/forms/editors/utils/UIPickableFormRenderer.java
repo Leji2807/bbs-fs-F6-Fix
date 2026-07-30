@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.client.BBSShaders;
+import mchorse.bbs_mod.forms.FormTranslucentQueue;
 import mchorse.bbs_mod.forms.FormUtilsClient;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.forms.forms.Form;
@@ -12,6 +13,7 @@ import mchorse.bbs_mod.forms.renderers.FormRenderingContext;
 import mchorse.bbs_mod.graphics.Draw;
 import mchorse.bbs_mod.graphics.texture.Texture;
 import mchorse.bbs_mod.resources.Link;
+import mchorse.bbs_mod.ui.UIKeys;
 import mchorse.bbs_mod.ui.forms.editors.UIFormEditor;
 import mchorse.bbs_mod.ui.framework.UIBaseMenu;
 import mchorse.bbs_mod.ui.framework.UIContext;
@@ -166,7 +168,12 @@ public class UIPickableFormRenderer extends UIFormRenderer implements GizmoViewp
 
         if (this.renderForm == null || this.renderForm.get())
         {
+            /* The form editor viewport gets the same deferred translucency as the world: the
+             * form's semi-transparent pixels draw after all its opaque ones, sorted, without
+             * hiding bones behind them. */
+            FormTranslucentQueue.begin();
             FormUtilsClient.render(this.form, formContext);
+            FormTranslucentQueue.flush();
 
             if (this.form.hitbox.get())
             {
@@ -199,6 +206,10 @@ public class UIPickableFormRenderer extends UIFormRenderer implements GizmoViewp
             {
                 MatrixStackUtils.multiply(stack, MatrixStackUtils.stripScale(matrix));
             }
+
+            /* Reorient the pick stencil into the active space to match the visual
+             * (below), so hovering a ring lands where it's drawn. */
+            Gizmo.INSTANCE.reorientForSpace(stack, this.formEditor.getGizmoSpace(), this.camera.view, this.getSceneAxes());
 
             /* Skip the gizmo's pick stencil while the hide-gizmo key is held, so its handles can't be
              * clicked when hidden. Form-part picking (the stencil rendered above) is left intact, and
@@ -236,6 +247,15 @@ public class UIPickableFormRenderer extends UIFormRenderer implements GizmoViewp
         {
             MatrixStackUtils.multiply(stack, MatrixStackUtils.stripScale(matrix));
         }
+
+        /* Reorient the drawn gizmo into the active space (the preview's own scene
+         * axes for GLOBAL, screen axes for VIEW); LOCAL leaves it on the bone's
+         * own axes. Kept in lockstep with the pick stencil above. The scene axes
+         * are the renderer's transform ({@link UIModelRenderer#getSceneAxes}):
+         * identity in a plain preview, the model block's own rotation when the
+         * block is edited immersively — GLOBAL must follow the container the
+         * form is drawn inside, or it points off the scene the user sees. */
+        Gizmo.INSTANCE.reorientForSpace(stack, this.formEditor.getGizmoSpace(), this.camera.view, this.getSceneAxes());
 
         /* Draw axes */
         if (UIBaseMenu.shouldRenderAxes())
@@ -283,6 +303,13 @@ public class UIPickableFormRenderer extends UIFormRenderer implements GizmoViewp
 
         if (!this.stencil.hasPicked())
         {
+            /* An armed eyedropper over empty space explains itself at the cursor;
+             * over a bone the regular pick card below already names the catch. */
+            if (this.formEditor.isBonePicking() && this.area.isInside(context))
+            {
+                context.batcher.textCard(UIKeys.BONE_PICKER_CLICK_BONE.get(), context.mouseX + 12, context.mouseY + 8);
+            }
+
             return;
         }
 

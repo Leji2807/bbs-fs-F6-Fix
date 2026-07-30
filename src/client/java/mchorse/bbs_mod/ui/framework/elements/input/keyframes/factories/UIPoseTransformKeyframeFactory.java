@@ -6,26 +6,20 @@ import mchorse.bbs_mod.ui.UIKeys;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UIColor;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
-import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
+import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframeSheet;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframes;
 import mchorse.bbs_mod.ui.utils.UI;
-import mchorse.bbs_mod.ui.utils.icons.Icons;
-import mchorse.bbs_mod.utils.Axis;
-import mchorse.bbs_mod.utils.MathUtils;
-import mchorse.bbs_mod.utils.colors.Colors;
-import mchorse.bbs_mod.utils.joml.Vectors;
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
 import mchorse.bbs_mod.utils.pose.Transform;
-import org.joml.Vector3d;
 
 import java.util.function.Consumer;
 
 public class UIPoseTransformKeyframeFactory extends UIKeyframeFactory<PoseTransform>
 {
-    public UITrackpad fix;
+    public UISliderTrackpad fix;
     public UIColor color;
     public UIToggle lighting;
     public UIPropTransform transform;
@@ -40,7 +34,7 @@ public class UIPoseTransformKeyframeFactory extends UIKeyframeFactory<PoseTransf
 
         this.keys().register(Keys.TRANSFORMATIONS_TOGGLE_FIX, this::toggleFix).category(UIKeys.TRANSFORMS_KEYS_CATEGORY);
 
-        this.fix = new UITrackpad((v) ->
+        this.fix = new UISliderTrackpad((v) ->
         {
             if (this.transform.getTransform() instanceof PoseTransform)
             {
@@ -71,7 +65,12 @@ public class UIPoseTransformKeyframeFactory extends UIKeyframeFactory<PoseTransf
         this.lighting.h(UIConstants.CONTROL_HEIGHT);
         this.lighting.setValue(keyframe.getValue().lighting == 0F);
 
-        this.scroll.add(UI.labelRow(UIKeys.POSE_CONTEXT_FIX, this.fix), UI.row(this.color, this.lighting), this.transform.marginTop(4));
+        /* Same labelRow grid as the pose editor, which this panel mirrors. */
+        this.scroll.add(
+            UI.labelRow(UIKeys.POSE_CONTEXT_FIX, this.fix),
+            UI.labelRow(this.lighting, this.color),
+            this.transform
+        );
     }
 
     private void toggleFix()

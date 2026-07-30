@@ -72,6 +72,7 @@ import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.world.World;
 import org.joml.Vector3d;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -657,8 +658,7 @@ public class UIReplaysEditor extends UIElement
         if (!sheets.isEmpty())
         {
             this.keyframeEditor = new UIKeyframeEditor((consumer) -> new UIFilmKeyframes(this.filmPanel.cameraEditor, consumer).absolute())
-                .target(this.filmPanel.editArea)
-                .editPanelTopOffset(this.filmPanel::getEditPanelTopOffsetPx);
+                .target(this.filmPanel.editArea);
             this.keyframeEditor.relative(this).x(CATEGORY_BAR_WIDTH).y(0).w(1F, -CATEGORY_BAR_WIDTH).h(1F);
             this.keyframeEditor.setUndoId("replay_keyframe_editor");
 
@@ -1075,28 +1075,6 @@ public class UIReplaysEditor extends UIElement
         this.expandedPoseTabsByReplay.put(replay.getId(), this.keyframeEditor.view.getDopeSheet().getExpandedPoseTabIds());
     }
 
-    /**
-     * Re-applies keyframe parameters panel position (e.g. after layout lock
-     * toggle).
-     */
-    public void refreshEditPanelOffset()
-    {
-        if (this.keyframeEditor != null)
-        {
-            this.keyframeEditor.refreshEditPanelOffset();
-        }
-
-        if (this.replaysList != null)
-        {
-            this.replaysList.refreshEditPanelOffset();
-        }
-
-        if (this.replayProperties != null)
-        {
-            this.replayProperties.refreshEditPanelOffset();
-        }
-    }
-
     public void setTimelineVisible(boolean visible)
     {
         this.timelineVisible = visible;
@@ -1298,12 +1276,13 @@ public class UIReplaysEditor extends UIElement
             World world = MinecraftClient.getInstance().world;
             Camera camera = this.filmPanel.getCamera();
 
+            Vector3f rayOffset = new Vector3f();
+            Vector3f rayDirection = CameraUtils.getMouseRay(camera.projection, camera.view, context.mouseX, context.mouseY, area.x, area.y, area.w, area.h, rayOffset);
+
             BlockHitResult blockHitResult = RayTracing.rayTrace(
                 world,
-                RayTracing.fromVector3d(camera.position),
-                RayTracing.fromVector3f(
-                    CameraUtils.getMouseDirection(camera.projection, camera.view, context.mouseX, context.mouseY, area.x, area.y, area.w, area.h)
-                ),
+                RayTracing.fromVector3d(new Vector3d(camera.position).add(rayOffset.x, rayOffset.y, rayOffset.z)),
+                RayTracing.fromVector3f(rayDirection),
                 256F
             );
 

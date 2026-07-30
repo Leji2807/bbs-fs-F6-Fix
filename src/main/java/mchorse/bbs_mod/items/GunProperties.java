@@ -12,6 +12,7 @@ import mchorse.bbs_mod.forms.forms.VanillaParticleForm;
 import mchorse.bbs_mod.forms.forms.utils.ParticleSettings;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.interps.Interpolation;
 import mchorse.bbs_mod.utils.interps.Interpolations;
 import mchorse.bbs_mod.utils.pose.Transform;
@@ -119,14 +120,23 @@ public class GunProperties extends ModelProperties
         properties.setForm(form);
 
         fp.translate.set(0.25F, 0.125F, -0.25F);
-        fp.rotate.y = -MathUtils.PI / 2;
-        fp.rotate2.z = MathUtils.PI / 4;
+        /* Was rotate.y·rotate2.z; fold the (static) two-stack into one euler.
+         * The middle angle sits exactly on the -90° pole, where JOML's own
+         * readback is unusable — see Matrices.toEulerZYXRadians. */
+        Matrices.toEulerZYXRadians(
+            Matrices.toQuaternionZYXRadians(0F, -MathUtils.PI / 2, 0F)
+                .mul(Matrices.toQuaternionZYXRadians(0F, 0F, MathUtils.PI / 4)),
+            fp.rotate
+        );
 
         tp.translate.y = 0.375F;
         tp.translate.z = 0.125F;
         tp.scale.set(0.666F);
-        tp.rotate.y = -MathUtils.PI / 2;
-        tp.rotate2.z = MathUtils.PI / 4;
+        Matrices.toEulerZYXRadians(
+            Matrices.toQuaternionZYXRadians(0F, -MathUtils.PI / 2, 0F)
+                .mul(Matrices.toQuaternionZYXRadians(0F, 0F, MathUtils.PI / 4)),
+            tp.rotate
+        );
     }
 
     public Form getZoomForm()

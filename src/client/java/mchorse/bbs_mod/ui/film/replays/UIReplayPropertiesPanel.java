@@ -151,17 +151,10 @@ public class UIReplayPropertiesPanel extends UIElement
             shadowSection,
             other
         );
-        this.refreshEditPanelOffset();
+        this.properties.relative(this).x(0).y(0).w(1F).h(1F);
 
         this.add(this.properties);
         this.setReplay(null);
-    }
-
-    public void refreshEditPanelOffset()
-    {
-        int top = this.filmPanel.getEditPanelTopOffsetPx();
-        this.properties.relative(this).x(0).y(0, top).w(1F).h(1F, -top);
-        this.resize();
     }
 
     public void attachReplayList(UIReplayList list)

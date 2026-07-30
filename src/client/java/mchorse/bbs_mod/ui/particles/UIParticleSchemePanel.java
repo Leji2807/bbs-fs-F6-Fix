@@ -5,7 +5,6 @@ import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.data.DataToString;
 import mchorse.bbs_mod.data.types.BaseType;
 import mchorse.bbs_mod.data.types.MapType;
-import mchorse.bbs_mod.settings.values.base.BaseValue;
 import mchorse.bbs_mod.settings.values.ui.EditorLayoutNode;
 import mchorse.bbs_mod.settings.values.ui.ValueEditorLayout;
 import mchorse.bbs_mod.forms.renderers.ParticleFormRenderer;
@@ -21,7 +20,6 @@ import mchorse.bbs_mod.ui.dashboard.panels.UIDataDashboardPanel;
 import mchorse.bbs_mod.ui.dashboard.panels.tabs.DataTab;
 import mchorse.bbs_mod.ui.dashboard.panels.tabs.UIDataTabs;
 import mchorse.bbs_mod.ui.framework.UIContext;
-import mchorse.bbs_mod.ui.framework.elements.UIElement;
 import mchorse.bbs_mod.ui.framework.elements.UIScrollView;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
 import mchorse.bbs_mod.ui.framework.elements.layout.ILayoutSource;
@@ -103,10 +101,10 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
         this.dock.source(this.createLayoutSource())
             .frameless("preview")
             .gate(() -> this.data != null);
-        this.dock.addPanel("general", this.wrapScroll(this.generalView), Icons.GEAR);
-        this.dock.addPanel("emitter", this.wrapScroll(this.emitterView), Icons.BUBBLE);
-        this.dock.addPanel("particle", this.wrapScroll(this.particleView), Icons.PARTICLE);
-        this.dock.addPanel("appearance", this.wrapScroll(this.appearanceView), Icons.MATERIAL);
+        this.dock.addPanel("general", this.generalView, Icons.GEAR);
+        this.dock.addPanel("emitter", this.emitterView, Icons.BUBBLE);
+        this.dock.addPanel("particle", this.particleView, Icons.PARTICLE);
+        this.dock.addPanel("appearance", this.appearanceView, Icons.MATERIAL);
         this.dock.addPanel("molang", this.textEditor, Icons.CODE);
         this.dock.addPanel("preview", this.renderer, Icons.VIDEO_CAMERA);
         this.dock.mount();
@@ -263,33 +261,15 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
         return new ILayoutSource()
         {
             @Override
-            public BaseValue value()
-            {
-                return layout;
-            }
-
-            @Override
             public EditorLayoutNode getRoot()
             {
-                return layout.getParticleLayoutRoot();
+                return layout.getLayout(ValueEditorLayout.PARTICLE, EditorLayoutNode::defaultParticleLayout);
             }
 
             @Override
             public void setRoot(EditorLayoutNode root)
             {
-                layout.setParticleLayoutRoot(root);
-            }
-
-            @Override
-            public List<EditorLayoutNode.SplitterNode> getSplitters()
-            {
-                return layout.getParticleSplitters();
-            }
-
-            @Override
-            public List<EditorLayoutNode.SplitterNode> getSplittersForWrite()
-            {
-                return layout.getParticleSplittersForWrite();
+                layout.setLayout(ValueEditorLayout.PARTICLE, root);
             }
 
             @Override
@@ -306,21 +286,6 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
         view.scroll.cancelScrolling().opposite().scrollSpeed *= 3;
 
         return view;
-    }
-
-    /**
-     * Wrap a content element (column/scroll layout) in a plain container before docking it.
-     * The dock resets each panel's flex (which would wipe a column layout's {@code flex.post}),
-     * so the actual content must live one level down where the dock never touches it.
-     */
-    private UIElement wrapScroll(UIElement content)
-    {
-        UIElement panel = new UIElement();
-
-        content.relative(panel).w(1F).h(1F);
-        panel.add(content);
-
-        return panel;
     }
 
     private void addSection(UIScrollView view, UIParticleSchemeSection section)
@@ -421,9 +386,10 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
     {
         super.resize();
 
+        /* The dock re-places its own handles while resizing; only the data gate needs a re-check. */
         if (this.dock != null)
         {
-            this.dock.setupFlex(true);
+            this.dock.refreshVisibility();
         }
     }
 
