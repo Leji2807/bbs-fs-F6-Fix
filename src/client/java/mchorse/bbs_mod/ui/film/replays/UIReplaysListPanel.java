@@ -65,15 +65,8 @@ public class UIReplaysListPanel extends UIElement
         this.replays.relative(this.content).x(0).y(0, BAR_HEIGHT).w(1F).h(1F, -BAR_HEIGHT);
         this.content.add(this.bar, this.replays);
 
-        this.refreshEditPanelOffset();
+        this.content.relative(this).x(0).y(0).w(1F).h(1F);
         this.add(this.content);
-    }
-
-    public void refreshEditPanelOffset()
-    {
-        int top = this.filmPanel.getEditPanelTopOffsetPx();
-        this.content.relative(this).x(0).y(0, top).w(1F).h(1F, -top);
-        this.resize();
     }
 
     private void updateButtonsState()
