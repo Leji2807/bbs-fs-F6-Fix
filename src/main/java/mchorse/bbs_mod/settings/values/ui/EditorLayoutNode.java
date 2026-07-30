@@ -326,6 +326,68 @@ public abstract class EditorLayoutNode
         return new SplitterNode(splitter.horizontal, newRatio, first, second);
     }
 
+    /** Returns a new tree with the two panel ids exchanged, wherever they sit (splits or stacks). */
+    public static EditorLayoutNode copyWithSwappedPanels(EditorLayoutNode root, String id1, String id2)
+    {
+        if (root == null || id1 == null || id2 == null || id1.equals(id2))
+        {
+            return root;
+        }
+
+        return swapPanels(root, id1, id2);
+    }
+
+    private static EditorLayoutNode swapPanels(EditorLayoutNode node, String id1, String id2)
+    {
+        if (node instanceof PanelNode)
+        {
+            String id = ((PanelNode) node).getPanelId();
+            String swapped = swapId(id, id1, id2);
+
+            return swapped.equals(id) ? node : new PanelNode(swapped);
+        }
+
+        if (node instanceof StackNode)
+        {
+            StackNode stack = (StackNode) node;
+
+            if (!stack.containsPanel(id1) && !stack.containsPanel(id2))
+            {
+                return node;
+            }
+
+            List<String> ids = new ArrayList<>();
+
+            for (String id : stack.getPanelIds())
+            {
+                ids.add(swapId(id, id1, id2));
+            }
+
+            return new StackNode(ids, swapId(stack.getActivePanelId(), id1, id2));
+        }
+
+        if (node instanceof SplitterNode)
+        {
+            SplitterNode splitter = (SplitterNode) node;
+            EditorLayoutNode first = swapPanels(splitter.first, id1, id2);
+            EditorLayoutNode second = swapPanels(splitter.second, id1, id2);
+
+            if (first == splitter.first && second == splitter.second)
+            {
+                return node;
+            }
+
+            return new SplitterNode(splitter.horizontal, splitter.ratio, first, second);
+        }
+
+        return node;
+    }
+
+    private static String swapId(String id, String id1, String id2)
+    {
+        return id.equals(id1) ? id2 : id.equals(id2) ? id1 : id;
+    }
+
     /** Collect the ids of every panel the tree places, including the inactive tabs of stacks. */
     public static void collectPanelIds(EditorLayoutNode node, Set<String> out)
     {

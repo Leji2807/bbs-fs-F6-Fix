@@ -56,6 +56,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
@@ -99,14 +100,15 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
         this.dock = new UIDockLayout();
         this.dock.relative(this.editor).w(1F).h(1F);
         this.dock.source(this.createLayoutSource())
+            .locked(!BBSSettings.editorLayoutSettings.isDockUnlocked(ValueEditorLayout.PARTICLE))
             .frameless("preview")
             .gate(() -> this.data != null);
-        this.dock.addPanel("general", this.generalView, Icons.GEAR);
-        this.dock.addPanel("emitter", this.emitterView, Icons.BUBBLE);
-        this.dock.addPanel("particle", this.particleView, Icons.PARTICLE);
-        this.dock.addPanel("appearance", this.appearanceView, Icons.MATERIAL);
-        this.dock.addPanel("molang", this.textEditor, Icons.CODE);
-        this.dock.addPanel("preview", this.renderer, Icons.VIDEO_CAMERA);
+        this.dock.addPanel("general", this.generalView, Icons.GEAR, UIKeys.SNOWSTORM_PANELS_GENERAL);
+        this.dock.addPanel("emitter", this.emitterView, Icons.BUBBLE, UIKeys.SNOWSTORM_PANELS_EMITTER);
+        this.dock.addPanel("particle", this.particleView, Icons.PARTICLE, UIKeys.SNOWSTORM_PANELS_PARTICLE);
+        this.dock.addPanel("appearance", this.appearanceView, Icons.MATERIAL, UIKeys.SNOWSTORM_PANELS_APPEARANCE);
+        this.dock.addPanel("molang", this.textEditor, Icons.CODE, UIKeys.SNOWSTORM_PANELS_MOLANG);
+        this.dock.addPanel("preview", this.renderer, Icons.VIDEO_CAMERA, UIKeys.SNOWSTORM_PANELS_PREVIEW);
         this.dock.mount();
         this.editor.add(this.dock);
 
@@ -136,7 +138,7 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
         });
         presets.tooltip(UIKeys.FILM_LAYOUT_PRESETS, Direction.LEFT);
 
-        UIIcon lock = new UIIcon(() -> this.dock.isLocked() ? Icons.LOCKED : Icons.UNLOCKED, (b) -> this.dock.toggleLock());
+        UIIcon lock = new UIIcon(() -> this.dock.isLocked() ? Icons.LOCKED : Icons.UNLOCKED, (b) -> this.toggleLayoutLock());
         lock.tooltip(() -> (this.dock.isLocked() ? UIKeys.FILM_LAYOUT_UNLOCK : UIKeys.FILM_LAYOUT_LOCK).get(), Direction.LEFT);
 
         UIIcon resetLayout = new UIIcon(Icons.REFRESH, (b) -> this.dock.resetLayout());
@@ -157,6 +159,20 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
         this.keys().register(Keys.FILM_CONTROLLER_PREV_DOCK_TAB, () ->
         {
             if (this.dock.cycleDockStackTab(-1))
+            {
+                UIUtils.playClick();
+            }
+        }).category(UIKeys.SNOWSTORM_TITLE);
+        this.keys().register(Keys.DOCK_MAXIMIZE, () ->
+        {
+            if (this.dock.toggleMaximizeUnderCursor())
+            {
+                UIUtils.playClick();
+            }
+        }).category(UIKeys.SNOWSTORM_TITLE);
+        this.keys().register(Keys.DOCK_UNDO_LAYOUT, () ->
+        {
+            if (this.dock.undoLayout())
             {
                 UIUtils.playClick();
             }
@@ -254,6 +270,12 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
         this.dock.applyLayoutRoot(EditorLayoutNode.fromData(layoutData));
     }
 
+    private void toggleLayoutLock()
+    {
+        this.dock.toggleLock();
+        BBSSettings.editorLayoutSettings.setDockUnlocked(ValueEditorLayout.PARTICLE, !this.dock.isLocked());
+    }
+
     private ILayoutSource createLayoutSource()
     {
         ValueEditorLayout layout = BBSSettings.editorLayoutSettings;
@@ -276,6 +298,18 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
             public EditorLayoutNode getDefault()
             {
                 return EditorLayoutNode.defaultParticleLayout();
+            }
+
+            @Override
+            public Set<String> getHiddenPanels()
+            {
+                return layout.getHiddenPanels(ValueEditorLayout.PARTICLE);
+            }
+
+            @Override
+            public void setHiddenPanels(Set<String> hidden)
+            {
+                layout.setHiddenPanels(ValueEditorLayout.PARTICLE, hidden);
             }
         };
     }
