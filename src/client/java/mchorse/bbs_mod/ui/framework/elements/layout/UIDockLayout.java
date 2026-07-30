@@ -125,7 +125,7 @@ public class UIDockLayout extends UIElement
     private String framelessPanelId;
     private Supplier<Boolean> gate = () -> true;
     private Runnable onChanged = () -> {};
-    private Runnable onSplitterDragEnd = () -> {};
+    private Runnable onLayoutSettled = () -> {};
     private UnaryOperator<EditorLayoutNode> ensureFn = UnaryOperator.identity();
 
     /* Configuration setters */
@@ -168,9 +168,14 @@ public class UIDockLayout extends UIElement
         return this;
     }
 
-    public UIDockLayout onSplitterDragEnd(Runnable onSplitterDragEnd)
+    /**
+     * Run once the layout has settled into new bounds: after a drop, a maximize, an undo, a tab
+     * switch or the end of a splitter drag &mdash; but not on every frame of that drag. Hosts use
+     * it for anything that has to follow panel sizes, such as the auto-sized preview.
+     */
+    public UIDockLayout onLayoutSettled(Runnable onLayoutSettled)
     {
-        this.onSplitterDragEnd = onSplitterDragEnd;
+        this.onLayoutSettled = onLayoutSettled;
 
         return this;
     }
@@ -628,6 +633,12 @@ public class UIDockLayout extends UIElement
         if (resize)
         {
             this.resize();
+
+            /* Mid-drag the bounds change every frame; the host only wants the settled result. */
+            if (this.draggedSplitterIndices.isEmpty())
+            {
+                this.onLayoutSettled.run();
+            }
         }
     }
 
@@ -805,7 +816,7 @@ public class UIDockLayout extends UIElement
             }
 
             this.clearSplitterDragState();
-            this.onSplitterDragEnd.run();
+            this.onLayoutSettled.run();
         });
         handle.reference(() -> this.getSplitterHandleReferencePosition(index));
         handle.rendering((context) -> this.renderSplitter(context, index));
