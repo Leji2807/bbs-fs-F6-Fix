@@ -280,7 +280,7 @@ public class UIReplaysEditor extends UIElement
             return;
         }
 
-        context.batcher.clip(area.x, area.y, area.ex(), rulerBottom, context);
+        context.batcher.clipBox(area.x, area.y, area.ex(), rulerBottom, context);
 
         renderRulerAudio(context, keyframes, camera, clipOffset, area, rulerBottom);
         renderRulerClipGradient(context, keyframes, clipsPanel, clipOffset, area, rulerBottom);

@@ -1882,7 +1882,7 @@ public class UIClips extends UIElement
         }
 
         area.render(batcher, BBSSettings.deepSurface());
-        batcher.clip(this.vertical.area.x, rulerBottom, this.vertical.area.ex(), this.vertical.area.ey(), context);
+        batcher.clipBox(this.vertical.area.x, rulerBottom, this.vertical.area.ex(), this.vertical.area.ey(), context);
 
         for (int i = 0; i < this.layers; i++)
         {
@@ -1900,7 +1900,7 @@ public class UIClips extends UIElement
         this.renderTickMarkers(context, area.y, area.h);
 
         batcher.unclip(context);
-        batcher.clip(this.vertical.area.x, rulerBottom, this.vertical.area.ex(), this.vertical.area.ey(), context);
+        batcher.clipBox(this.vertical.area.x, rulerBottom, this.vertical.area.ex(), this.vertical.area.ey(), context);
 
         if (BBSSettings.editorTimelineGrid.get())
         {
