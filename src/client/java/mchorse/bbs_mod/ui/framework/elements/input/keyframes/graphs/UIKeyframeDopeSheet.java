@@ -933,7 +933,7 @@ public class UIKeyframeDopeSheet implements IUIKeyframeGraph
         BufferBuilder builder = Tessellator.getInstance().getBuffer();
         Matrix4f matrix = context.batcher.getContext().getMatrices().peek().getPositionMatrix();
 
-        context.batcher.clip(area.x, rulerBottom, area.ex(), area.ey(), context);
+        context.batcher.clipBox(area.x, rulerBottom, area.ex(), area.ey(), context);
         this.renderElements(context, builder, matrix, area, this.elements, 0, this.getDopeSheetY());
         this.renderOutOfRangeShading(context, builder, matrix, area);
         context.batcher.unclip(context);
@@ -974,7 +974,7 @@ public class UIKeyframeDopeSheet implements IUIKeyframeGraph
         /* Render background */
         context.batcher.box(area.x + w - 1, area.y, area.x + w, area.ey(), BBSSettings.dividerColor());
 
-        context.batcher.clip(area.x, area.y, area.x + w, area.ey(), context);
+        context.batcher.clipBox(area.x, area.y, area.x + w, area.ey(), context);
 
         for (UIKeyframeElement element : elements)
         {
@@ -1355,7 +1355,7 @@ public class UIKeyframeDopeSheet implements IUIKeyframeGraph
         BufferBuilder builder = Tessellator.getInstance().getBuffer();
         Matrix4f matrix = context.batcher.getContext().getMatrices().peek().getPositionMatrix();
 
-        context.batcher.clip(area.x, rulerBottom, area.ex(), area.ey(), context);
+        context.batcher.clipBox(area.x, rulerBottom, area.ex(), area.ey(), context);
         builder.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
         this.renderElementsTopmostKeyframes(context, builder, matrix, area, this.elements, this.getDopeSheetY());
         RenderSystem.enableBlend();

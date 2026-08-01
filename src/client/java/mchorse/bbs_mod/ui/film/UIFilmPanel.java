@@ -288,6 +288,20 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
                 UIUtils.playClick();
             }
         }).active(active).category(editor);
+        this.keys().register(Keys.DOCK_MAXIMIZE, () ->
+        {
+            if (this.dock.toggleMaximizeUnderCursor())
+            {
+                UIUtils.playClick();
+            }
+        }).active(active).category(editor);
+        this.keys().register(Keys.DOCK_UNDO_LAYOUT, () ->
+        {
+            if (this.dock.undoLayout())
+            {
+                UIUtils.playClick();
+            }
+        }).active(active).category(editor);
 
         this.selectionPanel = new UIFilmSelectionPanel(this);
 
@@ -295,16 +309,17 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
         this.dock = new UIDockLayout();
         this.dock.relative(this.editor).w(1F).h(1F);
         this.dock.source(this.createLayoutSource())
+            .locked(!BBSSettings.editorLayoutSettings.isDockUnlocked(ValueEditorLayout.FILM))
             .frameless(PANEL_PREVIEW_ID)
             .gate(this::hasFilmInCurrentTab)
             .ensure(this::ensureFilmLayoutPanels)
             .onChanged(this::onDockLayoutChanged)
-            .onSplitterDragEnd(this::applyPreviewSizeToBBS);
-        this.dock.addPanel(PANEL_EDIT_AREA_ID, this.editArea, Icons.EDITOR);
-        this.dock.addPanel(PANEL_MAIN_ID, this.main, Icons.FILM);
-        this.dock.addPanel(PANEL_PREVIEW_ID, this.preview, Icons.VIDEO_CAMERA);
-        this.dock.addPanel(PANEL_REPLAYS_LIST_ID, this.replayEditor.replaysList, Icons.LIST);
-        this.dock.addPanel(PANEL_REPLAY_PROPS_ID, this.replayEditor.replayProperties, Icons.PROPERTIES);
+            .onLayoutSettled(this::applyPreviewSizeToBBS);
+        this.dock.addPanel(PANEL_EDIT_AREA_ID, this.editArea, Icons.EDITOR, UIKeys.FILM_PANELS_EDIT_AREA);
+        this.dock.addPanel(PANEL_MAIN_ID, this.main, Icons.FILM, UIKeys.FILM_PANELS_MAIN);
+        this.dock.addPanel(PANEL_PREVIEW_ID, this.preview, Icons.VIDEO_CAMERA, UIKeys.FILM_PANELS_PREVIEW);
+        this.dock.addPanel(PANEL_REPLAYS_LIST_ID, this.replayEditor.replaysList, Icons.LIST, UIKeys.FILM_PANELS_REPLAYS_LIST);
+        this.dock.addPanel(PANEL_REPLAY_PROPS_ID, this.replayEditor.replayProperties, Icons.PROPERTIES, UIKeys.FILM_PANELS_REPLAY_PROPS);
         this.dock.mount();
         this.editor.add(this.dock);
 
@@ -530,6 +545,12 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
         return BBSSettings.editorLayoutSettings;
     }
 
+    private void toggleLayoutLock()
+    {
+        this.dock.toggleLock();
+        this.getFilmLayoutSettings().setDockUnlocked(ValueEditorLayout.FILM, !this.dock.isLocked());
+    }
+
     /** Which editor's own layout id the current view corresponds to. */
     private String currentEditorLayoutId()
     {
@@ -595,6 +616,18 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
             public EditorLayoutNode getDefault()
             {
                 return EditorLayoutNode.defaultFilmLayout();
+            }
+
+            @Override
+            public Set<String> getHiddenPanels()
+            {
+                return UIFilmPanel.this.getFilmLayoutSettings().getHiddenPanels(UIFilmPanel.this.currentLayoutId());
+            }
+
+            @Override
+            public void setHiddenPanels(Set<String> hidden)
+            {
+                UIFilmPanel.this.getFilmLayoutSettings().setHiddenPanels(UIFilmPanel.this.currentLayoutId(), hidden);
             }
         };
     }
@@ -668,9 +701,10 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
         menu.action(Icons.LAYOUT, UIKeys.FILM_LAYOUT_PRESETS, this::openLayoutPresetsMenu);
         menu.action(Icons.LINK, UIKeys.FILM_LAYOUT_BIND_TO_EDITOR, this.isCurrentFilmLayoutBound(), this::toggleCurrentFilmLayoutBinding);
         menu.action(Icons.REFRESH, UIKeys.FILM_LAYOUT_RESET, this::resetFilmLayout);
+        this.dock.fillHiddenPanelsMenu(menu);
         boolean locked = this.dock.isLocked();
 
-        menu.action(locked ? Icons.UNLOCKED : Icons.LOCKED, locked ? UIKeys.FILM_LAYOUT_UNLOCK : UIKeys.FILM_LAYOUT_LOCK, locked, this.dock::toggleLock);
+        menu.action(locked ? Icons.UNLOCKED : Icons.LOCKED, locked ? UIKeys.FILM_LAYOUT_UNLOCK : UIKeys.FILM_LAYOUT_LOCK, locked, this::toggleLayoutLock);
 
         menu.action(Icons.LIST, UIKeys.FILM_OPEN_HISTORY, () ->
         {
