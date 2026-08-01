@@ -2,6 +2,8 @@ package mchorse.bbs_mod.ui.framework.elements.layout;
 
 import mchorse.bbs_mod.settings.values.ui.EditorLayoutNode;
 
+import java.util.Set;
+
 /**
  * Pluggable storage for a {@link UIDockLayout}. Decouples the docking component from any
  * particular settings value: the Film editor backs this with its per-editor film layout,
@@ -18,4 +20,9 @@ public interface ILayoutSource
     void setRoot(EditorLayoutNode root);
 
     EditorLayoutNode getDefault();
+
+    /** Panels the user hid; the dock's ensure pass must not re-add them. Returns a copy. */
+    Set<String> getHiddenPanels();
+
+    void setHiddenPanels(Set<String> hidden);
 }

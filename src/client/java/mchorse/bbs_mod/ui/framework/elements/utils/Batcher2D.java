@@ -60,6 +60,16 @@ public class Batcher2D
         this.clip(area.x, area.y, area.w, area.h, context);
     }
 
+    /**
+     * Clip to a rectangle given by its corners, matching how {@link #box} is called. The size-based
+     * {@link #clip} right below reads almost identically at the call site, and passing corners to it
+     * silently widens the region instead of failing.
+     */
+    public void clipBox(int x1, int y1, int x2, int y2, UIContext context)
+    {
+        this.clip(x1, y1, x2 - x1, y2 - y1, context);
+    }
+
     public void clip(int x, int y, int w, int h, UIContext context)
     {
         this.clip(context.globalX(x), context.globalY(y), w, h, context.menu.width, context.menu.height);

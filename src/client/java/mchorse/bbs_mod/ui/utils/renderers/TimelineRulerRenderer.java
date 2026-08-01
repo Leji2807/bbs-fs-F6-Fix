@@ -190,7 +190,7 @@ public class TimelineRulerRenderer
         int majorColor = Colors.setA(BBSSettings.dividerColor(), GRID_MAJOR_ALPHA);
         int minorColor = Colors.setA(BBSSettings.dividerColor(), GRID_MINOR_ALPHA);
 
-        context.batcher.clip(area.x, top, area.ex(), area.ey(), context);
+        context.batcher.clipBox(area.x, top, area.ex(), area.ey(), context);
 
         long first = Math.max(0, (long) Math.floor(startTick / (double) minor) * minor);
 
