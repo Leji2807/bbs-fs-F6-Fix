@@ -91,8 +91,7 @@ public class TextureFilterLog
             return;
         }
 
-        LOGGER.warn("[BBS filter] MISMATCH {} (glId={}) BBS thinks {}, GL has min={} mag={}
-    via {}",
+        LOGGER.warn("[BBS filter] MISMATCH {} (glId={}) BBS thinks {}, GL has min={} mag={}\n    via {}",
             name, texture.id, describe(texture.getFilter()), describe(min), describe(mag), caller());
     }
 
