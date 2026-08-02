@@ -127,8 +127,8 @@ public class UIReplaysEditor extends UIElement
         PLAYER(Icons.PLAYER, L10n.lang("bbs.ui.film.replays.category.player"), L10n.lang("bbs.ui.film.replays.category.player.tooltip")),
         MODEL(Icons.BLOCK, L10n.lang("bbs.ui.film.replays.category.model"), L10n.lang("bbs.ui.film.replays.category.model.tooltip")),
         POSE(Icons.POSE, L10n.lang("bbs.ui.film.replays.category.pose"), L10n.lang("bbs.ui.film.replays.category.pose.tooltip")),
-        IK(Icons.LIMB, L10n.lang("bbs.ui.film.replays.category.ik"), L10n.lang("bbs.ui.film.replays.category.ik.tooltip")),
-        PHYSICS(Icons.DROP, L10n.lang("bbs.ui.film.replays.category.physics"), L10n.lang("bbs.ui.film.replays.category.physics.tooltip"));
+        IK(Icons.IK, L10n.lang("bbs.ui.film.replays.category.ik"), L10n.lang("bbs.ui.film.replays.category.ik.tooltip")),
+        PHYSICS(Icons.PHYSICS, L10n.lang("bbs.ui.film.replays.category.physics"), L10n.lang("bbs.ui.film.replays.category.physics.tooltip"));
 
         public final Icon icon;
         public final IKey label;
@@ -198,7 +198,7 @@ public class UIReplaysEditor extends UIElement
         ICONS.put("frequency", Icons.STOPWATCH);
         ICONS.put("count", Icons.BUCKET);
         ICONS.put("settings", Icons.GEAR);
-        ICONS.put("physics_targets", Icons.TIME);
+        ICONS.put("physics_targets", Icons.PHYSICS);
     }
 
     public static Icon getIcon(String key)
