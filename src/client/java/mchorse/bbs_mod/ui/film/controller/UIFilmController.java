@@ -1384,6 +1384,14 @@ public class UIFilmController extends UIElement implements GizmoViewport
         /* Cache the global stuff */
         MatrixStackUtils.cacheMatrices();
 
+        /* cacheMatrices() pushes the model-view stack but keeps its contents, and this runs in the GUI
+         * phase — so the interface's model-view would still be live. The picker bakes the camera into the
+         * vertex stack below (BBSPickerRenderer.draw documents identity as the convention, which the form
+         * editor's preview pass satisfies), so leaving it applied the transform TWICE: the stencil landed
+         * off-target and Gizmo#captureRenderMatrix recorded a polluted matrix for the drag. Restored by the
+         * matching restoreMatrices() below. */
+        RenderSystem.getModelViewStack().identity();
+
         InverseView.set(new Matrix3f(BBSRendering.camera).invert());
 
         /* Render the stencil */

@@ -125,6 +125,31 @@ public class GameRendererMixin
         return BBSRendering.getOrthoProjection((GameRenderer) (Object) this, projection, 20F);
     }
 
+    /**
+     * Record the matrix the world is actually viewed through.
+     *
+     * <p>{@code BBSRendering.camera} is read by the film editor to place its picking pass and to recover
+     * the gizmo's world position, but its only writer — {@code WorldRendererMixin#setupFrustum} — is not
+     * registered in {@code bbs.client.mixins.json} on this branch, so it stayed IDENTITY: the picking
+     * geometry was drawn with no view at all (nothing was pickable) and the gizmo's drag maths worked off
+     * a view-less matrix.
+     *
+     * <p>Argument 4 of this call is {@code new Matrix4f().rotation(camera.getRotation().conjugate(..))},
+     * i.e. the world view — verified against {@code GameRenderer.renderWorld}'s bytecode. Recorded, not
+     * modified; the value is returned untouched.
+     */
+    @ModifyArg(
+        method = "renderWorld",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/WorldRenderer;render(Lnet/minecraft/client/util/memory/ObjectAllocator;Lnet/minecraft/client/render/RenderTickCounter;ZLnet/minecraft/client/render/Camera;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;Lcom/mojang/blaze3d/buffers/GpuBufferSlice;Lorg/joml/Vector4f;Z)V"),
+        index = 4
+    )
+    private Matrix4f onRenderView(Matrix4f view)
+    {
+        BBSRendering.camera.set(view);
+
+        return view;
+    }
+
     /* The render call kept its projection in the same argument slot (index 6); only its descriptor
      * changed with the 1.21.5+ render-state rewrite (ObjectAllocator + fog UBO slice + sky colour). */
     @ModifyArg(
