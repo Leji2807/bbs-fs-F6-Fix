@@ -1449,12 +1449,14 @@ public class UIFilmController extends UIElement implements GizmoViewport
         int highlightColor = BBSSettings.stencilHighlightColor.get();
         float scale = BBSModClient.getGUIScale();
 
-        if (BBSPickerRenderer.drawHighlight(index, highlightColor, Math.round(area.w * scale), Math.round(area.h * scale)))
+        if (BBSPickerRenderer.drawHighlight(this.stencil.getPickColorView(),
+            this.stencil.ensureHighlightTarget(this.stencil.getPickWidth(), this.stencil.getPickHeight()),
+            this.stencil.getPickWidth(), this.stencil.getPickHeight(), index, highlightColor))
         {
-            int vw = BBSPickerRenderer.getHighlightWidth();
-            int vh = BBSPickerRenderer.getHighlightHeight();
+            int vw = this.stencil.getHighlightWidth();
+            int vh = this.stencil.getHighlightHeight();
 
-            context.batcher.texturedBox(BBSPickerRenderer.getHighlightGlId(), Colors.WHITE,
+            context.batcher.texturedBox(this.stencil.getHighlightGlId(), Colors.WHITE,
                 area.x, area.y, area.w, area.h, 0, vh, vw, 0, vw, vh);
         }
 

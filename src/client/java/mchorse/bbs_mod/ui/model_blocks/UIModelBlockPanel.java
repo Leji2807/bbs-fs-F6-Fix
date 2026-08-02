@@ -719,12 +719,14 @@ public class UIModelBlockPanel extends UIDashboardPanel implements IFlightSuppor
         int color = BBSSettings.stencilHighlightColor.get();
         float scale = BBSModClient.getGUIScale();
 
-        if (BBSPickerRenderer.drawHighlight(this.gizmoStencil.getIndex(), color, Math.round(context.menu.width * scale), Math.round(context.menu.height * scale)))
+        if (BBSPickerRenderer.drawHighlight(this.gizmoStencil.getPickColorView(),
+            this.gizmoStencil.ensureHighlightTarget(this.gizmoStencil.getPickWidth(), this.gizmoStencil.getPickHeight()),
+            this.gizmoStencil.getPickWidth(), this.gizmoStencil.getPickHeight(), this.gizmoStencil.getIndex(), color))
         {
-            int vw = BBSPickerRenderer.getHighlightWidth();
-            int vh = BBSPickerRenderer.getHighlightHeight();
+            int vw = this.gizmoStencil.getHighlightWidth();
+            int vh = this.gizmoStencil.getHighlightHeight();
 
-            context.batcher.texturedBox(BBSPickerRenderer.getHighlightGlId(), Colors.WHITE,
+            context.batcher.texturedBox(this.gizmoStencil.getHighlightGlId(), Colors.WHITE,
                 0, 0, context.menu.width, context.menu.height, 0, vh, vw, 0, vw, vh);
         }
     }

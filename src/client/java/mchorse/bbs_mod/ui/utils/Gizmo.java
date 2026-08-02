@@ -4,6 +4,7 @@ import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.DepthTestFunction;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import mchorse.bbs_mod.BBSMod;
 import mchorse.bbs_mod.BBSModClient;
@@ -505,12 +506,17 @@ public class Gizmo
         Draw.sphere(builder, stack, this.lastSphereLocalRadius, 24, 24,
             Colors.getR(color), Colors.getG(color), Colors.getB(color), Colors.getA(color));
 
-        if (BBSPickerRenderer.drawGeometryHighlight(builder.endNullable(), this.lastRenderMatrix, projection, w, h))
-        {
-            int vw = BBSPickerRenderer.getHighlightWidth();
-            int vh = BBSPickerRenderer.getHighlightHeight();
+        /* The gizmo owns a highlight target of its own (sphereHighlight): the bone highlight of whichever
+         * viewport is hosting it renders into ITS target in the same frame, and both blits are recorded, so
+         * sharing one texture would leave both showing the last write. */
+        GpuTextureView target = this.sphereHighlight.ensureHighlightTarget(w, h);
 
-            context.batcher.texturedBox(BBSPickerRenderer.getHighlightGlId(), Colors.WHITE,
+        if (BBSPickerRenderer.drawGeometryHighlight(builder.endNullable(), target, this.lastRenderMatrix, projection))
+        {
+            int vw = this.sphereHighlight.getHighlightWidth();
+            int vh = this.sphereHighlight.getHighlightHeight();
+
+            context.batcher.texturedBox(this.sphereHighlight.getHighlightGlId(), Colors.WHITE,
                 area.x, area.y, area.w, area.h, 0, vh, vw, 0, vw, vh);
         }
     }

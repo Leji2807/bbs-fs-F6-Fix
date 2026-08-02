@@ -66,6 +66,88 @@ public class StencilFormFramebuffer
         return this.framebuffer;
     }
 
+    /**
+     * Off-screen colour the hover highlight for THIS viewport is rendered into, before the caller blits it
+     * back over its area. Owned here rather than by BBSPickerRenderer because the blit is a RECORDED GUI
+     * element: with a single shared target, two live viewports (a form editor opened over the film editor)
+     * would both write it during the frame and both blits would then composite whatever the second one left.
+     */
+    private GpuTexture highlightTex;
+    private GpuTextureView highlightView;
+    private int highlightWidth = -1;
+    private int highlightHeight = -1;
+
+    /** (Re)build this viewport's highlight target at {@code w}x{@code h}. Cheap no-op while unchanged. */
+    public GpuTextureView ensureHighlightTarget(int w, int h)
+    {
+        if (this.highlightView != null && this.highlightWidth == w && this.highlightHeight == h)
+        {
+            return this.highlightView;
+        }
+
+        this.releaseHighlightTarget();
+
+        this.highlightTex = RenderSystem.getDevice().createTexture("bbs_stencil_highlight",
+            GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_SRC,
+            TextureFormat.RGBA8, w, h, 1, 1);
+        this.highlightView = RenderSystem.getDevice().createTextureView(this.highlightTex);
+
+        this.highlightWidth = w;
+        this.highlightHeight = h;
+
+        return this.highlightView;
+    }
+
+    /** Raw GL id of this viewport's highlight texture, for the recorded {@code texturedBox(int,...)} blit. */
+    public int getHighlightGlId()
+    {
+        return this.highlightTex == null ? -1 : ((GlTexture) this.highlightTex).getGlId();
+    }
+
+    public int getHighlightWidth()
+    {
+        return this.highlightWidth;
+    }
+
+    public int getHighlightHeight()
+    {
+        return this.highlightHeight;
+    }
+
+    private void releaseHighlightTarget()
+    {
+        if (this.highlightView != null)
+        {
+            this.highlightView.close();
+            this.highlightView = null;
+        }
+
+        if (this.highlightTex != null)
+        {
+            this.highlightTex.close();
+            this.highlightTex = null;
+        }
+
+        this.highlightWidth = -1;
+        this.highlightHeight = -1;
+    }
+
+    /** This target's picking colour texture — the one ITS index colours were rendered into. */
+    public GpuTextureView getPickColorView()
+    {
+        return this.colorView;
+    }
+
+    public int getPickWidth()
+    {
+        return this.gpuWidth;
+    }
+
+    public int getPickHeight()
+    {
+        return this.gpuHeight;
+    }
+
     public int getIndex()
     {
         return this.index;
@@ -165,7 +247,7 @@ public class StencilFormFramebuffer
         RenderSystem.getDevice().createCommandEncoder()
             .clearColorAndDepthTextures(this.colorTexture, 0x00000000, this.depthTexture, 1.0D);
 
-        BBSPickerRenderer.setRenderTarget(this.colorView, this.depthView, this.gpuWidth, this.gpuHeight);
+        BBSPickerRenderer.setRenderTarget(this.colorView, this.depthView);
     }
 
     public void pickGUI(UIContext context, Area area)
@@ -384,6 +466,8 @@ public class StencilFormFramebuffer
 
     private void releaseGpuTargets()
     {
+        this.releaseHighlightTarget();
+
         if (this.colorView != null)
         {
             this.colorView.close();

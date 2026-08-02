@@ -153,7 +153,6 @@ public class BBSPickerRenderer
      * framebuffer) is now a stale 2x2 leftover the picker never renders into, which is why the previous attempt
      * recoloured nothing.
      */
-    private static GpuTextureView lastPickColorView;
 
     /** NEAREST/clamp sampler for sampling the encoded-index picking texture (must decode index texels exactly). */
     private static GpuSampler pickSampler;
@@ -161,10 +160,6 @@ public class BBSPickerRenderer
     /* Off-screen output the highlight recolour pass renders into (transparent except the matched/highlighted
      * pixels). Blitted back over the viewport by the call sites through the recorded two-phase-GUI texturedBox
      * path — the immediate recolour pass alone would be overdrawn by the deferred GUI flush. */
-    private static GpuTexture highlightColorTex;
-    private static GpuTextureView highlightColorView;
-    private static int highlightWidth = -1;
-    private static int highlightHeight = -1;
 
     /** Sampler0 (albedo) bound for the next picker draw — the form/model texture, for the alpha cutout. */
     private static GpuTextureView sampler0View;
@@ -181,27 +176,8 @@ public class BBSPickerRenderer
      */
     public static void setRenderTarget(GpuTextureView color, GpuTextureView depth)
     {
-        setRenderTarget(color, depth, 0, 0);
-    }
-
-    /**
-     * @param width,height the picking target's pixel size, so the hover-highlight pass can size its own
-     *                     target to match. The recolour maps the picking texture over the whole target with
-     *                     UV 0..1, so a differently-sized target stretches the result.
-     */
-    public static void setRenderTarget(GpuTextureView color, GpuTextureView depth, int width, int height)
-    {
         BBSPickerRenderer.targetColor = color;
         BBSPickerRenderer.targetDepth = depth;
-
-        /* Remember the colour target for the hover-highlight pass. Kept across clearRenderTarget so the
-         * highlight (drawn later this frame) can sample the texture the index colours were rendered into. */
-        if (color != null)
-        {
-            BBSPickerRenderer.lastPickColorView = color;
-            BBSPickerRenderer.lastPickWidth = width;
-            BBSPickerRenderer.lastPickHeight = height;
-        }
     }
 
     public static void clearRenderTarget()
@@ -461,34 +437,6 @@ public class BBSPickerRenderer
         return ubo.slice(0L, PROJECTION_UBO_SIZE);
     }
 
-    /** (Re)build the off-screen highlight output target to {@code w x h}. Cheap no-op while unchanged. */
-    private static void ensureHighlightTarget(int w, int h)
-    {
-        if (highlightColorView != null && highlightWidth == w && highlightHeight == h)
-        {
-            return;
-        }
-
-        if (highlightColorView != null)
-        {
-            highlightColorView.close();
-            highlightColorView = null;
-        }
-
-        if (highlightColorTex != null)
-        {
-            highlightColorTex.close();
-            highlightColorTex = null;
-        }
-
-        highlightColorTex = RenderSystem.getDevice().createTexture("bbs_picker_highlight",
-            GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_SRC,
-            TextureFormat.RGBA8, w, h, 1, 1);
-        highlightColorView = RenderSystem.getDevice().createTextureView(highlightColorTex);
-
-        highlightWidth = w;
-        highlightHeight = h;
-    }
 
     /**
      * Render the hover-highlight into an off-screen texture: recolour, through the {@code picker_preview}
@@ -503,9 +451,12 @@ public class BBSPickerRenderer
      * <ul>
      *   <li><b>Source texture.</b> In 1.21.1 the picker drew into {@code getFramebuffer().getMainTexture()},
      *   so the overlay sampled the same texture the index colours lived in. In 1.21.11 the picker draws into
-     *   {@link StencilFormFramebuffer}'s device-owned colour texture ({@link #lastPickColorView}); the legacy
-     *   {@code getMainTexture()} is a stale 2x2 the picker never touches. Sampling it recoloured nothing. We
-     *   sample {@link #lastPickColorView} instead.</li>
+     *   {@link StencilFormFramebuffer}'s device-owned colour texture; the legacy {@code getMainTexture()} is a
+     *   stale 2x2 the picker never touches. Sampling it recoloured nothing. The caller hands us ITS OWN picking
+     *   texture and size: a single "last bound target" static was wrong as soon as two viewports were alive at
+     *   once — opening a form editor on top of the film editor made the form editor's highlight sample the
+     *   FILM's picking texture, painting the film's stencils over it. The size must come from the same place,
+     *   because the recolour maps the source across the whole target with UV 0..1.</li>
      *   <li><b>Overdraw.</b> Drawing the recolour straight onto the main framebuffer (as the previous attempt
      *   did) is overpainted by the deferred two-phase GUI flush (the viewport's model blit is a recorded GUI
      *   element composited afterwards). So we render into our OWN off-screen texture here and hand it back for
@@ -522,23 +473,11 @@ public class BBSPickerRenderer
      * @param w,h            the off-screen target size in pixels (the viewport area at GUI scale)
      * @return {@code true} when the off-screen highlight was rendered (so the caller should blit it)
      */
-    public static boolean drawHighlight(int index, int highlightColor, int w, int h)
+    public static boolean drawHighlight(GpuTextureView source, GpuTextureView target, int w, int h, int index, int highlightColor)
     {
-        if (lastPickColorView == null || w <= 0 || h <= 0)
+        if (source == null || target == null || w <= 0 || h <= 0)
         {
             return false;
-        }
-
-        /* The recolour maps the picking texture across the whole target with UV 0..1, so the target must
-         * match the SOURCE's size — not whatever the caller happens to pass. Callers disagreed (the form
-         * editor passed its viewport, the film its area, the model block the menu), and any difference in
-         * aspect stretched the highlight: it stayed close to the mark near the centre and drifted further
-         * out, so hovering a leg looked right while an arm painted somewhere else entirely. The caller's
-         * w/h are only a fallback for when the source size is unknown. */
-        if (lastPickWidth > 0 && lastPickHeight > 0)
-        {
-            w = lastPickWidth;
-            h = lastPickHeight;
         }
 
         if (pickSampler == null)
@@ -548,8 +487,6 @@ public class BBSPickerRenderer
             pickSampler = RenderSystem.getSamplerCache().get(
                 AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.NEAREST, FilterMode.NEAREST, false);
         }
-
-        ensureHighlightTarget(w, h);
 
         setTarget(index);
         setHighlightColor(highlightColor);
@@ -602,7 +539,7 @@ public class BBSPickerRenderer
          * pixels end up carrying alpha, so the later GUI_TEXTURED blit (texel.a * vertex.a) composites only the
          * highlight over the viewport. No depth attachment: a flat full-target recolour; with no depth buffer
          * bound the pipeline's LEQUAL test has nothing to cull against, so every matched pixel survives. */
-        try (RenderPass pass = encoder.createRenderPass(() -> "bbs:picker_highlight", highlightColorView, OptionalInt.of(0x00000000)))
+        try (RenderPass pass = encoder.createRenderPass(() -> "bbs:picker_highlight", target, OptionalInt.of(0x00000000)))
         {
             pass.setPipeline(pipeline);
             RenderSystem.bindDefaultUniforms(pass);
@@ -610,7 +547,7 @@ public class BBSPickerRenderer
             pass.setUniform("DynamicTransforms", dynamicTransforms);
             pass.setUniform(BBSShaders.PICKER_UNIFORM, pickerUniform);
             pass.setVertexBuffer(0, vertexBuffer);
-            pass.bindTexture("Sampler0", lastPickColorView, pickSampler);
+            pass.bindTexture("Sampler0", source, pickSampler);
             pass.setIndexBuffer(indexBuffer, indexType);
             pass.drawIndexed(0, 0, buffer.getDrawParameters().indexCount(), 1);
         }
@@ -636,17 +573,15 @@ public class BBSPickerRenderer
      *
      * @return {@code true} when something was rendered and the caller should blit
      */
-    public static boolean drawGeometryHighlight(BuiltBuffer buffer, Matrix4f modelView, Matrix4f projection, int w, int h)
+    public static boolean drawGeometryHighlight(BuiltBuffer buffer, GpuTextureView target, Matrix4f modelView, Matrix4f projection)
     {
-        if (buffer == null || w <= 0 || h <= 0)
+        if (buffer == null || target == null)
         {
             return false;
         }
 
         try
         {
-            ensureHighlightTarget(w, h);
-
             GpuDevice device = RenderSystem.getDevice();
             CommandEncoder encoder = device.createCommandEncoder();
             RenderPipeline pipeline = GIZMO_HIGHLIGHT_PIPELINE;
@@ -676,7 +611,7 @@ public class BBSPickerRenderer
                 indexType = buffer.getDrawParameters().indexType();
             }
 
-            try (RenderPass pass = encoder.createRenderPass(() -> "bbs:gizmo_sphere_highlight", highlightColorView, OptionalInt.of(0x00000000)))
+            try (RenderPass pass = encoder.createRenderPass(() -> "bbs:gizmo_sphere_highlight", target, OptionalInt.of(0x00000000)))
             {
                 pass.setPipeline(pipeline);
                 RenderSystem.bindDefaultUniforms(pass);
@@ -695,23 +630,6 @@ public class BBSPickerRenderer
         }
     }
 
-    /** Pixel size of the picking target last set, so the highlight pass can match it exactly. */
-    private static int lastPickWidth;
-    private static int lastPickHeight;
 
-    /** Raw GL id of the off-screen highlight colour texture, for the recorded {@code texturedBox(int,...)} blit. */
-    public static int getHighlightGlId()
-    {
-        return highlightColorTex == null ? -1 : ((GlTexture) highlightColorTex).getGlId();
-    }
 
-    public static int getHighlightWidth()
-    {
-        return highlightWidth;
-    }
-
-    public static int getHighlightHeight()
-    {
-        return highlightHeight;
-    }
 }
