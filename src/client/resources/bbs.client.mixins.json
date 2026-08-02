@@ -28,7 +28,8 @@
         "RenderTickCounterAccessor",
         "GuiRendererMixin",
         "WorldRendererMixin",
-        "SectionRenderStateMixin"
+        "SectionRenderStateMixin",
+        "FogRendererAccessor"
     ],
     "injectors": {
         "defaultRequire": 1

@@ -4,14 +4,17 @@ import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.forms.FormTranslucentQueue;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.Framebuffer;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.render.FrameGraphBuilder;
 import net.minecraft.client.render.WorldRenderer;
+import org.joml.Matrix4f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(WorldRenderer.class)
@@ -78,5 +81,27 @@ public class WorldRendererMixin
         }
 
         BBSRendering.resizeExtraFramebuffers();
+    }
+
+    /**
+     * Ortho frustum widening: substitute the culling projection with the loose ortho frame
+     * (20-block lower bound) so ortho frames don't clip sections near the screen edges when
+     * zoomed in. On 1.21.1 this was a {@code @ModifyArg} on the {@code GameRenderer.renderWorld}
+     * call site of {@code setupFrustum}; in 1.21.11 the method is private and called from inside
+     * {@code WorldRenderer.render} (verified against the bytecode: the view matrix is argument 0,
+     * the projection argument 1), so the hook moved here. The projection the world actually
+     * renders with is substituted separately in {@code GameRendererMixin#onRenderProjection}.
+     */
+    @ModifyArg(
+        method = "render",
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/client/render/WorldRenderer;setupFrustum(Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;Lnet/minecraft/util/math/Vec3d;)Lnet/minecraft/client/render/Frustum;"
+        ),
+        index = 1
+    )
+    private Matrix4f onSetupFrustumProjection(Matrix4f projection)
+    {
+        return BBSRendering.getOrthoProjection(MinecraftClient.getInstance().gameRenderer, projection, 20F);
     }
 }

@@ -16,6 +16,7 @@ import mchorse.bbs_mod.events.ModelBlockEntityUpdateCallback;
 import mchorse.bbs_mod.forms.renderers.utils.RecolorVertexConsumer;
 import mchorse.bbs_mod.graphics.texture.Texture;
 import mchorse.bbs_mod.graphics.texture.TextureFormat;
+import mchorse.bbs_mod.mixin.client.FogRendererAccessor;
 import mchorse.bbs_mod.ui.UIKeys;
 import mchorse.bbs_mod.ui.dashboard.UIDashboard;
 import mchorse.bbs_mod.ui.film.UIFilmPanel;
@@ -28,16 +29,23 @@ import mchorse.bbs_mod.utils.colors.Color;
 import mchorse.bbs_mod.utils.colors.Colors;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.block.enums.CameraSubmersionType;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.Framebuffer;
 import net.minecraft.client.gl.WindowFramebuffer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.render.state.GuiRenderState;
+import net.minecraft.client.render.Camera;
 import net.minecraft.client.render.GameRenderer;
+import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.client.render.VertexConsumer;
+import net.minecraft.client.render.fog.FogData;
+import net.minecraft.client.render.fog.FogModifier;
 import net.minecraft.client.texture.GlTexture;
 import net.minecraft.client.util.Window;
 import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.client.world.ClientWorld;
+import net.minecraft.entity.Entity;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL30;
@@ -252,6 +260,32 @@ public class BBSRendering
         iris = false;
         sodium = false;
         optifine = FabricLoader.getInstance().isModLoaded("optifabric");
+
+        /* Under the orthographic projection the whole frame sits at roughly the same depth, but
+         * blocks near the screen edges are laterally further from the camera point than the view
+         * distance — the fog paints them sky coloured, which reads as geometry vanishing at the
+         * edges. Push every fog bound out of reach for the ortho frame (the 1.21.1 port did the
+         * same via BackgroundRenderer + RenderSystem.setShaderFogStart/End; both are gone, fog is
+         * a UBO now, and FogModifier is the remaining override point). */
+        FogRendererAccessor.bbs$getFogModifiers().add(new FogModifier()
+        {
+            @Override
+            public boolean shouldApply(CameraSubmersionType submersionType, Entity entity)
+            {
+                return BBSRendering.isOrthoActive();
+            }
+
+            @Override
+            public void applyStartEndModifier(FogData fogData, Camera camera, ClientWorld clientWorld, float f, RenderTickCounter renderTickCounter)
+            {
+                fogData.environmentalStart = 1_000_000F;
+                fogData.renderDistanceStart = 1_000_000F;
+                fogData.environmentalEnd = 1_001_000F;
+                fogData.renderDistanceEnd = 1_001_000F;
+                fogData.skyEnd = 1_001_000F;
+                fogData.cloudEnd = 1_001_000F;
+            }
+        });
 
         ModelBlockEntityUpdateCallback.EVENT.register((entity) ->
         {

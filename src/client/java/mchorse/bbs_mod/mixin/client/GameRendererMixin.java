@@ -97,37 +97,12 @@ public class GameRendererMixin
     }
 
     /**
-     * These two injections substitute an orthographic projection when the film
+     * These injections substitute an orthographic projection when the film
      * editor's orbit camera asks for one (see BBSRendering#getOrthoProjection).
-     * The frustum culling matrix gets a loose lower bound on the frame size so
-     * culling stays conservative when zoomed all the way in; the same bound
-     * pushes its near plane back, so the frustum never culls a section the
-     * render would still have drawn.
+     * The frustum culling matrix gets the same treatment inside
+     * WorldRendererMixin#onSetupFrustumProjection (with a loose lower bound on
+     * the frame size, so culling stays conservative when zoomed all the way in).
      */
-    /**
-     * TODO(1.21.11 render): the frustum half of the ortho fix has no attachment point here any more.
-     * On 1.21.1 {@code GameRenderer.renderWorld} called {@code WorldRenderer.setupFrustum(Vec3d,
-     * Matrix4f, Matrix4f)} directly, so the culling matrix could be widened at that call. In 1.21.11
-     * setupFrustum is private to WorldRenderer, takes {@code (Matrix4f, Matrix4f, Vec3d)} and is
-     * called from inside {@code WorldRenderer.render} — nothing to modify from this class. Kept with
-     * {@code require = 0} (no-op) so the intent and the widening factor survive for the re-port;
-     * until then, ortho frames cull against the plain perspective frustum, which can clip sections
-     * near the screen edges when zoomed in.
-     */
-    @ModifyArg(
-        method = "renderWorld",
-        at = @At(
-            value = "INVOKE",
-            target = "Lnet/minecraft/client/render/WorldRenderer;setupFrustum(Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;Lnet/minecraft/util/math/Vec3d;)Lnet/minecraft/client/render/Frustum;"
-        ),
-        index = 1,
-        require = 0
-    )
-    private Matrix4f onSetupFrustumProjection(Matrix4f projection)
-    {
-        return BBSRendering.getOrthoProjection((GameRenderer) (Object) this, projection, 20F);
-    }
-
     /**
      * Record the matrix the world is actually viewed through.
      *
