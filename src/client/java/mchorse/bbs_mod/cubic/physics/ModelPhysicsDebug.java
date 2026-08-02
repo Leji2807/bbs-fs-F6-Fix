@@ -187,7 +187,7 @@ public final class ModelPhysicsDebug
             }
         }
 
-        ModelIKDebug.flush(builder, ModelIKDebug.getStencilLayer());
+        ModelIKDebug.flushPick(builder);
 
         stack.pop();
 

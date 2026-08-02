@@ -1,11 +1,13 @@
 package mchorse.bbs_mod.cubic.ik;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.DepthTestFunction;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import mchorse.bbs_mod.BBSMod;
 import mchorse.bbs_mod.BBSSettings;
+import mchorse.bbs_mod.client.render.picker.BBSPickerRenderer;
 import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.model.bobj.BOBJModel;
 import mchorse.bbs_mod.cubic.render.CubicRenderer.PivotFrame;
@@ -131,6 +133,24 @@ public final class ModelIKDebug
         }
 
         return linesLayer;
+    }
+
+    /**
+     * Submit picking geometry into the off-screen picking target.
+     *
+     * <p>A RenderLayer draws into the CURRENT render target, which during a picking pass is not the picking
+     * texture — {@link BBSPickerRenderer} owns that through an explicit render pass. Flushing the stencil
+     * through a layer therefore threw the ids away, and the IK controller / pole-target markers could not be
+     * clicked at all. The gizmo's own stencil already went the right way ({@code Gizmo#flushPick}).
+     */
+    public static void flushPick(BufferBuilder builder)
+    {
+        BuiltBuffer built = builder.endNullable();
+
+        if (built != null)
+        {
+            BBSPickerRenderer.drawColorId(POSITION_COLOR_STENCIL, built, RenderSystem.getModelViewMatrix());
+        }
     }
 
     public static RenderLayer getStencilLayer()
@@ -276,7 +296,7 @@ public final class ModelIKDebug
             }
         }
 
-        flush(builder, getStencilLayer());
+        flushPick(builder);
 
         stack.pop();
     }

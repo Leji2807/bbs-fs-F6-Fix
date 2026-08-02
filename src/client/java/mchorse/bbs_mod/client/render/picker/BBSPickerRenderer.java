@@ -69,15 +69,18 @@ import java.util.OptionalInt;
 public class BBSPickerRenderer
 {
     /**
-     * POSITION_COLOR triangles into the off-screen highlight target. Blend stays ON here (unlike the index
-     * pickers): this one writes a visible colour, not an id, and the sphere's own translucency is the point.
-     * Depth testing is off — there is no depth attachment on that target.
+     * POSITION_COLOR triangles into the off-screen highlight target.
+     *
+     * <p>Blend is OFF, for the same reason the index pickers have it off. The target is cleared to
+     * transparent black, so blending premultiplies the colour into it, and the caller's blit then applies
+     * alpha a SECOND time — the glow came out dark exactly like the bone highlight used to. Writing straight
+     * keeps the colour unpremultiplied, and the single blend at blit time is the correct one.
      */
     private static final RenderPipeline GIZMO_HIGHLIGHT_PIPELINE = RenderPipelines.register(
         RenderPipeline.builder(RenderPipelines.POSITION_COLOR_SNIPPET)
             .withLocation(Identifier.of(BBSMod.MOD_ID, "pipeline/gizmo_sphere_highlight"))
             .withVertexFormat(VertexFormats.POSITION_COLOR, VertexFormat.DrawMode.TRIANGLES)
-            .withBlend(BlendFunction.TRANSLUCENT)
+            .withoutBlend()
             .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
             .withCull(false)
             .withUniform("Projection", UniformType.UNIFORM_BUFFER)
