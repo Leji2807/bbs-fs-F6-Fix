@@ -1,14 +1,14 @@
 package mchorse.bbs_mod.client.renderer;
 
+import mchorse.bbs_mod.forms.CustomVertexConsumerProvider;
+import mchorse.bbs_mod.forms.FormUtilsClient;
 import net.minecraft.block.BlockRenderType;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.LightmapTextureManager;
 import net.minecraft.client.render.OverlayTexture;
 import net.minecraft.client.render.RenderLayers;
-import net.minecraft.client.render.Tessellator;
-import net.minecraft.client.render.VertexFormats;
+import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.entity.state.EntityRenderState;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.client.util.math.MatrixStack;
@@ -65,7 +65,13 @@ public class FormShadows
         int maxX = MathHelper.floor(x + radius);
         int minZ = MathHelper.floor(z - radius);
         int maxZ = MathHelper.floor(z + radius);
-        int minY = MathHelper.floor(y - Math.min(alpha / 0.5F - 1F, radius));
+        /* Column depth: 1.21.11 vanilla scans min(alpha / 0.5 - 1, radius) blocks down, which goes
+         * NEGATIVE once the camera is past ~11 blocks (alpha < 0.5) — minY climbs above maxY, the
+         * loop never runs and the shadow vanishes entirely. That is fine for vanilla's near-camera
+         * mobs but kills film shadows: the editor's orbit camera routinely sits 12-20 blocks out.
+         * Use the 1.21.1 depth, min(alpha / 0.5, radius) — no "- 1" — which stays positive for as
+         * long as the distance fade itself does (alpha hits 0 at 16 blocks either way). */
+        int minY = MathHelper.floor(y - Math.min(alpha / 0.5F, radius));
         int maxY = MathHelper.floor(y);
 
         BlockPos.Mutable mutable = new BlockPos.Mutable();
@@ -135,7 +141,11 @@ public class FormShadows
             return;
         }
 
-        BufferBuilder builder = Tessellator.getInstance().begin(com.mojang.blaze3d.vertex.VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL);
+        /* Route through BBS's immediate provider — the same path every other vanilla-layer draw in
+         * the film's AFTER_ENTITIES context takes (name tags etc.) — instead of a bare Tessellator
+         * whose BuiltBuffer lifecycle we would own. consumers.draw() ends the batch properly. */
+        CustomVertexConsumerProvider consumers = FormUtilsClient.getProvider();
+        VertexConsumer builder = consumers.getBuffer(RenderLayers.entityShadow(net.minecraft.util.Identifier.ofVanilla("textures/misc/shadow.png")));
         Matrix4f matrix = matrices.peek().getPositionMatrix();
 
         for (EntityRenderState.ShadowPiece piece : pieces)
@@ -159,10 +169,10 @@ public class FormShadows
             vertex(builder, matrix, color, x2, y1, z1, u2, v1);
         }
 
-        RenderLayers.entityShadow(net.minecraft.util.Identifier.ofVanilla("textures/misc/shadow.png")).draw(builder.end());
+        consumers.draw();
     }
 
-    private static void vertex(BufferBuilder builder, Matrix4f matrix, int color, float x, float y, float z, float u, float v)
+    private static void vertex(VertexConsumer builder, Matrix4f matrix, int color, float x, float y, float z, float u, float v)
     {
         builder.vertex(matrix, x, y, z).color(color).texture(u, v).overlay(OverlayTexture.DEFAULT_UV).light(15728880).normal(0F, 1F, 0F);
     }
