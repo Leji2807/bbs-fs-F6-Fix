@@ -6,6 +6,7 @@ import com.mojang.blaze3d.platform.DepthTestFunction;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import mchorse.bbs_mod.BBSMod;
+import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.camera.Camera;
 import mchorse.bbs_mod.client.BBSRendering;
@@ -478,17 +479,36 @@ public class Gizmo
      */
     public void renderSphereHighlight(UIContext context, Matrix4f projection, Area area)
     {
-        // TODO(1.21.11 render merge): trackball-sphere hover highlight — re-port against pipeline API.
-        // This whole method is new 1.21.1 feature code that auto-merged in but relies on removed render
-        // APIs: it re-drew the cached rotateSphereVbo (VertexBuffer) into a private FBO via
-        // GameRenderer.getPositionColorProgram, then composited it with the picker-preview shader by
-        // imperatively setting GlUniforms (Target/HighlightColor) on a ShaderProgram. In 1.21.11
-        // BBSShaders.getPickerPreviewProgram() returns a RenderPipeline (no mutable GlUniforms), the VBO
-        // cache is gone, and getPositionColorProgram was removed. Re-implement using BBSPickerRenderer's
-        // off-screen highlight pass (custom BBSPicker UBO) the same way bone/handle highlights already do,
-        // re-drawing the sphere immediate-mode at lastSphereMatrix. Stubbed no-op so the file compiles and
-        // the call sites (UIPickableFormRenderer/UIFilmController/UIModelBlockPanel via
-        // GizmoInteraction.renderSphereHighlight) stay wired.
+        if (!this.sphereHovered || !this.hasLastSphereMatrix || !this.hasSphere()
+            || context == null || projection == null || area == null
+            || !BBSSettings.gizmos.get() || BBSRendering.isIrisShadowPass())
+        {
+            return;
+        }
+
+        float scale = BBSModClient.getGUIScale();
+        int w = Math.max(1, Math.round(area.w * scale));
+        int h = Math.max(1, Math.round(area.h * scale));
+
+        /* The sphere itself is invisible (1.21.1 removed its tint and left it as the trackball grab area),
+         * so the hover feedback is this glow: the same sphere re-drawn at the model-view it was last drawn
+         * with, into an off-screen target, then composited over the viewport through the recorded GUI path.
+         * Drawing it straight onto the framebuffer would be overpainted by the deferred GUI flush. */
+        int color = BBSSettings.stencilHighlightColor.get();
+        MatrixStack stack = new MatrixStack();
+        BufferBuilder builder = Tessellator.getInstance().begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR);
+
+        Draw.sphere(builder, stack, this.lastSphereLocalRadius, 24, 24,
+            Colors.getR(color), Colors.getG(color), Colors.getB(color), Colors.getA(color));
+
+        if (BBSPickerRenderer.drawGeometryHighlight(builder.endNullable(), this.lastSphereMatrix, projection, w, h))
+        {
+            int vw = BBSPickerRenderer.getHighlightWidth();
+            int vh = BBSPickerRenderer.getHighlightHeight();
+
+            context.batcher.texturedBox(BBSPickerRenderer.getHighlightGlId(), Colors.WHITE,
+                area.x, area.y, area.w, area.h, 0, vh, vw, 0, vw, vh);
+        }
     }
 
     /**
@@ -809,10 +829,17 @@ public class Gizmo
         }
 
         /* Local directions mapping to screen right and screen down. Unit vectors,
-         * so a step of {@code radius} along them lands on the ring. */
+         * so a step of {@code radius} along them lands on the ring.
+         *
+         * The screen-down vector is +Y in view space, not -Y. 1.21.1 drew this pie in the panel's UI pass,
+         * under a GUI ortho built as ortho(0, w, h, 0) — which FLIPS Y — so view -Y read as screen down
+         * there, and ROTATE_SIGN in ViewRotateDrag was folded to match. On this branch the pie is drawn in
+         * the world phase (the UI pass needs setProjectionMatrix/viewport, both removed in 1.21.5), and the
+         * world projection does not flip: view +Y is screen down. Without this the pie came out mirrored,
+         * taking its start angle with it. */
         Matrix3f inverse = basis.invert();
         Vector3f right = inverse.transform(new Vector3f(1F, 0F, 0F)).normalize();
-        Vector3f down = inverse.transform(new Vector3f(0F, -1F, 0F)).normalize();
+        Vector3f down = inverse.transform(new Vector3f(0F, 1F, 0F)).normalize();
 
         float startRad = this.currentTransform.getViewGrabScreenAngle();
         float scale = BBSSettings.axesScale.get();

@@ -466,7 +466,13 @@ public class BBSShaders
             .withVertexShader(shader)
             .withFragmentShader(shader)
             .withVertexFormat(format, VertexFormat.DrawMode.QUADS)
-            .withBlend(BLEND)
+            /* Blend MUST be off for every picker pipeline. The geometry pickers encode an object index in
+             * the exact vertex colour, and a blended pixel is a corrupt id. picker_preview writes the
+             * highlight colour into an off-screen target that is later composited by the caller's blit:
+             * blending it against the transparent-black clear premultiplied it, so the blit multiplied by
+             * alpha a SECOND time and any highlight below full opacity came out dark (it looked right only
+             * at alpha 1, where the square is a no-op). */
+            .withoutBlend()
             .withDepthTestFunction(DepthTestFunction.LEQUAL_DEPTH_TEST)
             .withCull(false)
             .withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)

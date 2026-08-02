@@ -14,7 +14,13 @@ import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.textures.TextureFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.blaze3d.pipeline.BlendFunction;
+import com.mojang.blaze3d.platform.DepthTestFunction;
+import mchorse.bbs_mod.BBSMod;
 import mchorse.bbs_mod.client.BBSShaders;
+import net.minecraft.client.gl.RenderPipelines;
+import net.minecraft.client.gl.UniformType;
+import net.minecraft.util.Identifier;
 import mchorse.bbs_mod.utils.colors.Colors;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.Framebuffer;
@@ -62,6 +68,22 @@ import java.util.OptionalInt;
  */
 public class BBSPickerRenderer
 {
+    /**
+     * POSITION_COLOR triangles into the off-screen highlight target. Blend stays ON here (unlike the index
+     * pickers): this one writes a visible colour, not an id, and the sphere's own translucency is the point.
+     * Depth testing is off — there is no depth attachment on that target.
+     */
+    private static final RenderPipeline GIZMO_HIGHLIGHT_PIPELINE = RenderPipelines.register(
+        RenderPipeline.builder(RenderPipelines.POSITION_COLOR_SNIPPET)
+            .withLocation(Identifier.of(BBSMod.MOD_ID, "pipeline/gizmo_sphere_highlight"))
+            .withVertexFormat(VertexFormats.POSITION_COLOR, VertexFormat.DrawMode.TRIANGLES)
+            .withBlend(BlendFunction.TRANSLUCENT)
+            .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
+            .withCull(false)
+            .withUniform("Projection", UniformType.UNIFORM_BUFFER)
+            .build()
+    );
+
     /** std140 size of the BBSPicker block: vec4 (16) + int (4), rounded up to a 16-byte multiple. */
     private static final int UBO_SIZE = 32;
 
@@ -574,6 +596,79 @@ public class BBSPickerRenderer
         }
 
         return true;
+    }
+
+    /**
+     * Render plain {@code POSITION_COLOR} geometry into the off-screen highlight target, so the caller can
+     * blit it over its viewport through the recorded GUI path.
+     *
+     * <p>The sibling {@link #drawHighlight} recolours the picking texture, which only works for things that
+     * carry a picking index. The trackball sphere has none — it is picked by a screen-space disc test, not
+     * the stencil — so its hover glow is produced by re-drawing the sphere itself here, at the model-view it
+     * was last drawn with and the viewport's projection, giving exactly the same on-screen footprint.
+     *
+     * <p>Drawn without depth (no depth attachment is bound) and cleared to fully transparent, so only the
+     * sphere's own pixels carry alpha and the blit composites just the glow.
+     *
+     * @return {@code true} when something was rendered and the caller should blit
+     */
+    public static boolean drawGeometryHighlight(BuiltBuffer buffer, Matrix4f modelView, Matrix4f projection, int w, int h)
+    {
+        if (buffer == null || w <= 0 || h <= 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            ensureHighlightTarget(w, h);
+
+            GpuDevice device = RenderSystem.getDevice();
+            CommandEncoder encoder = device.createCommandEncoder();
+            RenderPipeline pipeline = GIZMO_HIGHLIGHT_PIPELINE;
+
+            GpuBufferSlice dynamicTransforms = RenderSystem.getDynamicUniforms()
+                .write(modelView, new Vector4f(1F, 1F, 1F, 1F), new Vector3f(), new Matrix4f());
+
+            /* Written before the pass opens: rotating the ring issues a GPU fence, which the encoder
+             * rejects while a pass is open. */
+            GpuBufferSlice projectionUniform = writeProjection(encoder, projection);
+
+            VertexFormat format = pipeline.getVertexFormat();
+            GpuBuffer vertexBuffer = format.uploadImmediateVertexBuffer(buffer.getBuffer());
+            GpuBuffer indexBuffer;
+            VertexFormat.IndexType indexType;
+
+            if (buffer.getSortedBuffer() == null)
+            {
+                RenderSystem.ShapeIndexBuffer sequential = RenderSystem.getSequentialBuffer(buffer.getDrawParameters().mode());
+
+                indexBuffer = sequential.getIndexBuffer(buffer.getDrawParameters().indexCount());
+                indexType = sequential.getIndexType();
+            }
+            else
+            {
+                indexBuffer = format.uploadImmediateIndexBuffer(buffer.getSortedBuffer());
+                indexType = buffer.getDrawParameters().indexType();
+            }
+
+            try (RenderPass pass = encoder.createRenderPass(() -> "bbs:gizmo_sphere_highlight", highlightColorView, OptionalInt.of(0x00000000)))
+            {
+                pass.setPipeline(pipeline);
+                RenderSystem.bindDefaultUniforms(pass);
+                pass.setUniform("Projection", projectionUniform);
+                pass.setUniform("DynamicTransforms", dynamicTransforms);
+                pass.setVertexBuffer(0, vertexBuffer);
+                pass.setIndexBuffer(indexBuffer, indexType);
+                pass.drawIndexed(0, 0, buffer.getDrawParameters().indexCount(), 1);
+            }
+
+            return true;
+        }
+        finally
+        {
+            buffer.close();
+        }
     }
 
     /** Raw GL id of the off-screen highlight colour texture, for the recorded {@code texturedBox(int,...)} blit. */
