@@ -8,6 +8,7 @@ import mchorse.bbs_mod.math.molang.expressions.MolangExpression;
 import mchorse.bbs_mod.utils.interps.IInterp;
 import mchorse.bbs_mod.utils.interps.Interpolations;
 import mchorse.bbs_mod.utils.interps.Lerps;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.keyframes.BezierUtils;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 import mchorse.bbs_mod.utils.keyframes.KeyframeSegment;
@@ -52,7 +53,19 @@ public class CubicModelAnimator
         double pre = segment.preA.getValue().get();
         double post = segment.postB.getValue().get();
 
-        return segment.b.getInterpolation().interpolate(IInterp.context.set(pre, start, destination, post, segment.x));
+        double duration = IInterp.context.duration;
+        double startTick = IInterp.context.startTick;
+
+        IInterp.context.segment(segment.duration, segment.a.getTick());
+
+        try
+        {
+            return segment.b.getInterpolation().interpolate(IInterp.context.set(pre, start, destination, post, segment.x));
+        }
+        finally
+        {
+            IInterp.context.segment(duration, startTick);
+        }
     }
 
     public static void animate(Model model, Animation animation, float frame, float blend, boolean skipInitial)
@@ -169,5 +182,9 @@ public class CubicModelAnimator
         current.rotate.x += (float) rotation.x;
         current.rotate.y += (float) rotation.y;
         current.rotate.z += (float) rotation.z;
+
+        /* Compose this action's rotation into the bone's orientation quaternion (evaluated in matrices), so
+         * stacked layers don't euler-add through the pole. The euler readback above is kept for gizmo/IK. */
+        group.composeOrient(Matrices.toQuaternionZYXDegrees((float) rotation.x, (float) rotation.y, (float) rotation.z));
     }
 }

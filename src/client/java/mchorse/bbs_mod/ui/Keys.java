@@ -26,6 +26,8 @@ public class Keys
     public static final KeyCombo DELETE = new KeyCombo("delete", UIKeys.GENERAL_REMOVE, GLFW.GLFW_KEY_DELETE);
     public static final KeyCombo CONFIRM = new KeyCombo("confirm", UIKeys.GENERAL_CONFIRM, GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_LEFT_CONTROL);
     public static final KeyCombo CLOSE = new KeyCombo("close", UIKeys.GENERAL_CLOSE, GLFW.GLFW_KEY_ESCAPE);
+    public static final KeyCombo UI_SCALE_INC = new KeyCombo("ui_scale_inc", UIKeys.KEYS_UI_SCALE_INC, GLFW.GLFW_KEY_EQUAL, GLFW.GLFW_KEY_LEFT_CONTROL).repeatable();
+    public static final KeyCombo UI_SCALE_DEC = new KeyCombo("ui_scale_dec", UIKeys.KEYS_UI_SCALE_DEC, GLFW.GLFW_KEY_MINUS, GLFW.GLFW_KEY_LEFT_CONTROL).repeatable();
 
     /* Camera editor */
     public static final KeyCombo ADD_AT_CURSOR = new KeyCombo("add_at_cursor", UIKeys.CAMERA_TIMELINE_CONTEXT_ADD_AT_CURSOR, GLFW.GLFW_KEY_A, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("camera");
@@ -38,6 +40,8 @@ public class Keys
     public static final KeyCombo CLIP_SELECT_TRACK = new KeyCombo("clip_select_track", UIKeys.CAMERA_EDITOR_KEYS_CLIPS_SELECT_TRACK, GLFW.GLFW_KEY_A, GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("camera");
     public static final KeyCombo CLIP_SELECT_TRACK_BEFORE = new KeyCombo("clip_select_track_before", UIKeys.CAMERA_EDITOR_KEYS_CLIPS_SELECT_TRACK_BEFORE, GLFW.GLFW_KEY_COMMA, GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("camera");
     public static final KeyCombo CLIP_SELECT_TRACK_AFTER = new KeyCombo("clip_select_track_after", UIKeys.CAMERA_EDITOR_KEYS_CLIPS_SELECT_TRACK_AFTER, GLFW.GLFW_KEY_PERIOD, GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("camera");
+    public static final KeyCombo CLIP_LAYER_UP = new KeyCombo("clip_layer_up", UIKeys.CAMERA_EDITOR_KEYS_CLIPS_LAYER_UP, GLFW.GLFW_KEY_UP, GLFW.GLFW_KEY_LEFT_ALT).repeatable().categoryKey("camera");
+    public static final KeyCombo CLIP_LAYER_DOWN = new KeyCombo("clip_layer_down", UIKeys.CAMERA_EDITOR_KEYS_CLIPS_LAYER_DOWN, GLFW.GLFW_KEY_DOWN, GLFW.GLFW_KEY_LEFT_ALT).repeatable().categoryKey("camera");
     public static final KeyCombo CLIP_SHIFT = new KeyCombo("clip_shift", UIKeys.CAMERA_TIMELINE_CONTEXT_SHIFT, GLFW.GLFW_KEY_S, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("camera");
     public static final KeyCombo CLIP_SELECT_AFTER = new KeyCombo("clip_select_after", UIKeys.CAMERA_EDITOR_KEYS_EDITOR_SELECT_AFTER, GLFW.GLFW_KEY_PERIOD, GLFW.GLFW_KEY_LEFT_CONTROL).categoryKey("camera");
     public static final KeyCombo CLIP_SELECT_BEFORE = new KeyCombo("clip_select_before", UIKeys.CAMERA_EDITOR_KEYS_EDITOR_SELECT_BEFORE, GLFW.GLFW_KEY_COMMA, GLFW.GLFW_KEY_LEFT_CONTROL).categoryKey("camera");
@@ -125,7 +129,12 @@ public class Keys
     public static final KeyCombo TRANSFORMATIONS_Z = new KeyCombo("z", UIKeys.GENERAL_Z, GLFW.GLFW_KEY_Z).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_TOGGLE_AXES = new KeyCombo("toggle_axes", UIKeys.TRANSFORMS_KEYS_TOGGLE_AXES, GLFW.GLFW_KEY_F8).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_HIDE_GIZMO = new KeyCombo("hide_gizmo", UIKeys.TRANSFORMS_KEYS_HIDE_GIZMO, GLFW.GLFW_KEY_LEFT_ALT).categoryKey("transformations");
-    public static final KeyCombo TRANSFORMATIONS_TOGGLE_LOCAL = new KeyCombo("toggle_local", UIKeys.TRANSFORMS_CONTEXT_SWITCH_LOCAL, GLFW.GLFW_KEY_Q).categoryKey("transformations");
+    /* The combo id is the settings key a custom binding is stored under, so it stays
+     * "toggle_local" — the name this key had when it toggled the local flag — even
+     * though it now opens the space list. Renaming it would silently reset everyone's
+     * rebound key to the default. */
+    public static final KeyCombo TRANSFORMATIONS_SPACE_MENU = new KeyCombo("toggle_local", UIKeys.TRANSFORMS_SPACE_OPEN, GLFW.GLFW_KEY_Q).categoryKey("transformations");
+    public static final KeyCombo TRANSFORMATIONS_ROTATION_MODE = new KeyCombo("rotation_mode", UIKeys.TRANSFORMS_KEYS_ROTATION_MODE, GLFW.GLFW_KEY_Q, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_TOGGLE_FIX = new KeyCombo("toggle_fix", UIKeys.TRANSFORMS_KEYS_TOGGLE_FIX, GLFW.GLFW_KEY_Y).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_MIRROR_EDIT = new KeyCombo("mirror_edit", UIKeys.TRANSFORMS_KEYS_MIRROR_EDIT, GLFW.GLFW_KEY_F, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("transformations");
     public static final KeyCombo TRANSFORMATIONS_COPY_WORLD = new KeyCombo("copy_world", UIKeys.TRANSFORMS_CONTEXT_COPY_WORLD, GLFW.GLFW_KEY_C, GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_LEFT_SHIFT, GLFW.GLFW_KEY_LEFT_ALT).categoryKey("transformations");
@@ -136,16 +145,22 @@ public class Keys
     public static final KeyCombo FILM_CONTROLLER_INSERT_FRAME = new KeyCombo("insert_frame", UIKeys.FILM_CONTROLLER_KEYS_INSERT_FRAME, GLFW.GLFW_KEY_I).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_TOGGLE_CONTROL = new KeyCombo("toggle_control", UIKeys.FILM_CONTROLLER_KEYS_TOGGLE_CONTROL, GLFW.GLFW_KEY_H).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_TOGGLE_ORBIT_MODE = new KeyCombo("toggle_orbit_mode", UIKeys.FILM_CONTROLLER_KEYS_CHANGE_CAMERA_MODE, GLFW.GLFW_KEY_F3).categoryKey("film_controller");
+    public static final KeyCombo FILM_CONTROLLER_TOGGLE_ORTHO = new KeyCombo("toggle_ortho", UIKeys.FILM_CONTROLLER_KEYS_TOGGLE_ORTHO, GLFW.GLFW_KEY_KP_5).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_TELEPORT_ORBIT = new KeyCombo("teleport_orbit_record", UIKeys.FILM_CONTROLLER_KEYS_TELEPORT_ORBIT, GLFW.GLFW_KEY_C).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_ATTACH_ORBIT = new KeyCombo("attach_orbit_record", UIKeys.FILM_CONTROLLER_KEYS_ATTACH_ORBIT, GLFW.GLFW_KEY_Z, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_TOGGLE_REPLAY_MENU = new KeyCombo("toggle_replay_menu", UIKeys.FILM_CONTROLLER_KEYS_OPEN_REPLAYS, GLFW.GLFW_KEY_F4).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_MOVE_REPLAY_TO_CURSOR = new KeyCombo("move_replay_to_cursor", UIKeys.FILM_CONTROLLER_KEYS_MOVE_REPLAY_TO_CURSOR, GLFW.GLFW_KEY_G, GLFW.GLFW_KEY_LEFT_CONTROL).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_RESTART_ACTIONS = new KeyCombo("restart_actions", UIKeys.FILM_CONTROLLER_KEYS_RESTART_ACTIONS, GLFW.GLFW_KEY_R, GLFW.GLFW_KEY_LEFT_ALT).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_TOGGLE_ONION_SKIN = new KeyCombo("toggle_onion_skin", UIKeys.FILM_CONTROLLER_ONION_SKIN_KEYS_TOGGLE, GLFW.GLFW_KEY_O).categoryKey("film_controller");
+    public static final KeyCombo FILM_CONTROLLER_TOGGLE_MOTION_PATH = new KeyCombo("toggle_motion_path", UIKeys.FILM_CONTROLLER_MOTION_PATH_KEYS_TOGGLE, GLFW.GLFW_KEY_M).categoryKey("film_controller");
+    public static final KeyCombo FILM_CONTROLLER_TOGGLE_MOTION_PATH_PIN = new KeyCombo("toggle_motion_path_pin", UIKeys.FILM_CONTROLLER_MOTION_PATH_KEYS_TOGGLE_PIN, GLFW.GLFW_KEY_M, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_OPEN_REPLAYS = new KeyCombo("toggle_replays", UIKeys.FILM_CONTROLLER_KEYS_OPEN_REPLAYS, GLFW.GLFW_KEY_RIGHT_SHIFT).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_CYCLE_EDITORS = new KeyCombo("cycle_editors", UIKeys.FILM_CONTROLLER_KEYS_CYCLE_EDITORS, GLFW.GLFW_KEY_GRAVE_ACCENT).categoryKey("film_controller");
+    public static final KeyCombo FILM_CONTROLLER_TOGGLE_ACTIONS = new KeyCombo("toggle_actions", UIKeys.FILM_CONTROLLER_KEYS_TOGGLE_ACTIONS, GLFW.GLFW_KEY_GRAVE_ACCENT, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_NEXT_DOCK_TAB = new KeyCombo("next_dock_tab", UIKeys.FILM_CONTROLLER_KEYS_CYCLE_EDITORS, GLFW.GLFW_KEY_TAB, GLFW.GLFW_KEY_LEFT_CONTROL).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_PREV_DOCK_TAB = new KeyCombo("prev_dock_tab", UIKeys.FILM_CONTROLLER_KEYS_CYCLE_EDITORS, GLFW.GLFW_KEY_TAB, GLFW.GLFW_KEY_LEFT_SHIFT, GLFW.GLFW_KEY_LEFT_CONTROL).categoryKey("film_controller");
+    public static final KeyCombo DOCK_MAXIMIZE = new KeyCombo("dock_maximize", UIKeys.DOCK_KEYS_MAXIMIZE, GLFW.GLFW_KEY_SPACE, GLFW.GLFW_KEY_LEFT_CONTROL).categoryKey("film_controller");
+    public static final KeyCombo DOCK_UNDO_LAYOUT = new KeyCombo("dock_undo_layout", UIKeys.DOCK_UNDO_LAYOUT, GLFW.GLFW_KEY_Z, GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_LEFT_ALT).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_PREV_REPLAY = new KeyCombo("prev_replay", UIKeys.FILM_CONTROLLER_KEYS_PREV_REPLAY, GLFW.GLFW_KEY_PAGE_UP).categoryKey("film_controller");
     public static final KeyCombo FILM_CONTROLLER_NEXT_REPLAY = new KeyCombo("next_replay", UIKeys.FILM_CONTROLLER_KEYS_NEXT_REPLAY, GLFW.GLFW_KEY_PAGE_DOWN).categoryKey("film_controller");
 
@@ -175,6 +190,12 @@ public class Keys
     public static final KeyCombo MODEL_BLOCKS_MOVE_TO = new KeyCombo("move_to", UIKeys.MODEL_BLOCKS_KEYS_MOVE_TO, GLFW.GLFW_KEY_G, GLFW.GLFW_KEY_LEFT_CONTROL).categoryKey("model_blocks");
     public static final KeyCombo MODEL_BLOCKS_TOGGLE_RENDERING = new KeyCombo("toggle_rendering", UIKeys.MODEL_BLOCKS_KEYS_TOGGLE_RENDERING, GLFW.GLFW_KEY_F7).categoryKey("model_blocks");
     public static final KeyCombo MODEL_BLOCKS_TELEPORT = new KeyCombo("teleport", UIKeys.MODEL_BLOCKS_KEYS_TELEPORT, GLFW.GLFW_KEY_T, GLFW.GLFW_KEY_LEFT_CONTROL).categoryKey("model_blocks");
+
+    /* Model editor */
+    public static final KeyCombo MODEL_EDITOR_EXPAND_ALL = new KeyCombo("expand_all", UIKeys.MODEL_EDITOR_KEYS_EXPAND_ALL, GLFW.GLFW_KEY_E, GLFW.GLFW_KEY_LEFT_CONTROL).categoryKey("model_editor");
+    public static final KeyCombo MODEL_EDITOR_COLLAPSE_ALL = new KeyCombo("collapse_all", UIKeys.MODEL_EDITOR_KEYS_COLLAPSE_ALL, GLFW.GLFW_KEY_E, GLFW.GLFW_KEY_LEFT_CONTROL, GLFW.GLFW_KEY_LEFT_SHIFT).categoryKey("model_editor");
+    public static final KeyCombo MODEL_EDITOR_FIND_BONE = new KeyCombo("find_bone", UIKeys.MODEL_EDITOR_KEYS_FIND_BONE, GLFW.GLFW_KEY_F, GLFW.GLFW_KEY_LEFT_CONTROL).categoryKey("model_editor");
+    public static final KeyCombo MODEL_EDITOR_OPEN_HISTORY = new KeyCombo("open_history", UIKeys.MODEL_EDITOR_OPEN_HISTORY, GLFW.GLFW_KEY_H, GLFW.GLFW_KEY_LEFT_CONTROL).categoryKey("model_editor");
 
     /* Texture picker */
     public static final KeyCombo TEXTURE_PICKER_FIND = new KeyCombo("find", UIKeys.TEXTURE_KEYS_FIND_ALL, GLFW.GLFW_KEY_F, GLFW.GLFW_KEY_LEFT_CONTROL).categoryKey("texture_picker");

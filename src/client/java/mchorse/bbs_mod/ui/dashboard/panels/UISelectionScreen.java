@@ -48,6 +48,9 @@ public class UISelectionScreen<T extends ValueGroup> extends UIElement
     private static final int ICON_GAP = 4;
     private static final int ICON_SIZE = 20;
 
+    /** The banner every selection screen shows; a subclass can swap it for one of its own. */
+    private static final Link BANNER = Link.assets("textures/banners/bg.png");
+
     protected final UIDataDashboardPanel<T> panel;
     protected final UIElement card;
     protected final UIElement banner;
@@ -109,28 +112,31 @@ public class UISelectionScreen<T extends ValueGroup> extends UIElement
         this.names.label(UIKeys.GENERAL_SEARCH);
         this.namesList.context((menu) ->
         {
-            try
+            if (this.showActionButtons())
             {
-                MapType data = Window.getClipboardMap("_ContentType_" + this.panel.getType().getId());
-
-                if (data != null)
+                try
                 {
-                    menu.action(Icons.PASTE, UIKeys.PANELS_CONTEXT_PASTE, () -> this.paste(data));
+                    MapType data = Window.getClipboardMap("_ContentType_" + this.panel.getType().getId());
+
+                    if (data != null)
+                    {
+                        menu.action(Icons.PASTE, UIKeys.PANELS_CONTEXT_PASTE, () -> this.paste(data));
+                    }
                 }
-            }
-            catch (Exception e)
-            {}
+                catch (Exception e)
+                {}
 
-            menu.action(Icons.ADD, UIKeys.GENERAL_ADD, this::addData);
-            menu.action(Icons.FOLDER, UIKeys.PANELS_MODALS_ADD_FOLDER_TITLE, this::addNewFolder);
+                menu.action(Icons.ADD, UIKeys.GENERAL_ADD, this::addData);
+                menu.action(Icons.FOLDER, UIKeys.PANELS_MODALS_ADD_FOLDER_TITLE, this::addNewFolder);
 
-            menu.action(Icons.EDIT, UIKeys.GENERAL_RENAME, this::renameSelected);
-            menu.action(Icons.DUPE, UIKeys.GENERAL_DUPE, this::dupeSelected);
-            menu.action(Icons.REMOVE, UIKeys.GENERAL_REMOVE, this::removeSelected);
+                menu.action(Icons.EDIT, UIKeys.GENERAL_RENAME, this::renameSelected);
+                menu.action(Icons.DUPE, UIKeys.GENERAL_DUPE, this::dupeSelected);
+                menu.action(Icons.REMOVE, UIKeys.GENERAL_REMOVE, this::removeSelected);
 
-            if (this.canCopySelected())
-            {
-                menu.action(Icons.COPY, UIKeys.PANELS_CONTEXT_COPY, this::copy);
+                if (this.canCopySelected())
+                {
+                    menu.action(Icons.COPY, UIKeys.PANELS_CONTEXT_COPY, this::copy);
+                }
             }
 
             File folder = this.panel.getType().getRepository().getFolder();
@@ -179,10 +185,13 @@ public class UISelectionScreen<T extends ValueGroup> extends UIElement
     {
         ArrayList<UIIcon> icons = new ArrayList<>();
 
-        icons.add(this.add);
-        icons.add(this.dupe);
-        icons.add(this.rename);
-        icons.add(this.remove);
+        if (this.showActionButtons())
+        {
+            icons.add(this.add);
+            icons.add(this.dupe);
+            icons.add(this.rename);
+            icons.add(this.remove);
+        }
 
         this.appendHeaderIcons(icons);
 
@@ -199,6 +208,13 @@ public class UISelectionScreen<T extends ValueGroup> extends UIElement
         return Icons.FOLDER;
     }
 
+    /** Whether create/duplicate/rename/remove are offered (header buttons + context menu). Asset-backed
+     *  panels (e.g. the model editor) turn this off, leaving the screen as a pure picker. Default true. */
+    protected boolean showActionButtons()
+    {
+        return true;
+    }
+
     protected Icon getDuplicateButtonIcon()
     {
         return Icons.DUPE;
@@ -212,7 +228,7 @@ public class UISelectionScreen<T extends ValueGroup> extends UIElement
 
     protected Link getBannerTexture()
     {
-        return null;
+        return BANNER;
     }
 
     protected void onDuplicateData(T data)

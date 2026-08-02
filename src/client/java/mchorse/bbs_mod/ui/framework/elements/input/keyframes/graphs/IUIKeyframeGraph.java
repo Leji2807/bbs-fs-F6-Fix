@@ -1,6 +1,8 @@
 package mchorse.bbs_mod.ui.framework.elements.input.keyframes.graphs;
 
+import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.data.types.MapType;
+import mchorse.bbs_mod.settings.values.IValueListener;
 import mchorse.bbs_mod.settings.values.base.BaseValueBasic;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframeSheet;
@@ -141,6 +143,10 @@ public interface IUIKeyframeGraph
             }
         }
 
+        /* Adding a keyframe is a discrete edit: seal the undo so several keyframes made
+         * in a row (within the merge window) each undo separately, not all at once. */
+        sheet.channel.preNotify(IValueListener.FLAG_UNMERGEABLE);
+
         int index = sheet.channel.insert(tick, value);
         Keyframe keyframe = sheet.channel.get(index);
 
@@ -156,11 +162,35 @@ public interface IUIKeyframeGraph
         return keyframe;
     }
 
+    /**
+     * Same as {@link #addKeyframe(UIKeyframeSheet, float, Object)}, but for keyframes the user
+     * creates by hand (clicking/keybinding in the editor). Inheritance from a neighbour is kept
+     * exactly as before; only the "empty spot" case - where the keyframe would otherwise default
+     * to linear - is stamped with the configured default interpolation
+     * ({@link BBSSettings#getDefaultKeyframeInterpolation()}). Automated inserts (recording, pose
+     * capture, animation baking) call the plain {@link #addKeyframe} so they are never affected.
+     */
+    public default Keyframe addKeyframeManually(UIKeyframeSheet sheet, float tick, Object value)
+    {
+        /* addKeyframe inherits (copyOverExtra) only when no explicit value is given and the
+         * channel already has keyframes; in every other case the new keyframe is left at linear. */
+        boolean inherits = value == null && !sheet.channel.isEmpty();
+        Keyframe keyframe = this.addKeyframe(sheet, tick, value);
+
+        if (keyframe != null && !inherits)
+        {
+            keyframe.getInterpolation().setInterp(BBSSettings.getDefaultKeyframeInterpolation());
+        }
+
+        return keyframe;
+    }
+
     public default void removeKeyframe(Keyframe keyframe)
     {
         UIKeyframeSheet sheet = this.getSheet(keyframe);
 
         sheet.remove(keyframe);
+        sheet.channel.preNotify(IValueListener.FLAG_UNMERGEABLE);
         this.clearSelection();
         this.pickKeyframe(null);
     }
@@ -192,6 +222,12 @@ public interface IUIKeyframeGraph
     public default void setTick(float tick, boolean dirty)
     {
         Keyframe selected = this.getSelected();
+
+        if (selected == null)
+        {
+            return;
+        }
+
         float diff = tick - selected.getTick();
 
         for (UIKeyframeSheet sheet : this.getSheets())
@@ -225,9 +261,21 @@ public interface IUIKeyframeGraph
         }
     }
 
+    /**
+     * Both this and {@link #setTick(float, boolean)} are driven by the keyframe properties panel,
+     * which outlives the selection it was built for: an undo or a removed keyframe can empty the
+     * selection without rebuilding the panel. Without a selected keyframe there is nothing to edit
+     * relative to, so the edit is dropped rather than applied blindly to the whole channel.
+     */
     public default void setValue(Object value, boolean unmergeable)
     {
         Keyframe selected = this.getSelected();
+
+        if (selected == null)
+        {
+            return;
+        }
+
         IKeyframeFactory factory = selected.getFactory();
         Object keyframe = factory.copy(selected.getValue());
 

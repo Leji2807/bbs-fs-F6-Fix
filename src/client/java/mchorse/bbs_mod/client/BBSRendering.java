@@ -24,7 +24,6 @@ import mchorse.bbs_mod.ui.framework.UIBaseMenu;
 import mchorse.bbs_mod.ui.framework.UIScreen;
 import mchorse.bbs_mod.ui.framework.elements.utils.Batcher2D;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
-import mchorse.bbs_mod.utils.VideoRecorder;
 import mchorse.bbs_mod.utils.colors.Color;
 import mchorse.bbs_mod.utils.colors.Colors;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
@@ -34,10 +33,12 @@ import net.minecraft.client.gl.Framebuffer;
 import net.minecraft.client.gl.WindowFramebuffer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.render.state.GuiRenderState;
+import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.texture.GlTexture;
 import net.minecraft.client.util.Window;
 import net.minecraft.client.util.math.MatrixStack;
+import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL30;
 import org.slf4j.Logger;
@@ -75,6 +76,12 @@ public class BBSRendering
 
     private static int width;
     private static int height;
+
+    /* Orbit distance for the orthographic projection; negative = perspective.
+     * Re-armed every frame by the film editor's orbit camera (which is set up
+     * from Camera#update, between renderWorld's HEAD and its projection use),
+     * so it can never go stale when another controller takes over. */
+    private static float orthoDistance = -1F;
 
     private static boolean toggleFramebuffer;
     private static Framebuffer framebuffer;
@@ -150,7 +157,13 @@ public class BBSRendering
 
     public static boolean canReplaceFramebuffer()
     {
-        return customSize && renderingWorld;
+        /* The world always renders at the export size. The interface (HUD) is drawn after the
+         * world but still into our export framebuffer — toggleFramebuffer stays on until the blit —
+         * so it must use the export size too. Otherwise it renders at the real window size and, when
+         * the window can't physically reach the requested resolution, comes out stretched in the
+         * file. Excluded while a BBS editor is open so the film panel's own UI keeps rendering at the
+         * real window size. */
+        return customSize && (renderingWorld || (toggleFramebuffer && UIScreen.getCurrentMenu() == null));
     }
 
     public static boolean isCustomSize()
@@ -340,6 +353,19 @@ public class BBSRendering
 
     public static void onWorldRenderBegin()
     {
+        if (orthoDistance > 0F)
+        {
+            /* Give back the culling disabled for the previous ortho frame
+             * (see setOrthoDistance); re-armed by the orbit if still on. */
+            MinecraftClient.getInstance().chunkCullingEnabled = true;
+
+            /* TODO(1.21.11 render): Sodium's point-camera culling was relaxed for the ortho frame
+             * through SodiumUtils, which the port dropped along with the rest of the shader-mod
+             * coupling (BBSRendering keeps iris/sodium = false). Re-add when re-coupling. */
+        }
+
+        orthoDistance = -1F;
+
         MinecraftClient mc = MinecraftClient.getInstance();
         BBSModClient.getFilms().startRenderFrame(mc.getRenderTickCounter().getTickProgress(false));
 
@@ -445,6 +471,8 @@ public class BBSRendering
         //  and glBlitFramebuffer'd the native-resolution world framebuffer down into it with GL_LINEAR so the
         //  recording matched the requested video size; that Framebuffer.fbo/.id/.attach API path is dropped here).
 
+        renderRecordingOverlay();
+
         toggleFramebuffer(false);
 
         if (pendingExportResolutionAction != null)
@@ -479,29 +507,51 @@ public class BBSRendering
     public static void renderHud(DrawContext drawContext, float tickDelta)
     {
         Batcher2D batcher2D = new Batcher2D(drawContext);
-        VideoRecorder videoRecorder = BBSModClient.getVideoRecorder();
 
         BBSModClient.getFilms().renderHud(batcher2D, tickDelta);
+    }
 
-        if (BBSSettings.recordingOverlays.get() && UIScreen.getCurrentMenu() == null)
+    /**
+     * Draw the recording countdown / frame-counter overlay. This is operator UI: it is drawn from
+     * {@link #onRenderBeforeScreen()} after the export blit but before the buffer is copied to the
+     * screen, so it shows up on screen but is never captured into the file.
+     */
+    private static void renderRecordingOverlay()
+    {
+        if (!BBSSettings.recordingOverlays.get() || UIScreen.getCurrentMenu() != null)
         {
-            if (BBSModClient.isVideoExportDelayPending())
-            {
-                int countdown = Math.max(0, (int) Math.ceil(BBSModClient.getVideoExportDelayRemainingMs() / 50D));
-
-                renderRecordingTimerOverlay(batcher2D, String.valueOf(countdown / 20F));
-            }
-            else if (videoRecorder.isRecording())
-            {
-                int count = videoRecorder.getCounter();
-                String label = UIKeys.FILM_VIDEO_RECORDING.format(
-                    count,
-                    BBSModClient.getKeyRecordVideo().getBoundKeyLocalizedText().getString()
-                ).get();
-
-                renderRecordingTimerOverlay(batcher2D, label);
-            }
+            return;
         }
+
+        String label;
+
+        if (BBSModClient.isVideoExportDelayPending())
+        {
+            int countdown = Math.max(0, (int) Math.ceil(BBSModClient.getVideoExportDelayRemainingMs() / 50D));
+
+            label = String.valueOf(countdown / 20F);
+        }
+        else if (BBSModClient.getVideoRecorder().isRecording())
+        {
+            int count = BBSModClient.getVideoRecorder().getCounter();
+
+            label = UIKeys.FILM_VIDEO_RECORDING.format(
+                count,
+                BBSModClient.getKeyRecordVideo().getBoundKeyLocalizedText().getString()
+            ).get();
+        }
+        else
+        {
+            return;
+        }
+
+        MinecraftClient mc = MinecraftClient.getInstance();
+        /* 1.21.11: DrawContext takes (client, GuiRenderState, width, height) and is flushed by the
+         * vanilla GUI pass rather than by an explicit draw(). */
+        DrawContext drawContext = new DrawContext(mc, new GuiRenderState(),
+            mc.getWindow().getScaledWidth(), mc.getWindow().getScaledHeight());
+
+        renderRecordingTimerOverlay(new Batcher2D(drawContext), label);
     }
 
     public static void renderRecordingTimerOverlay(Batcher2D batcher2D, String label)
@@ -550,6 +600,83 @@ public class BBSRendering
         return renderingWorld;
     }
 
+    /**
+     * Arm the orthographic projection for the current frame. Pass the orbit
+     * camera's distance to the pivot; negative disables. The value is reset
+     * at the beginning of every world render, so the caller must re-arm it
+     * each frame for as long as ortho should stay on.
+     */
+    public static void setOrthoDistance(float distance)
+    {
+        orthoDistance = distance;
+
+        if (distance > 0F)
+        {
+            /* The chunk occlusion culling walks sections outward from the
+             * camera POINT, which is only sound for a perspective projection —
+             * under ortho's parallel sightlines it over-culls sections near
+             * the screen edges. Disable it for the frame (Sodium honours the
+             * same flag); the frustum and render distance still cull. Sodium's
+             * own point-camera heuristics get the same treatment. */
+            MinecraftClient.getInstance().chunkCullingEnabled = false;
+
+            /* TODO(1.21.11 render): see the matching note in the ortho teardown — Sodium's
+             * point-camera culling relaxation went with the decoupled SodiumUtils. */
+        }
+    }
+
+    public static boolean isOrthoActive()
+    {
+        return orthoDistance > 0F;
+    }
+
+    /**
+     * Build the orthographic projection replacing the given perspective one
+     * (returns the input untouched when ortho is not armed). FOV and aspect are
+     * derived from the perspective matrix itself, so the ortho frame height
+     * matches the perspective frame height at the orbit pivot's distance: the
+     * subject keeps its size when toggling projections, and the scroll zoom
+     * keeps working through the orbit distance.
+     *
+     * @param minHalfHeight a lower bound on the frame's half height, and the
+     *        slack behind the camera plane the near plane is given; the frustum
+     *        culling matrix is built with a loose bound on both, so culling
+     *        stays conservative when zoomed all the way in.
+     */
+    public static Matrix4f getOrthoProjection(GameRenderer renderer, Matrix4f perspective, float minHalfHeight)
+    {
+        if (orthoDistance <= 0F)
+        {
+            return perspective;
+        }
+
+        float tanHalfFov = 1F / perspective.m11();
+        float aspect = perspective.m11() / perspective.m00();
+        float halfHeight = Math.max(minHalfHeight, orthoDistance * tanHalfFov);
+        float halfWidth = halfHeight * aspect;
+
+        /* The near plane sits exactly at the camera, the way a perspective one
+         * effectively does: under ortho's parallel sightlines everything BEHIND
+         * the camera projects into the frame as well, so a hillside the camera
+         * stands in paints itself over the subject, and no amount of orbiting
+         * gets past it. Clipping at the camera plane drops precisely what the
+         * eye has already passed and nothing the eye still faces — pushing the
+         * plane any further in would slice the ground in front of the camera
+         * and leave a hole where it was. Zooming in walks the camera towards
+         * the pivot, so the zoom doubles as the control over how much of an
+         * obstacle in front gets cut.
+         *
+         * The far plane is the one vanilla builds its perspective with, which
+         * already bounds everything the game draws; together with the near
+         * plane it keeps the box tight enough for the frustum to cull with,
+         * which matters here because chunk occlusion culling is off (see
+         * setOrthoDistance). */
+        float near = -minHalfHeight;
+        float far = renderer.getFarPlaneDistance();
+
+        return new Matrix4f().setOrtho(-halfWidth, halfWidth, -halfHeight, halfHeight, near, far);
+    }
+
     public static boolean isIrisShadersEnabled()
     {
         return false;
@@ -558,6 +685,23 @@ public class BBSRendering
     public static boolean isIrisShadowPass()
     {
         return false;
+    }
+
+    /**
+     * Iris considers a vanilla core program applied during world rendering a stray
+     * draw into its G-buffers and masks its color/depth writes. Reporting that the
+     * main framebuffer isn't bound (like vanilla render targets do via bindWrite)
+     * turns both core shader overrides and that masking off.
+     */
+    public static void setIrisMainBound(boolean bound)
+    {
+        if (!iris)
+        {
+            return;
+        }
+
+        /* TODO(1.21.11 render): IrisUtils.setMainBound(bound) went with the decoupled Iris
+         * integration (this branch keeps iris = false, so the call is unreachable anyway). */
     }
 
     public static void trackTexture(Texture texture)

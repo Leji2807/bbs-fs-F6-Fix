@@ -28,6 +28,21 @@ public class ReplayKeyframes extends ValueGroup
     public static final String GROUP_EXTRA2 = "extra2";
     public static final String GROUP_TRANSFORM = "transform";
 
+    /**
+     * Vanilla's per-tick gravity step (0.08 damped by 0.98). A grounded entity in
+     * vanilla spends every tick trying to fall by this much and colliding with the
+     * floor, which is what makes {@link net.minecraft.entity.Entity#move} flag it as
+     * on the ground. Keyframe playback teleports instead of walking, so the vertical
+     * delta is zero and vanilla concludes the entity is sliding through the air -
+     * killing step sounds, step game events and landing effects. Applying a frame
+     * with a grounded flag subtracts this from the movement delta as a probe; the
+     * exact frame position is snapped back right after, so it costs nothing
+     * positionally and doesn't inflate the step cadence (move zeroes the vertical
+     * component before accumulating the stride distance, unless the block is
+     * climbable).
+     */
+    public static final double GRAVITY_PROBE = 0.0784D;
+
     public static final List<String> CURATED_CHANNELS = Arrays.asList("x", "y", "z", "pitch", "yaw", "headYaw", "bodyYaw", "sneaking", "sprinting", "item_main_hand", "item_off_hand", "item_head", "item_chest", "item_legs", "item_feet", "selected_slot", "stick_lx", "stick_ly", "stick_rx", "stick_ry", "trigger_l", "trigger_r", "extra1_x", "extra1_y", "extra2_x", "extra2_y", "grounded", "damage", "vX", "vY", "vZ");
 
     public final KeyframeChannel<Double> x = new KeyframeChannel<>("x", KeyframeFactories.DOUBLE);

@@ -10,19 +10,25 @@ import mchorse.bbs_mod.settings.values.numeric.ValueFloat;
 import mchorse.bbs_mod.settings.values.numeric.ValueInt;
 import mchorse.bbs_mod.settings.values.ui.ValueColors;
 import mchorse.bbs_mod.settings.values.ui.ValueEditorLayout;
+import mchorse.bbs_mod.settings.values.ui.ValueIKDebug;
 import mchorse.bbs_mod.settings.values.ui.ValueLanguage;
+import mchorse.bbs_mod.settings.values.ui.ValueMotionPath;
 import mchorse.bbs_mod.settings.values.ui.ValueOnionSkin;
+import mchorse.bbs_mod.settings.values.ui.ValuePhysicsDebug;
 import mchorse.bbs_mod.settings.values.ui.ValueOrder;
 import mchorse.bbs_mod.settings.values.ui.ValueStringKeys;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.colors.Colors;
+import mchorse.bbs_mod.utils.interps.IInterp;
+import mchorse.bbs_mod.utils.interps.Interpolations;
 import mchorse.bbs_mod.utils.keyframes.KeyframeShape;
 
 public class BBSSettings {
 
 	public static final String DEFAULT_FFMPEG_ARGUMENTS = "-f rawvideo -pix_fmt bgr24 -s %WIDTH%x%HEIGHT% -r %FPS% -i - -vf %FILTERS% -c:v libx264 -preset ultrafast -tune zerolatency -qp 18 -pix_fmt yuv420p %NAME%.mp4";
 	public static final String DEFAULT_AUDIO_FFMPEG_ARGUMENTS = "-f rawvideo -pix_fmt bgr24 -s %WIDTH%x%HEIGHT% -r %FPS% -i - -i %AUDIO_TRACK% -vf %FILTERS% -c:v libx264 -preset ultrafast -tune zerolatency -qp 18 -pix_fmt yuv420p -c:a aac -b:a 128k -shortest %NAME%.mp4";
+	public static final String DEFAULT_MUX_FFMPEG_ARGUMENTS = "-y -i %VIDEO% -i %AUDIO_TRACK% -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a 192k -shortest %NAME%.mp4";
 
 	public static ValueColors favoriteColors;
 	public static ValueColors recentColors;
@@ -33,12 +39,13 @@ public class BBSSettings {
 	public static ValueInt stencilHighlightColor;
 	public static ValueBoolean enableTrackpadIncrements;
 	public static ValueBoolean enableTrackpadScrolling;
-	public static ValueInt userIntefaceScale;
+	public static ValueFloat userIntefaceScale;
 	public static ValueInt theme;
 	public static ValueFloat fov;
 	public static ValueBoolean hsvColorPicker;
 	public static ValueBoolean forceQwerty;
 	public static ValueBoolean freezeModels;
+	public static ValueBoolean listModelPreview;
 	public static ValueBoolean morphingFocusSearch;
 	public static ValueFloat axesScale;
 	public static ValueFloat axesThickness;
@@ -50,9 +57,12 @@ public class BBSSettings {
 	public static ValueFloat snapTranslate;
 	public static ValueFloat snapRotate;
 	public static ValueFloat snapScale;
+	public static ValueInt gizmoHoverTolerance;
+	public static ValueFloat gizmoOpacity;
 	public static ValueBoolean uniformScale;
 	public static ValueBoolean clickSound;
 	public static ValueBoolean gizmos;
+	public static ValueBoolean defaultLocalTransform;
 	public static ValueInt transformSpace;
 	public static ValueBoolean transformHotkeys3dRay;
 	public static ValueBoolean poseMirrorEdit;
@@ -93,7 +103,9 @@ public class BBSSettings {
 	public static ValueInt videoFrameRate;
 	public static ValueBoolean videoLimitFrameRate;
 	public static ValueString videoExportPath;
+	public static ValueString videoExportFilenameFormat;
 	public static ValueBoolean videoExportAudio;
+	public static ValueBoolean videoExportMinecraftSounds;
 	public static ValueBoolean videoMuteAudioWhileRender;
 	public static ValueInt videoMotionBlur;
 	public static ValueInt videoHeldFrames;
@@ -102,6 +114,7 @@ public class BBSSettings {
 	public static ValueBoolean videoPlaySoundAfterExport;
 	public static ValueString videoArguments;
 	public static ValueString videoArgumentsAudio;
+	public static ValueString videoArgumentsMux;
 
 	public static ValueFloat editorCameraSpeed;
 	public static ValueFloat editorCameraAngleSpeed;
@@ -118,24 +131,33 @@ public class BBSSettings {
 	public static ValueBoolean editorHorizontalFlight;
 	public static ValueBoolean editorOrbitMovementRequiresFlight;
 	public static ValueBoolean editorOrbitCenterMarker;
+	public static ValueBoolean editorOrbitGizmo;
+	public static ValueFloat editorOrbitGizmoScale;
+	public static ValueBoolean editorOrbitAxisOrtho;
+	public static ValueMotionPath editorMotionPath;
 	public static ValueBoolean editorOrbitTeleportOnSwitch;
 	public static ValueFloat editorCameraSmoothness;
 	public static ValueInt editorCameraMode;
 	public static ValueBoolean editorPlayerFollowsCamera;
 	public static ValueEditorLayout editorLayoutSettings;
 	public static ValueOnionSkin editorOnionSkin;
+	public static ValueIKDebug ikDebug;
+	public static ValuePhysicsDebug physicsDebug;
 	public static ValueBoolean editorSnapToMarkers;
 	public static ValueBoolean editorClipPreview;
 	public static ValueBoolean editorRewind;
 	public static ValueBoolean editorHorizontalClipEditor;
 	public static ValueBoolean editorMinutesBackup;
+	public static ValueBoolean editorResizablePanels;
 	public static ValueInt editorTrackWidth;
 	public static ValueInt keyframeDefaultShape;
+	public static ValueString keyframeDefaultInterpolation;
 	public static ValueInt editorPreviewSizeMode;
 	public static ValueInt editorPreviewCustomWidth;
 	public static ValueInt editorPreviewCustomHeight;
 	public static ValueFloat editorPreviewResolutionScale;
 	public static ValueBoolean editorClipAutoName;
+	public static ValueBoolean editorKeepFrameOnExit;
 
 	public static ValueFloat recordingCountdown;
 	public static ValueBoolean recordingSwipeDamage;
@@ -365,6 +387,25 @@ public class BBSSettings {
 		return index >= 0 && index < values.length ? values[index] : KeyframeShape.SQUARE;
 	}
 
+	/**
+	 * The interpolation given to a hand-created keyframe when it has no neighbour to inherit
+	 * from (see {@code IUIKeyframeGraph#addKeyframeManually}) - i.e. the replacement for the
+	 * hardcoded linear that used to apply in that "empty spot" case. Keyframes that do inherit
+	 * from a neighbour keep the neighbour's interpolation, and recorded/baked keyframes never
+	 * consult this. Falls back to linear before settings are registered or on an unknown key.
+	 */
+	public static IInterp getDefaultKeyframeInterpolation()
+	{
+		if (keyframeDefaultInterpolation == null)
+		{
+			return Interpolations.LINEAR;
+		}
+
+		IInterp interp = Interpolations.MAP.get(keyframeDefaultInterpolation.get());
+
+		return interp == null ? Interpolations.LINEAR : interp;
+	}
+
 	public static boolean migrateLegacySettings(MapType root)
 	{
 		MapType appearance = root.getMap("appearance");
@@ -427,16 +468,17 @@ public class BBSSettings {
 		builder.register(language = new ValueLanguage("language"));
 		enableTrackpadIncrements = builder.getBoolean("trackpad_increments", false);
 		enableTrackpadScrolling = builder.getBoolean("trackpad_scrolling", false);
-		userIntefaceScale = builder.getInt("ui_scale", 2, 0, 4);
-		fov = builder.getFloat("fov", 40, 0, 180);
+		userIntefaceScale = builder.getFloat("ui_scale", 2F, 0F, 4F).slider();
+		fov = builder.getFloat("fov", 40, 0, 180).slider();
 		hsvColorPicker = builder.getBoolean("hsv_color_picker", true);
 		forceQwerty = builder.getBoolean("force_qwerty", false);
 		freezeModels = builder.getBoolean("freeze_models", false);
+		listModelPreview = builder.getBoolean("list_model_preview", true);
 		morphingFocusSearch = builder.getBoolean("morphing_focus_search", false);
 		uniformScale = builder.getBoolean("uniform_scale", false);
 		clickSound = builder.getBoolean("click_sound", false);
 		favoriteColors = new ValueColors("favorite_colors");
-		recentColors = new ValueColors("recent_colors");
+		recentColors = new ValueColors("recent_colors").limit(33);
 		disabledSheets = new ValueStringKeys("disabled_sheets");
 		disabledSheets.set(defaultFilters);
 		builder.register(favoriteColors);
@@ -447,18 +489,18 @@ public class BBSSettings {
 		editorClipAutoName = builder.getBoolean("clip_auto_name", true);
 
 		builder.category("personalization", Icons.COLOR);
-		backgroundBrightness = builder.getFloat("background_brightness", DEFAULT_BACKGROUND_BRIGHTNESS, MIN_BACKGROUND_BRIGHTNESS, MAX_BACKGROUND_BRIGHTNESS);
+		backgroundBrightness = builder.getFloat("background_brightness", DEFAULT_BACKGROUND_BRIGHTNESS, MIN_BACKGROUND_BRIGHTNESS, MAX_BACKGROUND_BRIGHTNESS).slider();
 		interfaceShadows = builder.getBoolean("interface_shadows", true);
 		primaryColor = builder.getInt("primary_color", DEFAULT_PRIMARY_COLOR).color();
 		stencilHighlightColor = builder.getInt("stencil_highlight_color", 0x2EFFFFFF).colorAlpha();
 		theme = builder.getInt("theme", DEFAULT_THEME);
-		editorTrackWidth = builder.getInt("track_width", 2, 1, 10);
+		editorTrackWidth = builder.getInt("track_width", 2, 1, 10).slider();
 		keyframeDefaultShape = builder.getInt("keyframe_default_shape", 0, 0, KeyframeShape.values().length - 1);
 
 		builder.category("transformation", Icons.SCALE);
 		gizmos = builder.getBoolean("gizmos", true);
-		axesScale = builder.getFloat("axes_scale", 3F, 0F, 10F);
-		axesThickness = builder.getFloat("axes_thickness", 0.5F, 0.25F, 3F);
+		axesScale = builder.getFloat("axes_scale", 2F, 0F, 10F).slider();
+		axesThickness = builder.getFloat("axes_thickness", 0.35F, 0.25F, 3F).slider();
 		axesKeepScreenSize = builder.getBoolean("axes_keep_screen_size", true);
 		rotate3dSphere = builder.getBoolean("rotate_3d_sphere", true);
 		rotate3dSphereMode = builder.getInt("rotate_3d_sphere_mode", 0);
@@ -467,7 +509,10 @@ public class BBSSettings {
 		snapTranslate = builder.getFloat("snap_translate", 1F, 0.001F, 100F);
 		snapRotate = builder.getFloat("snap_rotate", 5F, 0.001F, 90F);
 		snapScale = builder.getFloat("snap_scale", 0.1F, 0.001F, 10F);
-		transformSpace = builder.getInt("space", 0, 0, 2);
+		gizmoHoverTolerance = builder.getInt("gizmo_hover_tolerance", 8, 0, 40).slider();
+		gizmoOpacity = builder.getFloat("gizmo_opacity", 1F, 0.05F, 1F).slider();
+		defaultLocalTransform = builder.getBoolean("default_local", false);
+		transformSpace = builder.getInt("transform_space", defaultLocalTransform.get() ? 0 : 3);
 		transformSpace.invisible();
 		transformHotkeys3dRay = builder.getBoolean("hotkeys_3d_ray", true);
 		poseMirrorEdit = builder.getBoolean("pose_mirror_edit", false);
@@ -477,22 +522,22 @@ public class BBSSettings {
 		poseShowDisabledBones = builder.getBoolean("pose_show_disabled_bones", false);
 		translateHotkeyOrder = new ValueOrder("translate_hotkey_order", "screen", "x", "y", "z");
 		builder.register(translateHotkeyOrder);
-		scaleHotkeyOrder = new ValueOrder("scale_hotkey_order", "x", "y", "z");
+		scaleHotkeyOrder = new ValueOrder("scale_hotkey_order", "all", "x", "y", "z");
 		builder.register(scaleHotkeyOrder);
 		rotateHotkeyOrder = new ValueOrder("rotate_hotkey_order", "view", "sphere", "x", "y", "z");
 		builder.register(rotateHotkeyOrder);
-		trackballSensitivity = builder.getFloat("trackball_sensitivity", 1F, 0.05F, 2F);
+		trackballSensitivity = builder.getFloat("trackball_sensitivity", 1F, 0.05F, 2F).slider();
 
 		builder.category("tutorials", Icons.HELP);
 		enableCursorRendering = builder.getBoolean("cursor", false);
 		enableMouseButtonRendering = builder.getBoolean("mouse_buttons", false);
 		enableKeystrokeRendering = builder.getBoolean("keystrokes", false);
-		keystrokeOffset = builder.getInt("keystrokes_offset", 10, 0, 20);
+		keystrokeOffset = builder.getInt("keystrokes_offset", 10, 0, 20).slider();
 		keystrokeMode = builder.getInt("keystrokes_position", 1);
 
 		builder.category("background", Icons.IMAGE);
 		backgroundImage = builder.getRL("image", null);
-		backgroundColor = builder.getInt("color", 0xff101217).colorAlpha();
+		backgroundColor = builder.getInt("color", 0x7b000000).colorAlpha();
 
 		builder.category("chroma_sky", Icons.GLOBE);
 		chromaSkyEnabled = builder.getBoolean("enabled", false);
@@ -501,9 +546,9 @@ public class BBSSettings {
 		chromaSkyBillboard = builder.getFloat("billboard", 0F, 0F, 256F);
 
 		builder.category("scrollbars", Icons.VERTICAL);
-		scrollbarWidth = builder.getInt("width", 4, 2, 10);
-		scrollingSensitivity = builder.getFloat("sensitivity", 1F, 0F, 10F);
-		scrollingSensitivityHorizontal = builder.getFloat("sensitivity_horizontal", 1F, 0F, 10F);
+		scrollbarWidth = builder.getInt("width", 4, 2, 10).slider();
+		scrollingSensitivity = builder.getFloat("sensitivity", 3F, 0F, 10F).slider();
+		scrollingSensitivityHorizontal = builder.getFloat("sensitivity_horizontal", 3F, 0F, 10F).slider();
 		scrollingSmoothness = builder.getBoolean("smoothness", true);
 		scrollingDisableSmoothnessInEditors = builder.getBoolean("disable_smoothness_in_editors", false);
 
@@ -519,7 +564,9 @@ public class BBSSettings {
 		videoFrameRate = builder.getInt("frame_rate", 60, 10, 1000);
 		videoLimitFrameRate = builder.getBoolean("limit_frame_rate", false);
 		videoExportPath = builder.getString("export_path", "");
+		videoExportFilenameFormat = builder.getString("filename_format", "{datetime}");
 		videoExportAudio = builder.getBoolean("audio", false);
+		videoExportMinecraftSounds = builder.getBoolean("minecraft_sounds", false);
 		videoMuteAudioWhileRender = builder.getBoolean("mute_audio_while_render", false);
 		videoMotionBlur = builder.getInt("motion_blur", 0, 0, 6);
 		videoHeldFrames = builder.getInt("held_frames", 1, 1, 1000);
@@ -528,6 +575,7 @@ public class BBSSettings {
 		videoPlaySoundAfterExport = builder.getBoolean("play_sound_after_export", true);
 		videoArguments = builder.getString("arguments", DEFAULT_FFMPEG_ARGUMENTS);
 		videoArgumentsAudio = builder.getString("arguments_audio", DEFAULT_AUDIO_FFMPEG_ARGUMENTS);
+		videoArgumentsMux = builder.getString("arguments_mux", DEFAULT_MUX_FFMPEG_ARGUMENTS);
 
 		/* Camera editor */
 		builder.category("editor", Icons.EDITOR);
@@ -542,26 +590,35 @@ public class BBSSettings {
 		editorCrosshair = builder.getBoolean("crosshair", false);
 		editorSeconds = builder.getBoolean("seconds", false);
 		editorTimelineGrid = builder.getBoolean("timeline_grid", false);
+		keyframeDefaultInterpolation = builder.getString("keyframe_default_interpolation", Interpolations.LINEAR.getKey());
 		editorPeriodicSave = builder.getInt("periodic_save", 60, 0, 3600);
 		editorHorizontalFlight = builder.getBoolean("horizontal_flight", false);
 		editorOrbitMovementRequiresFlight = builder.getBoolean("orbit_movement_requires_flight", true);
 		editorOrbitCenterMarker = builder.getBoolean("orbit_center_marker", false);
+		editorOrbitGizmo = builder.getBoolean("orbit_gizmo", true);
+		editorOrbitGizmoScale = builder.getFloat("orbit_gizmo_scale", 1F, 0.5F, 2F).slider();
+		editorOrbitAxisOrtho = builder.getBoolean("orbit_axis_ortho", true);
 		editorOrbitTeleportOnSwitch = builder.getBoolean("orbit_teleport_on_switch", true);
-		editorCameraSmoothness = builder.getFloat("camera_smoothness", 0.1F, 0F, 0.95F);
+		editorCameraSmoothness = builder.getFloat("camera_smoothness", 0.1F, 0F, 0.95F).slider();
 		editorCameraMode = builder.getInt("camera_mode", 0, 0, 5);
 		editorCameraMode.invisible();
 		editorPlayerFollowsCamera = builder.getBoolean("player_follows_camera", false);
 		builder.register(editorLayoutSettings = new ValueEditorLayout("layout"));
 		builder.register(editorOnionSkin = new ValueOnionSkin("onion_skin"));
+		builder.register(editorMotionPath = new ValueMotionPath("motion_path"));
+		builder.register(ikDebug = new ValueIKDebug("ik_debug"));
+		builder.register(physicsDebug = new ValuePhysicsDebug("physics_debug"));
 		editorSnapToMarkers = builder.getBoolean("snap_to_markers", false);
 		editorClipPreview = builder.getBoolean("clip_preview", true);
 		editorRewind = builder.getBoolean("rewind", true);
 		editorHorizontalClipEditor = builder.getBoolean("horizontal_clip_editor", true);
 		editorMinutesBackup = builder.getBoolean("minutes_backup", true);
+		editorResizablePanels = builder.getBoolean("resizable_panels", true);
 		editorPreviewSizeMode = builder.getInt("preview_size_mode", 0, 0, 2);
 		editorPreviewCustomWidth = builder.getInt("preview_custom_width", 1280, 2, 16384);
 		editorPreviewCustomHeight = builder.getInt("preview_custom_height", 720, 2, 16384);
-		editorPreviewResolutionScale = builder.getFloat("preview_resolution_scale", 2F, 1F, 3F);
+		editorPreviewResolutionScale = builder.getFloat("preview_resolution_scale", 2F, 1F, 3F).slider();
+		editorKeepFrameOnExit = builder.getBoolean("keep_frame_on_exit", false);
 
 		builder.category("recording", Icons.FILM);
 		recordingCountdown = builder.getFloat("countdown", 1.5F, 0F, 30F);
@@ -586,9 +643,9 @@ public class BBSSettings {
 		builder.category("audio", Icons.SOUND);
 		audioWaveformVisibleInPreview = builder.getBoolean("waveform_visible_preview", true);
 		audioWaveformVisibleInKeyframes = builder.getBoolean("waveform_visible_keyframes", true);
-		audioWaveformDensity = builder.getInt("waveform_density", 20, 10, 100);
-		audioWaveformWidth = builder.getFloat("waveform_width", 0.8F, 0F, 1F);
-		audioWaveformHeight = builder.getInt("waveform_height", 24, 10, 40);
+		audioWaveformDensity = builder.getInt("waveform_density", 20, 10, 100).slider();
+		audioWaveformWidth = builder.getFloat("waveform_width", 0.8F, 0F, 1F).slider();
+		audioWaveformHeight = builder.getInt("waveform_height", 24, 10, 40).slider();
 		audioWaveformFilename = builder.getBoolean("waveform_filename", false);
 		audioWaveformTime = builder.getBoolean("waveform_time", false);
 		audioWaveformPreviewCombined = builder.getBoolean("waveform_preview_combined", false);

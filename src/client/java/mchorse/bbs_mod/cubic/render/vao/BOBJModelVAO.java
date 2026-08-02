@@ -32,6 +32,13 @@ public class BOBJModelVAO
     private float[] tmpNormals;
     private int[] tmpLight;
 
+    /**
+     * Bumped on every VBO upload. The VBO is shared between actors using the same model, so a
+     * deferred translucent command compares this against the value it captured to know whether
+     * someone re-skinned the mesh since — and re-uploads from its armature snapshot if so.
+     */
+    private int uploadCount;
+
     public BOBJModelVAO(BOBJLoader.CompiledData data)
     {
         this.data = data;
@@ -50,12 +57,36 @@ public class BOBJModelVAO
     public void delete()
     {}
 
+    public int getUploadCount()
+    {
+        return this.uploadCount;
+    }
+
+    /** A deep copy of the armature's current skinning matrices, for deferred re-uploads. */
+    public Matrix4f[] snapshotArmature()
+    {
+        Matrix4f[] matrices = this.armature.matrices;
+        Matrix4f[] snapshot = new Matrix4f[matrices.length];
+
+        for (int i = 0; i < matrices.length; i++)
+        {
+            snapshot[i] = matrices[i] == null ? null : new Matrix4f(matrices[i]);
+        }
+
+        return snapshot;
+    }
+
     /**
      * Update this mesh. This method is responsible for applying matrix transformations to vertices
      * and normals according to its bone owners and these bone influences. The skinned result is kept
      * on the CPU (tmpVertices/tmpNormals/tmpLight) and emitted into a BufferBuilder in {@link #render}.
      */
     public void updateMesh(StencilMap stencilMap)
+    {
+        this.updateMesh(stencilMap, this.armature.matrices);
+    }
+
+    public void updateMesh(StencilMap stencilMap, Matrix4f[] matrices)
     {
         Vector4f sum = new Vector4f();
         Vector4f result = new Vector4f(0F, 0F, 0F, 0F);
@@ -66,8 +97,6 @@ public class BOBJModelVAO
         float[] newVertices = this.tmpVertices;
         float[] oldNormals = this.data.normData;
         float[] newNormals = this.tmpNormals;
-
-        Matrix4f[] matrices = this.armature.matrices;
 
         for (int i = 0, c = this.count; i < c; i++)
         {
@@ -129,10 +158,10 @@ public class BOBJModelVAO
             }
         }
 
-        this.processData(newVertices, newNormals);
+        this.processData(newVertices, newNormals, matrices);
     }
 
-    protected void processData(float[] newVertices, float[] newNormals)
+    protected void processData(float[] newVertices, float[] newNormals, Matrix4f[] matrices)
     {}
 
     /**

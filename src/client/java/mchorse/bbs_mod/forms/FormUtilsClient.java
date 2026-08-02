@@ -29,16 +29,18 @@ import mchorse.bbs_mod.forms.renderers.ParticleFormRenderer;
 import mchorse.bbs_mod.forms.renderers.TrailFormRenderer;
 import mchorse.bbs_mod.forms.renderers.VanillaParticleFormRenderer;
 import mchorse.bbs_mod.ui.framework.UIContext;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.TexturedRenderLayers;
 import net.minecraft.util.Util;
+import net.minecraft.client.render.VertexConsumerProvider;
+import net.minecraft.client.render.model.ModelBaker;
+import net.minecraft.client.util.BufferAllocator;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.SortedMap;
+import java.util.SequencedMap;
 import java.util.Stack;
 
 public class FormUtilsClient
@@ -63,14 +65,52 @@ public class FormUtilsClient
         register(FramebufferForm.class, FramebufferFormRenderer::new);
     }
 
+    /**
+     * Forms must render into buffers of their own rather than into Minecraft's shared entity
+     * consumers. Form renderers flush the provider themselves and install a {@link
+     * CustomVertexConsumerProvider#hijackVertexFormat(java.util.function.Consumer)} hook that
+     * overrides GL state (custom texture, picker shader, blending) per drawn layer. On the shared
+     * provider that hook also fires for whatever the world or the GUI had buffered but not yet
+     * drawn, so the state lands on somebody else's geometry — e.g. a mob form's custom texture
+     * ends up on an unrelated layer instead of the mob, since it only applies to the first drawn
+     * layer. Own buffers guarantee that everything drawn while the hook is installed belongs to
+     * the form being rendered.
+     */
     public static CustomVertexConsumerProvider getProvider()
     {
         if (customVertexConsumerProvider == null)
         {
-            customVertexConsumerProvider = new CustomVertexConsumerProvider(MinecraftClient.getInstance().getBufferBuilders().getEntityVertexConsumers());
+            SequencedMap<RenderLayer, BufferAllocator> layers = new Object2ObjectLinkedOpenHashMap<>();
+
+            assignAllocator(layers, TexturedRenderLayers.getEntitySolid());
+            assignAllocator(layers, TexturedRenderLayers.getEntityCutout());
+            assignAllocator(layers, TexturedRenderLayers.getBannerPatterns());
+            assignAllocator(layers, TexturedRenderLayers.getItemTranslucentCull());
+            assignAllocator(layers, TexturedRenderLayers.getBlockTranslucentCull());
+            assignAllocator(layers, TexturedRenderLayers.getShieldPatterns());
+            assignAllocator(layers, TexturedRenderLayers.getBeds());
+            assignAllocator(layers, TexturedRenderLayers.getShulkerBoxes());
+            assignAllocator(layers, TexturedRenderLayers.getSign());
+            assignAllocator(layers, TexturedRenderLayers.getHangingSign());
+            assignAllocator(layers, TexturedRenderLayers.getChest());
+            /* TODO(1.21.11 render): the glint layers (armor/item/entity/direct) and the water mask are no
+             * longer RenderLayer factories — 1.21.5+ draws glint as a post-process. Pre-assigning an allocator
+             * for them was only an optimisation, so dropping them costs nothing but the pre-sizing. */
+
+            for (RenderLayer layer : ModelBaker.BLOCK_DESTRUCTION_RENDER_LAYERS)
+            {
+                assignAllocator(layers, layer);
+            }
+
+            customVertexConsumerProvider = new CustomVertexConsumerProvider(new BufferAllocator(1536), layers);
         }
 
         return customVertexConsumerProvider;
+    }
+
+    private static void assignAllocator(SequencedMap<RenderLayer, BufferAllocator> layers, RenderLayer layer)
+    {
+        layers.put(layer, new BufferAllocator(layer.getExpectedBufferSize()));
     }
 
     public static <T extends Form> void register(Class<T> clazz, IFormRendererFactory<T> function)

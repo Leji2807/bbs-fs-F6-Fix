@@ -21,6 +21,7 @@ import com.mojang.blaze3d.systems.VertexSorter;
 
 import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.collection.IntObjectMap;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.actions.ActionState;
@@ -49,6 +50,7 @@ import mchorse.bbs_mod.morphing.Morph;
 import mchorse.bbs_mod.network.ClientNetwork;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.settings.values.base.BaseValue;
+import mchorse.bbs_mod.settings.values.ui.ValueMotionPath;
 import mchorse.bbs_mod.settings.values.ui.ValueOnionSkin;
 import mchorse.bbs_mod.ui.Keys;
 import mchorse.bbs_mod.ui.UIKeys;
@@ -72,7 +74,6 @@ import mchorse.bbs_mod.ui.utils.Gizmo;
 import mchorse.bbs_mod.ui.utils.GizmoInteraction;
 import mchorse.bbs_mod.ui.utils.GizmoViewport;
 import mchorse.bbs_mod.ui.utils.StencilFormFramebuffer;
-import mchorse.bbs_mod.ui.utils.TransformSpace;
 import mchorse.bbs_mod.ui.utils.UIUtils;
 import mchorse.bbs_mod.ui.utils.icons.Icon;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
@@ -135,6 +136,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
     private final GizmoInteraction gizmo = new GizmoInteraction(this);
 
     public final OrbitFilmCameraController orbit = new OrbitFilmCameraController(this);
+    public final OrbitViewGizmo orbitGizmo = new OrbitViewGizmo(this);
     private int pov;
     private boolean paused;
 
@@ -164,6 +166,11 @@ public class UIFilmController extends UIElement implements GizmoViewport
             this.toggleOrbitAttachment();
             UIUtils.playClick();
         }).strict().active(() -> this.getPovMode() == CAMERA_MODE_ORBIT).category(category);
+        this.keys().register(Keys.FILM_CONTROLLER_TOGGLE_ORTHO, () ->
+        {
+            this.orbit.toggleOrtho();
+            UIUtils.playClick();
+        }).strict().active(() -> this.getPovMode() == CAMERA_MODE_ORBIT).category(category);
         this.keys().register(Keys.FILM_CONTROLLER_TOGGLE_REPLAY_MENU, this::toggleReplayMenu).category(category);
         this.keys().register(Keys.FILM_CONTROLLER_MOVE_REPLAY_TO_CURSOR, () ->
         {
@@ -172,10 +179,13 @@ public class UIFilmController extends UIElement implements GizmoViewport
             World world = MinecraftClient.getInstance().world;
             Camera camera = this.panel.getCamera();
 
+            Vector3f rayOffset = new Vector3f();
+            Vector3f rayDirection = camera.getMouseRay(context.mouseX, context.mouseY, area.x, area.y, area.w, area.h, rayOffset);
+
             HitResult result = RayTracing.rayTrace(
                 world,
-                RayTracing.fromVector3d(camera.position),
-                RayTracing.fromVector3f(camera.getMouseDirection(context.mouseX, context.mouseY, area.x, area.y, area.w, area.h)),
+                RayTracing.fromVector3d(new Vector3d(camera.position).add(rayOffset.x, rayOffset.y, rayOffset.z)),
+                RayTracing.fromVector3f(rayDirection),
                 512F
             );
 
@@ -192,6 +202,18 @@ public class UIFilmController extends UIElement implements GizmoViewport
         this.keys().register(Keys.FILM_CONTROLLER_TOGGLE_ONION_SKIN, () ->
         {
             this.getOnionSkin().enabled.toggle();
+
+            UIUtils.playClick();
+        }).category(category);
+        this.keys().register(Keys.FILM_CONTROLLER_TOGGLE_MOTION_PATH, () ->
+        {
+            this.getMotionPath().enabled.toggle();
+
+            UIUtils.playClick();
+        }).strict().active(() -> !this.panel.hasSelectedClip()).category(category);
+        this.keys().register(Keys.FILM_CONTROLLER_TOGGLE_MOTION_PATH_PIN, () ->
+        {
+            this.toggleMotionPathPin();
 
             UIUtils.playClick();
         }).category(category);
@@ -254,6 +276,57 @@ public class UIFilmController extends UIElement implements GizmoViewport
     public ValueOnionSkin getOnionSkin()
     {
         return BBSSettings.editorOnionSkin;
+    }
+
+    public ValueMotionPath getMotionPath()
+    {
+        return BBSSettings.editorMotionPath;
+    }
+
+    /**
+     * A motion path target pinned so it keeps showing regardless of what's
+     * selected. When nothing is pinned the path follows the selection (the
+     * selected replay's bone, or its root coordinates). The pinned replay is
+     * held live (not by id), so it self-clears once the replay is gone.
+     */
+    private Replay pinnedReplay;
+    private Pair<String, Boolean> pinnedBone;
+
+    public boolean isMotionPathPinned()
+    {
+        if (this.pinnedReplay != null && this.panel.getData() != null && !this.panel.getData().replays.getList().contains(this.pinnedReplay))
+        {
+            this.unpinMotionPath();
+        }
+
+        return this.pinnedReplay != null;
+    }
+
+    /** Pin the currently selected replay and bone so its motion path stays shown. */
+    public void pinMotionPath()
+    {
+        Replay replay = this.getReplay();
+
+        this.pinnedReplay = replay;
+        this.pinnedBone = replay == null ? null : this.getBone();
+    }
+
+    public void unpinMotionPath()
+    {
+        this.pinnedReplay = null;
+        this.pinnedBone = null;
+    }
+
+    public void toggleMotionPathPin()
+    {
+        if (this.isMotionPathPinned())
+        {
+            this.unpinMotionPath();
+        }
+        else
+        {
+            this.pinMotionPath();
+        }
     }
 
     private int getTick()
@@ -696,7 +769,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
     @Override
     public void pickGizmoForm(UIContext context, Form form, String bone)
     {
-        this.panel.replayEditor.pickForm(form, bone);
+        this.panel.replayEditor.pickFormWithOffers(context, form, bone);
     }
 
     private void pickReplay(int index)
@@ -723,6 +796,8 @@ public class UIFilmController extends UIElement implements GizmoViewport
         }
 
         boolean consumed = this.gizmo.mouseReleased(context);
+
+        consumed = this.orbitGizmo.mouseReleased(context) || consumed;
 
         this.stopGizmoInteraction();
 
@@ -1043,6 +1118,47 @@ public class UIFilmController extends UIElement implements GizmoViewport
         }
     }
 
+    /**
+     * Insert position and rotation keyframes at the current tick from the live
+     * Minecraft player's world transform - a quick way to "teleport" the replay
+     * to where the player is standing (and facing). Only the transform channels
+     * are touched (unlike full player recording), so no stance/velocity noise is
+     * added to the replay.
+     */
+    public void insertPlayerFrame()
+    {
+        Replay replay = this.getReplay();
+
+        if (replay == null || MinecraftClient.getInstance().player == null)
+        {
+            return;
+        }
+
+        Morph morph = Morph.getMorph(MinecraftClient.getInstance().player);
+
+        if (morph == null)
+        {
+            return;
+        }
+
+        IEntity player = morph.entity;
+        int tick = this.getTick();
+
+        BaseValue.edit(replay.keyframes, (keyframes) ->
+        {
+            keyframes.x.insert(tick, player.getX());
+            keyframes.y.insert(tick, player.getY());
+            keyframes.z.insert(tick, player.getZ());
+
+            keyframes.yaw.insert(tick, (double) player.getYaw());
+            keyframes.pitch.insert(tick, (double) player.getPitch());
+            keyframes.headYaw.insert(tick, (double) player.getHeadYaw());
+            keyframes.bodyYaw.insert(tick, (double) player.getBodyYaw());
+        });
+
+        UIUtils.playClick();
+    }
+
     /* Update */
 
     public void update()
@@ -1195,6 +1311,13 @@ public class UIFilmController extends UIElement implements GizmoViewport
         int x = area.ex() - 4;
         int y = area.y + 5;
 
+        if (BBSSettings.editorLoop.get())
+        {
+            context.batcher.icon(Icons.REFRESH, Colors.WHITE | Colors.A100, x, y, 1F, 0F);
+
+            y += 16 + 5;
+        }
+
         if (this.panel.isFlying())
         {
             String label = UIKeys.FILM_CONTROLLER_SPEED.format(this.panel.dashboard.orbit.speed.getValue()).get();
@@ -1231,7 +1354,18 @@ public class UIFilmController extends UIElement implements GizmoViewport
             }
         }
 
+        /* The visual gizmo draws here, before the picking preview, so the bone /
+         * sphere hover highlights composite on top of it. It moved out of the
+         * world pass into the UI pipeline so its translucent parts blend
+         * correctly (see Gizmo#renderInterface). */
+        if (this.canShowGizmo())
+        {
+            this.gizmo.renderGizmo(context);
+        }
+
         this.renderPickingPreview(context, area);
+
+        this.orbitGizmo.render(context, area);
 
         this.orbit.handleOrbiting(context);
     }
@@ -1274,6 +1408,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
         {
             this.gizmo.update(context);
             this.gizmo.renderSphereHighlight(context);
+            this.gizmo.renderReadout(context);
         }
 
         if (!this.stencil.hasPicked())
@@ -1291,9 +1426,9 @@ public class UIFilmController extends UIElement implements GizmoViewport
          * blitted back over the viewport through the recorded two-phase-GUI texturedBox path (FBO-style V-flip),
          * so it survives the deferred GUI flush. */
         int highlightColor = BBSSettings.stencilHighlightColor.get();
-        int scale = BBSModClient.getGUIScale();
+        float scale = BBSModClient.getGUIScale();
 
-        if (BBSPickerRenderer.drawHighlight(index, highlightColor, area.w * scale, area.h * scale))
+        if (BBSPickerRenderer.drawHighlight(index, highlightColor, Math.round(area.w * scale), Math.round(area.h * scale)))
         {
             int vw = BBSPickerRenderer.getHighlightWidth();
             int vh = BBSPickerRenderer.getHighlightHeight();
@@ -1368,6 +1503,17 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
         this.renderOrbitCenterMarker(context);
 
+        ValueMotionPath motionPath = this.getMotionPath();
+
+        if (motionPath.enabled.get() && !this.isRecording())
+        {
+            boolean pinned = this.isMotionPathPinned();
+            Replay replay = pinned ? this.pinnedReplay : this.getReplay();
+            Pair<String, Boolean> bone = pinned ? this.pinnedBone : this.getBone();
+
+            MotionPath.render(context, motionPath, this, replay, bone, replay == null ? 0F : replay.getTick(this.getTick()));
+        }
+
         Mouse mouse = MinecraftClient.getInstance().mouse;
         int x = (int) mouse.getX();
         int y = (int) mouse.getY();
@@ -1437,11 +1583,25 @@ public class UIFilmController extends UIElement implements GizmoViewport
         return context == null ? 0F : context.getTransition();
     }
 
-    public Pair<String, TransformSpace> getBone()
+    public Pair<String, Boolean> getBone()
     {
         UIKeyframeEditor keyframeEditor = this.panel.replayEditor.keyframeEditor;
 
         return keyframeEditor != null ? keyframeEditor.getBone() : null;
+    }
+
+    /** The space the bone gizmo should be drawn in (active transform's space). */
+    public TransformSpace getBoneSpace()
+    {
+        UIKeyframeEditor keyframeEditor = this.panel.replayEditor.keyframeEditor;
+
+        return keyframeEditor != null ? keyframeEditor.getBoneSpace() : TransformSpace.LOCAL;
+    }
+
+    /** The film camera's world&rarr;camera rotation, for reorienting the gizmo into a space. */
+    public Matrix4f getGizmoView()
+    {
+        return this.panel.getCamera().view;
     }
 
     /** Whether the selected keyframe is the form's anchor track, so its transform gets a gizmo. */
@@ -1452,11 +1612,11 @@ public class UIFilmController extends UIElement implements GizmoViewport
         return keyframeEditor != null && keyframeEditor.isFormAnchorTrack();
     }
 
-    public TransformSpace getAnchorSpace()
+    public boolean getAnchorLocal()
     {
         UIKeyframeEditor keyframeEditor = this.panel.replayEditor.keyframeEditor;
 
-        return keyframeEditor == null ? TransformSpace.PARENT : keyframeEditor.getAnchorSpace();
+        return keyframeEditor != null && keyframeEditor.getAnchorLocal();
     }
 
     /**
@@ -1491,6 +1651,10 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
         this.ensureStencilFramebuffer();
 
+        /* Match the visual gizmo's on-screen size compensation (see
+         * Gizmo#setViewportScale) so the pick handles line up with what is drawn. */
+        Gizmo.INSTANCE.setViewportScale(context.menu.height / (float) viewport.h);
+
         boolean isPlaying = this.isPlaying();
         Texture mainTexture = this.stencil.getFramebuffer().getMainTexture();
 
@@ -1501,7 +1665,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
         {
             List<Replay> replays = this.panel.getData().replays.getList();
             int selectedReplayIndex = this.getCurrentReplayIndex();
-            Pair<String, TransformSpace> bone = this.getBone();
+            Pair<String, Boolean> bone = this.getBone();
 
             for (Map.Entry<Integer, IEntity> entry : this.getEntities().entrySet())
             {
@@ -1524,8 +1688,9 @@ public class UIFilmController extends UIElement implements GizmoViewport
                     this.stencilMap.setIncrement(true);
 
                     filmContext
-                        .bone(bone == null ? null : bone.a, bone == null ? TransformSpace.PARENT : bone.b)
-                        .anchorGizmo(this.isAnchorGizmo(), this.getAnchorSpace());
+                        .bone(bone == null ? null : bone.a, bone != null && bone.b)
+                        .gizmoSpace(this.getBoneSpace(), this.getGizmoView())
+                        .anchorGizmo(this.isAnchorGizmo(), this.getAnchorLocal());
                 }
                 else
                 {
@@ -1539,7 +1704,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
         else
         {
             Replay replay = this.panel.replayEditor.getReplay();
-            Pair<String, TransformSpace> bone = this.getBone();
+            Pair<String, Boolean> bone = this.getBone();
 
             this.stencilMap.setIncrement(true);
 
@@ -1548,14 +1713,16 @@ public class UIFilmController extends UIElement implements GizmoViewport
                 .transition(isPlaying ? MinecraftClient.getInstance().getRenderTickCounter().getTickProgress(false) : 0)
                 .stencil(this.stencilMap)
                 .relative(replay.relative.get())
-                .bone(bone == null ? null : bone.a, bone == null ? TransformSpace.PARENT : bone.b)
-                .anchorGizmo(this.isAnchorGizmo(), this.getAnchorSpace()));
+                .bone(bone == null ? null : bone.a, bone != null && bone.b)
+                .gizmoSpace(this.getBoneSpace(), this.getGizmoView())
+                .anchorGizmo(this.isAnchorGizmo(), this.getAnchorLocal()));
         }
 
         int x = (int) ((context.mouseX - viewport.x) / (float) viewport.w * mainTexture.width);
         int y = (int) ((1F - (context.mouseY - viewport.y) / (float) viewport.h) * mainTexture.height);
+        int radius = Math.round(BBSSettings.gizmoHoverTolerance.get() * mainTexture.width / (float) viewport.w);
 
-        this.stencil.pick(x, y);
+        this.stencil.pick(x, y, radius, Gizmo.STENCIL_MAX);
         this.stencil.unbind(this.stencilMap);
 
         /* TODO(1.21.11 render): Framebuffer.beginWrite(boolean) removed; rebind MC main framebuffer as the

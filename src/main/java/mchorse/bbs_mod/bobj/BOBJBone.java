@@ -1,8 +1,10 @@
 package mchorse.bbs_mod.bobj;
 
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 public class BOBJBone
 {
@@ -39,11 +41,25 @@ public class BOBJBone
     public Matrix4f relBoneMat = new Matrix4f();
 
     /**
-     * Transient full local orientation an IK solve gives this bone, applied raw in
-     * place of the euler rotate triple so the pole owns the whole orientation
-     * (bypassing the swing/twist euler reconstruction). Null when not IK-driven.
+     * Transient full local orientation for this bone, applied raw in place of the channel rotation —
+     * the evaluated rotation of the pipeline {@code rest → channels → constraint stack → render}. Same
+     * two-phase lifecycle as {@link mchorse.bbs_mod.cubic.data.model.ModelGroup#orient}: layer composers
+     * keep it in lockstep with the channels (null = channels compose trivially, may be reset on channel
+     * re-author); constraint stages (IK → physics → limits) treat the channels as read-only FK truth,
+     * read the evaluated-so-far rotation via {@link #evaluatedRotation()}, and write their blended
+     * result here — never to the channels, and never null.
      */
-    public Quaternionf ikOrient;
+    public Quaternionf orient;
+
+    /**
+     * Transient CUMULATIVE world translation the IK stretch gives this bone, applied to the SKINNING
+     * matrix only, so the deformed mesh follows a chain that reached past its rest length — vertices
+     * weighted across bones blend the neighbouring shifts into a smooth stretch instead of a seam.
+     * Deliberately kept off {@link #mat}/{@link #originMat}: the skeleton frames that the solve and the
+     * debug overlay read stay nominal, and the shift each bone carries is already its full cumulative
+     * one. Null when the bone has no shift this frame.
+     */
+    public Vector3f offset;
 
     public BOBJBone(int index, String name, String parent, Matrix4f boneMat)
     {
@@ -64,6 +80,14 @@ public class BOBJBone
 
         this.mat.set(mat);
         mat.mul(this.invBoneMat);
+
+        /* Stretch rides the skinning matrix alone — pre-multiplied, so the deformed vertices land
+         * `offset` further along in world. mat/originMat stay nominal, so child bones and pivot frames
+         * are unaffected; the offset is already this bone's full cumulative shift. */
+        if (this.offset != null)
+        {
+            mat.translateLocal(this.offset);
+        }
 
         return mat;
     }
@@ -91,23 +115,62 @@ public class BOBJBone
         this.mat.translate(this.transform.translate);
         this.originMat.translate(this.transform.translate);
 
-        if (this.ikOrient != null)
+        if (this.orient != null)
         {
-            this.mat.rotate(this.ikOrient);
+            /* orient is the full local rotation, so the euler channel is skipped. */
+            this.mat.rotate(this.orient);
+        }
+        else if (this.transform.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            this.mat.rotate(this.transform.quat);
         }
         else
         {
-            if (this.transform.rotate.z != 0F) this.mat.rotateZ(this.transform.rotate.z);
-            if (this.transform.rotate.y != 0F) this.mat.rotateY(this.transform.rotate.y);
-            if (this.transform.rotate.x != 0F) this.mat.rotateX(this.transform.rotate.x);
+            Vector3f rotate = this.transform.rotate;
+
+            /* Rest bones (all angles zero) skip the trig entirely; BOBJ channels are radians. */
+            if (rotate.x != 0F || rotate.y != 0F || rotate.z != 0F)
+            {
+                this.mat.rotate(Matrices.toLocalRotationZYXRadians(rotate));
+            }
         }
 
         this.mat.scale(this.transform.scale);
     }
 
+    /**
+     * The bone's evaluated local rotation as of this point in the pipeline — {@link #orient} when set,
+     * otherwise the channel rotation (mode-aware; BOBJ channels are radians). THE read for every
+     * constraint-stack stage; see {@link mchorse.bbs_mod.cubic.data.model.ModelGroup#evaluatedRotation()}.
+     * Returns a fresh instance safe to mutate.
+     */
+    public Quaternionf evaluatedRotation()
+    {
+        return this.orient != null ? new Quaternionf(this.orient) : this.transform.createRotation();
+    }
+
+    /**
+     * Composes one rotation layer into {@link #orient} (BOBJ rotations are radians). Mirrors
+     * {@link mchorse.bbs_mod.cubic.data.model.ModelGroup#composeOrient}: the first layer seeds from the euler
+     * accumulated so far (rotate folded with rotate2) so a single layer is byte-identical; later layers
+     * multiply their delta. Call AFTER the layer's additive euler readback to {@code transform.rotate}.
+     */
+    public void composeOrient(Quaternionf delta)
+    {
+        if (this.orient == null)
+        {
+            this.orient = this.transform.createRotation();
+        }
+        else
+        {
+            this.orient.mul(delta);
+        }
+    }
+
     public void reset()
     {
         this.transform.identity();
-        this.ikOrient = null;
+        this.orient = null;
+        this.offset = null;
     }
 }

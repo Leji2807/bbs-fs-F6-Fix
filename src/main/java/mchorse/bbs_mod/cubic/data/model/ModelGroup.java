@@ -6,8 +6,10 @@ import mchorse.bbs_mod.data.types.BaseType;
 import mchorse.bbs_mod.data.types.ListType;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.utils.colors.Color;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,11 +30,28 @@ public class ModelGroup implements IMapSerializable
     public Transform initial = new Transform();
     public Transform current = new Transform();
 
-    /* Transient full local orientation an IK solve gives this bone, applied raw in
-     * the render matrix IN PLACE OF the euler rotate triple — so the pole owns the
-     * whole orientation (swing and roll) without round-tripping through euler. Null
-     * when the bone is not IK-driven this frame. */
-    public Quaternionf ikOrient;
+    /* Transient full local orientation for this bone, applied raw in the render matrix IN PLACE OF the
+     * channel rotation — the evaluated rotation of the pipeline `rest → channels → constraint stack →
+     * render`. Its lifecycle is two-phased:
+     *
+     * CHANNELS phase (reset → actions → pose): layer composers keep it in lockstep with their additive
+     * euler readbacks via composeOrient (quat-true composition of stacked layers); null here means "the
+     * channels compose trivially" and a composer may reset it to null when it re-authors the channels
+     * outright (fix-blend, the sneaking pose).
+     *
+     * CONSTRAINT phase (IK → physics → limits): the channels are READ-ONLY FK truth (the gizmo/keyframe
+     * domain). Every stage reads the evaluated-so-far rotation through evaluatedRotation(), blends its
+     * result against that base by its weight, and writes the outcome HERE — never to current.rotate, and
+     * never null. */
+    public Quaternionf orient;
+
+    /* Transient translation for this bone, applied in the render matrix BEFORE its own translate — in the
+     * bone's parent world frame, so it shifts this bone and everything below it without touching the pose.
+     * The IK stretch writes it: a bone that lengthened pushes its children out along the limb by the extra
+     * length, which is how a cubic chain reaches past its rest length (its cubes do not deform, so the
+     * joints between them open — welds seal that seam). Part of the constraint stack's write set alongside
+     * orient, never a channel; null when the bone has no shift this frame. */
+    public Vector3f offset;
 
     public ModelGroup(String id)
     {
@@ -44,7 +63,49 @@ public class ModelGroup implements IMapSerializable
         this.lighting = 0F;
         this.color.set(1F, 1F, 1F);
         this.current.copy(this.initial);
-        this.ikOrient = null;
+        this.orient = null;
+        this.offset = null;
+    }
+
+    /**
+     * The bone's evaluated local rotation as of this point in the pipeline — {@link #orient} when a layer
+     * or constraint stage has composed one, otherwise the rotation the renderer would reconstruct from the
+     * channels (mode-aware; cubic channels are degrees). THE read for every constraint-stack stage: blend
+     * bases, twist references, clamp inputs all start from this, so stages stack instead of overwriting
+     * each other. Returns a fresh instance safe to mutate.
+     */
+    public Quaternionf evaluatedRotation()
+    {
+        if (this.orient != null)
+        {
+            return new Quaternionf(this.orient);
+        }
+
+        if (this.current.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            return new Quaternionf(this.current.quat);
+        }
+
+        return Matrices.toLocalRotationZYXDegrees(this.current.rotate);
+    }
+
+    /**
+     * Composes one rotation layer into {@link #orient}, the quaternion the renderer applies in place of the
+     * euler triples. The FIRST layer on a bone seeds orient from the euler accumulated so far (this layer's
+     * own {@code +=} included), so a single layer renders byte-identically to the euler path; every later
+     * layer multiplies its delta as a quaternion, so stacked layers compose without the euler-pole flip.
+     * Call this AFTER the layer has applied its additive euler readback to {@code current.rotate}.
+     */
+    public void composeOrient(Quaternionf delta)
+    {
+        if (this.orient == null)
+        {
+            this.orient = Matrices.toLocalRotationZYXDegrees(this.current.rotate);
+        }
+        else
+        {
+            this.orient.mul(delta);
+        }
     }
 
     @Override

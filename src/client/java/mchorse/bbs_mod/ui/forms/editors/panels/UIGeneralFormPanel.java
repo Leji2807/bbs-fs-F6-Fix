@@ -8,16 +8,17 @@ import mchorse.bbs_mod.ui.film.replays.UIReplaysEditor;
 import mchorse.bbs_mod.ui.film.replays.UIReplaysEditorUtils;
 import mchorse.bbs_mod.ui.film.replays.overlays.UIKeyframeSheetFilterOverlayPanel;
 import mchorse.bbs_mod.ui.forms.editors.forms.UIForm;
+import mchorse.bbs_mod.ui.framework.elements.UISection;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UIKeybind;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
+import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframeSheet;
 import mchorse.bbs_mod.ui.framework.elements.input.text.UITextbox;
 import mchorse.bbs_mod.ui.framework.elements.overlay.UIOverlay;
 import mchorse.bbs_mod.ui.utils.UI;
-import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.keys.KeyCombo;
 
 import java.util.HashMap;
@@ -44,8 +45,8 @@ public class UIGeneralFormPanel extends UIFormPanel
     public UIToggle hitbox;
     public UITrackpad hitboxWidth;
     public UITrackpad hitboxHeight;
-    public UITrackpad hitboxSneakMultiplier;
-    public UITrackpad hitboxEyeHeight;
+    public UISliderTrackpad hitboxSneakMultiplier;
+    public UISliderTrackpad hitboxEyeHeight;
 
     public UITrackpad hp;
     public UITrackpad speed;
@@ -80,16 +81,16 @@ public class UIGeneralFormPanel extends UIFormPanel
         this.name = new UITextbox(120, (t) -> this.form.name.set(t));
 
         this.transform = new UIPropTransform().callbacks(() -> this.form.transform).barBackground();
-        this.transform.enableHotkeys().relative(this).x(0.5F).y(1F, -10).anchor(0.5F, 1F);
+        this.transform.enableHotkeys();
 
-        this.hitbox = new UIToggle(UIKeys.FORMS_EDITORS_GENERAL_HITBOX, (b) -> this.form.hitbox.set(b.getValue()));
+        this.hitbox = new UIToggle(UIKeys.CAMERA_PANELS_ENABLED, (b) -> this.form.hitbox.set(b.getValue()));
         this.hitboxWidth = new UITrackpad((v) -> this.form.hitboxWidth.set(v.floatValue()));
         this.hitboxWidth.limit(0).tooltip(UIKeys.FORMS_EDITORS_GENERAL_HITBOX_WIDTH);
         this.hitboxHeight = new UITrackpad((v) -> this.form.hitboxHeight.set(v.floatValue()));
         this.hitboxHeight.limit(0).tooltip(UIKeys.FORMS_EDITORS_GENERAL_HITBOX_HEIGHT);
-        this.hitboxSneakMultiplier = new UITrackpad((v) -> this.form.hitboxSneakMultiplier.set(v.floatValue()));
+        this.hitboxSneakMultiplier = new UISliderTrackpad((v) -> this.form.hitboxSneakMultiplier.set(v.floatValue()));
         this.hitboxSneakMultiplier.limit(0, 1);
-        this.hitboxEyeHeight = new UITrackpad((v) -> this.form.hitboxEyeHeight.set(v.floatValue()));
+        this.hitboxEyeHeight = new UISliderTrackpad((v) -> this.form.hitboxEyeHeight.set(v.floatValue()));
         this.hitboxEyeHeight.limit(0, 1);
 
         this.hp = new UITrackpad((v) -> this.form.hp.set(v.floatValue()));
@@ -99,16 +100,47 @@ public class UIGeneralFormPanel extends UIFormPanel
         this.stepHeight = new UITrackpad((v) -> this.form.stepHeight.set(v.floatValue()));
         this.stepHeight.limit(0F);
 
-        this.options.add(UI.label(UIKeys.FORMS_EDITORS_GENERAL_DISPLAY), this.name);
-        this.options.add(this.hotkey, this.visible, this.filterTracks, this.boneTracks, this.trackName, this.lighting, this.shaderShadow, this.additiveColor);
-        this.options.add(UI.label(UIKeys.FORMS_EDITORS_GENERAL_UI_SCALE), this.uiScale);
-        this.options.add(this.transform.marginTop(4));
-        this.options.add(this.hitbox.marginTop(UIConstants.SECTION_GAP), UI.row(this.hitboxWidth, this.hitboxHeight));
-        this.options.add(UI.label(UIKeys.FORMS_EDITORS_GENERAL_HITBOX_SNEAK_MULTIPLIER), this.hitboxSneakMultiplier);
-        this.options.add(UI.label(UIKeys.FORMS_EDITORS_GENERAL_HITBOX_EYE_HEIGHT), this.hitboxEyeHeight);
-        this.options.add(UI.label(UIKeys.FORMS_EDITORS_GENERAL_HP).marginTop(UIConstants.SECTION_GAP), this.hp);
-        this.options.add(UI.label(UIKeys.FORMS_EDITORS_GENERAL_MOVEMENT_SPEED), this.speed.tooltip(UIKeys.FORMS_EDITORS_GENERAL_MOVEMENT_SPEED_TOOLTIP));
-        this.options.add(UI.label(UIKeys.FORMS_EDITORS_GENERAL_STEP_HEIGHT), this.stepHeight);
+        UISection display = new UISection(UIKeys.FORMS_EDITORS_GENERAL_SECTION_DISPLAY);
+
+        display.fields.add(
+            UI.labelRow(UIKeys.FORMS_EDITORS_GENERAL_DISPLAY, this.name),
+            this.hotkey, this.visible,
+            this.lighting, this.shaderShadow, this.additiveColor,
+            UI.labelRow(UIKeys.FORMS_EDITORS_GENERAL_UI_SCALE, this.uiScale)
+        );
+
+        UISection tracks = new UISection(UIKeys.FORMS_EDITORS_GENERAL_SECTION_TRACKS);
+
+        tracks.fields.add(this.filterTracks, this.boneTracks, this.trackName);
+
+        UISection transform = new UISection(UIKeys.FORMS_EDITORS_GENERAL_SECTION_TRANSFORM);
+
+        transform.fields.add(this.transform);
+
+        UISection hitbox = new UISection(UIKeys.FORMS_EDITORS_GENERAL_HITBOX);
+
+        hitbox.fields.add(
+            this.hitbox,
+            UI.row(this.hitboxWidth, this.hitboxHeight),
+            UI.labelRow(UIKeys.FORMS_EDITORS_GENERAL_HITBOX_SNEAK_MULTIPLIER, this.hitboxSneakMultiplier),
+            UI.labelRow(UIKeys.FORMS_EDITORS_GENERAL_HITBOX_EYE_HEIGHT, this.hitboxEyeHeight)
+        );
+
+        UISection movement = new UISection(UIKeys.FORMS_EDITORS_GENERAL_SECTION_MOVEMENT);
+
+        movement.fields.add(
+            UI.labelRow(UIKeys.FORMS_EDITORS_GENERAL_HP, this.hp),
+            UI.labelRow(UIKeys.FORMS_EDITORS_GENERAL_MOVEMENT_SPEED, this.speed.tooltip(UIKeys.FORMS_EDITORS_GENERAL_MOVEMENT_SPEED_TOOLTIP)),
+            UI.labelRow(UIKeys.FORMS_EDITORS_GENERAL_STEP_HEIGHT, this.stepHeight)
+        );
+
+        this.options.add(
+            display,
+            tracks,
+            transform,
+            hitbox,
+            movement
+        );
     }
 
     @Override

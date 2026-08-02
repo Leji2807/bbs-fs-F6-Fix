@@ -133,9 +133,7 @@ public class UIIcons extends UIClickable<UIIcons>
                 context.batcher.box(x1, this.area.y, x2, this.area.ey(), BBSSettings.chromeSurface());
             }
 
-            int iconColor = active ? Colors.WHITE : (cellHover ? Colors.LIGHTEST_GRAY : Colors.setA(Colors.WHITE, 0.6F));
-
-            context.batcher.icon(this.items.get(i).icon, iconColor, (x1 + x2) / 2, this.area.my(), 0.5F, 0.5F);
+            context.batcher.icon(this.items.get(i).icon, Colors.WHITE, (x1 + x2) / 2, this.area.my(), 0.5F, 0.5F);
         }
 
         if (hovered >= 0)

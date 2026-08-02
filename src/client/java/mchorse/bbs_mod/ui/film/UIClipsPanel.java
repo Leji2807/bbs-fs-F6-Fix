@@ -40,6 +40,18 @@ public class UIClipsPanel extends UIElement implements IUIClipsDelegate
         this.add(this.clips.full(this));
     }
 
+    /** The clip panel is parented to {@link #target}, so it has to be taken down together with this. */
+    @Override
+    public void removeFromParent()
+    {
+        super.removeFromParent();
+
+        if (this.panel != null)
+        {
+            this.panel.removeFromParent();
+        }
+    }
+
     public UIClipsPanel target(UIElement target)
     {
         this.target = target;
@@ -178,12 +190,14 @@ public class UIClipsPanel extends UIElement implements IUIClipsDelegate
             }
             else
             {
-                int top = this.filmPanel.getEditPanelTopOffsetPx();
-                this.panel.relative(this.target).x(0).y(0, top).w(1F).h(1F, -top);
+                this.panel.relative(this.target).x(0).y(0).w(1F).h(1F);
             }
 
-            this.add(this.panel);
+            /* The panel lives in whichever element it is laid out over, so it stays visible when
+             * the timeline is hidden behind another dock tab. */
+            (this.target == null ? this : this.target).add(this.panel);
             this.resize();
+            this.resizeTarget();
             this.panel.fillData();
             this.panel.setVisible(this.propertiesVisible);
             this.panel.restoreScroll();
@@ -200,20 +214,17 @@ public class UIClipsPanel extends UIElement implements IUIClipsDelegate
 
         this.clips.w(1F, this.target == null ? -160 : 0);
         this.resize();
+        this.resizeTarget();
 
         this.filmPanel.pickClip(clip, this);
     }
 
-    /** Re-applies edit panel position (e.g. after layout lock toggle). */
-    public void refreshEditPanelOffset()
+    private void resizeTarget()
     {
-        if (this.panel == null || this.target == null)
+        if (this.target != null)
         {
-            return;
+            this.target.resize();
         }
-        int top = this.filmPanel.getEditPanelTopOffsetPx();
-        this.panel.relative(this.target).x(0).y(0, top).w(1F).h(1F, -top);
-        this.resize();
     }
 
     @Override

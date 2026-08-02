@@ -398,6 +398,12 @@ public class UIVector3KeyframeGraph extends UIKeyframeGraph
     public void setValue(Object value, boolean unmergeable)
     {
         Keyframe selected = this.getSelected();
+
+        if (selected == null)
+        {
+            return;
+        }
+
         IKeyframeFactory factory = selected.getFactory();
         Vector3f keyframe = (Vector3f) factory.copy(selected.getValue());
         
@@ -461,7 +467,7 @@ public class UIVector3KeyframeGraph extends UIKeyframeGraph
                 v = new Vector3f(y, y, y);
             }
             
-            this.addKeyframe(sheet, tick, v);
+            this.addKeyframeManually(sheet, tick, v);
         }
 
         return sheet != null;

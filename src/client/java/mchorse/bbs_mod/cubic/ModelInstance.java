@@ -2,15 +2,18 @@ package mchorse.bbs_mod.cubic;
 
 import mchorse.bbs_mod.bobj.BOBJBone;
 import com.mojang.blaze3d.systems.RenderSystem;
+import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.client.BBSShaders;
 import mchorse.bbs_mod.client.render.picker.BBSPickerRenderer;
 import mchorse.bbs_mod.cubic.data.animation.Animations;
 import mchorse.bbs_mod.cubic.data.model.Model;
 import mchorse.bbs_mod.cubic.data.model.ModelGroup;
+import mchorse.bbs_mod.cubic.data.model.ModelMesh;
 import mchorse.bbs_mod.cubic.model.ArmorSlot;
 import mchorse.bbs_mod.cubic.model.ArmorType;
 import mchorse.bbs_mod.cubic.model.View;
 import mchorse.bbs_mod.cubic.model.bobj.BOBJModel;
+import mchorse.bbs_mod.cubic.model.config.ModelConfig;
 import mchorse.bbs_mod.cubic.render.CubicCubeRenderer;
 import mchorse.bbs_mod.cubic.render.CubicMatrixRenderer;
 import mchorse.bbs_mod.cubic.render.CubicRenderer;
@@ -18,21 +21,27 @@ import mchorse.bbs_mod.cubic.render.CubicVAOBuilderRenderer;
 import mchorse.bbs_mod.cubic.render.CubicVAORenderer;
 import mchorse.bbs_mod.cubic.render.vao.BOBJModelVAO;
 import mchorse.bbs_mod.cubic.render.vao.ModelVAO;
+import mchorse.bbs_mod.cubic.render.vao.ModelVAORenderer;
+import mchorse.bbs_mod.cubic.weld.ModelWeld;
+import mchorse.bbs_mod.cubic.weld.WeldBinding;
 import mchorse.bbs_mod.data.DataStorageUtils;
 import mchorse.bbs_mod.graphics.ModelPreviewRenderer;
 import mchorse.bbs_mod.data.types.BaseType;
 import mchorse.bbs_mod.data.types.ListType;
 import mchorse.bbs_mod.data.types.MapType;
+import mchorse.bbs_mod.forms.FormTranslucentQueue;
 import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.forms.forms.ModelForm;
+import mchorse.bbs_mod.graphics.texture.Texture;
 import mchorse.bbs_mod.forms.renderers.utils.MatrixCache;
 import mchorse.bbs_mod.obj.shapes.ShapeKeys;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.colors.Color;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Pose;
-import mchorse.bbs_mod.utils.resources.LinkUtils;
+import mchorse.bbs_mod.utils.pose.Transform;
 import net.minecraft.client.MinecraftClient;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.gl.ShaderProgram;
@@ -43,22 +52,31 @@ import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.RotationAxis;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
 public class ModelInstance implements IModelInstance
 {
+    /** Identity NormalMat for the welded immediate draw — its normals are already CPU-transformed to world space. */
+    private static final Matrix3f WELD_NORMAL_MAT = new Matrix3f();
+
     public final String id;
     public IModel model;
     public Animations animations;
-    public Link texture;
+
+    /** The model's intrinsic texture from its loader; {@link ModelConfig#texture} overrides it when set. */
+    public Link baseTexture;
 
     /**
      * Per-material default textures, loaded from the model's {@code textures/<material>/}
@@ -71,28 +89,14 @@ public class ModelInstance implements IModelInstance
     /** Ordered, distinct list of material names present on the model (for the editor and resolution). */
     public List<String> materials = new ArrayList<>();
 
-    /* Model's additional properties */
-    public String poseGroup;
-    public boolean procedural;
-    public boolean culling = true;
-    public boolean onCpu;
-    public String anchorGroup = "";
+    /** The model's {@code config.json} as an editable value tree; the instance reads every setting from here. */
+    public final ModelConfig config;
 
-    public View view;
+    /** Welds resolved against the model (groups/cubes/corners). Built lazily on first render, kept across frames. */
+    private List<WeldBinding> weldBindings;
 
-    public Vector3f scale = new Vector3f(1F);
-    public float uiScale = 1F;
-    public Pose sneakingPose = new Pose();
-
-    public List<ArmorSlot> itemsMain = new ArrayList<>();
-    public List<ArmorSlot> itemsOff = new ArrayList<>();
-    public List<String> disabledBones = new ArrayList<>();
-    public Map<String, String> flippedParts = new HashMap<>();
-    public Map<String, String> pickingOverrides = new HashMap<>();
-    public Map<ArmorType, ArmorSlot> armorSlots = new HashMap<>();
-
-    public ArmorSlot fpMain;
-    public ArmorSlot fpOffhand;
+    /** Whether the VAO bake skipped some groups (shape-keyed meshes) — those render immediate via the hybrid path. */
+    private boolean partialVaos;
 
     /** Per group, the geometry split into one VAO per material name (empty key = default texture). */
     private Map<ModelGroup, Map<String, ModelVAO>> vaos = new HashMap<>();
@@ -105,9 +109,8 @@ public class ModelInstance implements IModelInstance
         this.id = id;
         this.model = model;
         this.animations = animations;
-        this.texture = texture;
-
-        this.poseGroup = id;
+        this.baseTexture = texture;
+        this.config = new ModelConfig(id);
     }
 
     @Override
@@ -119,7 +122,7 @@ public class ModelInstance implements IModelInstance
     @Override
     public Pose getSneakingPose()
     {
-        return this.sneakingPose;
+        return this.config.getSneakingPose();
     }
 
     @Override
@@ -131,6 +134,40 @@ public class ModelInstance implements IModelInstance
     public Map<ModelGroup, Map<String, ModelVAO>> getVaos()
     {
         return this.vaos;
+    }
+
+    /** Welds resolved against this model, built once. Empty when the model declares none or isn't cubic. */
+    public List<WeldBinding> getWeldBindings()
+    {
+        if (this.weldBindings == null)
+        {
+            this.weldBindings = new ArrayList<>();
+
+            if (this.model instanceof Model model)
+            {
+                for (ModelWeld weld : this.config.getWelds())
+                {
+                    WeldBinding binding = WeldBinding.resolve(model, weld);
+
+                    if (binding != null)
+                    {
+                        this.weldBindings.add(binding);
+                    }
+                }
+            }
+        }
+
+        return this.weldBindings;
+    }
+
+    /**
+     * Re-resolve welds after the config's weld list was edited: drop the cached bindings (rebuilt on the
+     * next render) and refresh the config's derived caches so the new welds take effect.
+     */
+    public void invalidateWelds()
+    {
+        this.weldBindings = null;
+        this.config.rebuild();
     }
 
     /**
@@ -149,136 +186,100 @@ public class ModelInstance implements IModelInstance
     public String getAnchor()
     {
         String anchor = this.model.getAnchor();
+        String anchorGroup = this.config.anchor.get();
 
-        if (this.anchorGroup.isEmpty() && !anchor.isEmpty())
+        if (anchorGroup.isEmpty() && !anchor.isEmpty())
         {
             return anchor;
         }
 
-        return this.anchorGroup;
+        return anchorGroup;
     }
 
-    public void applyConfig(MapType config)
+    public void applyConfig(MapType data)
     {
-        if (config == null)
+        if (data == null)
         {
             return;
         }
 
-        this.procedural = config.getBool("procedural", this.procedural);
-        this.culling = config.getBool("culling", this.culling);
-        this.onCpu = config.getBool("on_cpu", this.onCpu);
-        this.poseGroup = config.getString("pose_group", this.poseGroup);
+        this.config.fromData(data);
+    }
 
-        if (config.has("texture"))
-        {
-            this.texture = LinkUtils.create(config.get("texture"));
-        }
-        if (config.has("items_main"))
-        {
-            ListType list = config.get("items_main").asList();
+    /* Config accessors — the instance reads all of these from {@link #config}. */
 
-            for (BaseType type : list)
-            {
-                ArmorSlot slot = new ArmorSlot();
+    public Link getTexture()
+    {
+        Link texture = this.config.getTexture();
 
-                slot.fromData(type);
-                this.itemsMain.add(slot);
-            }
-        }
-        if (config.has("items_off"))
-        {
-            ListType list = config.get("items_off").asList();
+        return texture != null ? texture : this.baseTexture;
+    }
 
-            for (BaseType type : list)
-            {
-                ArmorSlot slot = new ArmorSlot();
+    public Vector3f getScale()
+    {
+        return this.config.scale.get();
+    }
 
-                slot.fromData(type);
-                this.itemsOff.add(slot);
-            }
-        }
-        if (config.has("ui_scale")) this.uiScale = config.getFloat("ui_scale");
-        if (config.has("scale")) this.scale = DataStorageUtils.vector3fFromData(config.getList("scale"), new Vector3f(1F));
-        if (config.has("sneaking_pose", BaseType.TYPE_MAP))
-        {
-            this.sneakingPose = new Pose();
-            this.sneakingPose.fromData(config.getMap("sneaking_pose"));
-        }
-        if (config.has("anchor")) this.anchorGroup = config.getString("anchor");
-        if (config.has("disabledBones"))
-        {
-            ListType list = config.getList("disabledBones");
+    public float getUiScale()
+    {
+        return this.config.uiScale.get();
+    }
 
-            for (BaseType type : list)
-            {
-                this.disabledBones.add(type.asString());
-            }
-        }
-        if (config.has("flipped_parts"))
-        {
-            MapType map = config.getMap("flipped_parts");
+    public boolean isProcedural()
+    {
+        return this.config.procedural.get();
+    }
 
-            for (String key : map.keys())
-            {
-                String string = map.getString(key);
+    public boolean isCulling()
+    {
+        return this.config.culling.get();
+    }
 
-                if (!string.trim().isEmpty())
-                {
-                    this.flippedParts.put(key, string);
-                }
-            }
-        }
-        if (config.has("picking_overrides"))
-        {
-            MapType map = config.getMap("picking_overrides");
+    public String getPoseGroup()
+    {
+        String group = this.config.poseGroup.get();
 
-            for (String key : map.keys())
-            {
-                String string = map.getString(key);
+        return group.isEmpty() ? this.id : group;
+    }
 
-                if (!string.trim().isEmpty())
-                {
-                    this.pickingOverrides.put(key, string);
-                }
-            }
-        }
-        if (config.has("armor_slots"))
-        {
-            MapType map = config.getMap("armor_slots");
+    public View getView()
+    {
+        return this.config.getView();
+    }
 
-            for (String key : map.keys())
-            {
-                try
-                {
-                    ArmorType type = ArmorType.valueOf(key.toUpperCase());
-                    ArmorSlot slot = new ArmorSlot();
+    public Set<String> getDisabledBones()
+    {
+        return this.config.disabledBones.get();
+    }
 
-                    slot.fromData(map.getMap(key));
-                    this.armorSlots.put(type, slot);
-                }
-                catch (Exception e)
-                {}
-            }
-        }
-        if (config.has("fp_main"))
-        {
-            this.fpMain = new ArmorSlot();
-            this.fpMain.fromData(config.get("fp_main"));
-        }
-        if (config.has("fp_offhand"))
-        {
-            this.fpOffhand = new ArmorSlot();
-            this.fpOffhand.fromData(config.get("fp_offhand"));
-        }
+    public Map<String, String> getFlippedParts()
+    {
+        return this.config.getFlippedParts();
+    }
 
-        /* Optional look-at configuration */
-        if (config.has("look_at", BaseType.TYPE_MAP))
-        {
-            this.view = new View();
+    public Map<ArmorType, ArmorSlot> getArmorSlots()
+    {
+        return this.config.getArmorSlots();
+    }
 
-            this.view.fromData(config.getMap("look_at"));
-        }
+    public List<ArmorSlot> getItemsMain()
+    {
+        return this.config.getItemsMain();
+    }
+
+    public List<ArmorSlot> getItemsOff()
+    {
+        return this.config.getItemsOff();
+    }
+
+    public ArmorSlot getFpMain()
+    {
+        return this.config.getFpMain();
+    }
+
+    public ArmorSlot getFpOffhand()
+    {
+        return this.config.getFpOffhand();
     }
 
     public void setup()
@@ -288,19 +289,39 @@ public class ModelInstance implements IModelInstance
             MinecraftClient.getInstance().execute(model::setup);
         }
 
-        /* VAOs should be only generated if there are no shape keys */
-        if (!this.model.getShapeKeys().isEmpty())
+        /* A welded or shape-keyed model still builds VAOs: only its welded bones and shape-keyed groups render
+         * on the immediate (CPU) path, the rest ride their VAOs on the GPU (see {@link #renderHybrid}). */
+        if (this.model instanceof Model model)
         {
-            return;
+            boolean bake = !this.config.onCpu.get();
+
+            this.partialVaos = bake && this.hasShapeKeyedGroups(model);
+
+            if (bake)
+            {
+                MinecraftClient.getInstance().execute(() ->
+                {
+                    CubicRenderer.processRenderModel(new CubicVAOBuilderRenderer(this.vaos), null, new MatrixStack(), model);
+                });
+            }
+        }
+    }
+
+    /** Whether some group carries shape-keyed meshes — the VAO builder skips those, so the render is hybrid. */
+    private boolean hasShapeKeyedGroups(Model model)
+    {
+        for (ModelGroup group : model.getAllGroups())
+        {
+            for (ModelMesh mesh : group.meshes)
+            {
+                if (!mesh.data.isEmpty())
+                {
+                    return true;
+                }
+            }
         }
 
-        if (this.model instanceof Model model && !this.onCpu)
-        {
-            MinecraftClient.getInstance().execute(() ->
-            {
-                CubicRenderer.processRenderModel(new CubicVAOBuilderRenderer(this.vaos), null, new MatrixStack(), model);
-            });
-        }
+        return false;
     }
 
     public boolean isVAORendered()
@@ -354,7 +375,7 @@ public class ModelInstance implements IModelInstance
      */
     private String getPickingBone(String bone)
     {
-        return this.pickingOverrides.getOrDefault(bone, bone);
+        return this.config.getPickingOverrides().getOrDefault(bone, bone);
     }
 
     public void captureMatrices(MatrixCache bones)
@@ -383,7 +404,8 @@ public class ModelInstance implements IModelInstance
                     group.initial.translate.z / 16
                 );
                 origin.rotateY(MathUtils.PI);
-                bones.put(group.id, matrix, origin);
+
+                bones.put(group.id, matrix, origin, evaluatedChannelRotation(group.current, group.orient, true));
             }
         }
         else if (this.model instanceof BOBJModel model)
@@ -397,7 +419,77 @@ public class ModelInstance implements IModelInstance
 
                 matrix.rotateY(MathUtils.PI).mul(orderedBone.mat);
                 origin.rotateY(MathUtils.PI).mul(orderedBone.originMat);
-                bones.put(orderedBone.name, matrix, origin);
+
+                bones.put(orderedBone.name, matrix, origin, evaluatedChannelRotation(orderedBone.transform, orderedBone.orient, false));
+            }
+        }
+    }
+
+    /**
+     * The bone's EVALUATED channel rotation (ZYX euler radians) for the gizmo's
+     * additive overlay-editing base, or {@code null} when the render doesn't
+     * follow the channels additively: quaternion mode composes multiplicatively,
+     * and a composed {@code orient} counts only while it still EQUALS the
+     * channel rotation — the first composed layer seeds it FROM the channels
+     * (identical by construction), but stacked layers multiply and diverge,
+     * and then the additive base model doesn't apply.
+     */
+    private static Vector3f evaluatedChannelRotation(Transform current, Quaternionf orient, boolean degrees)
+    {
+        if (current.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            return null;
+        }
+
+        Vector3f radians = degrees
+            ? new Vector3f(
+                MathUtils.toRad(current.rotate.x),
+                MathUtils.toRad(current.rotate.y),
+                MathUtils.toRad(current.rotate.z)
+            )
+            : new Vector3f(current.rotate);
+
+        if (orient != null)
+        {
+            Quaternionf channels = Matrices.toQuaternionZYXRadians(radians.x, radians.y, radians.z);
+
+            /* |dot| = cos(θ/2) between the two rotations (double cover); anything
+             * under ~1.6° apart means a genuinely multiplicative stack. */
+            if (Math.abs(channels.dot(orient)) < 0.9999F)
+            {
+                return null;
+            }
+        }
+
+        return radians;
+    }
+
+    /**
+     * First weld pass: capture the rigid world corners of every welded face with no drawing, then build the seams.
+     * Runs a dedicated capture-only renderer that only touches welded cubes (and only their welded face's corners),
+     * so it's a light matrix walk over the tree rather than a full per-vertex pass.
+     */
+    private void captureWelds(List<WeldBinding> bindings, MatrixStack stack, Model model, int light, int overlay, StencilMap stencilMap, ShapeKeys keys)
+    {
+        for (WeldBinding binding : bindings)
+        {
+            for (WeldBinding.Layer layer : binding.layers)
+            {
+                layer.resetCapture();
+            }
+        }
+
+        CubicCubeRenderer capture = new CubicCubeRenderer(light, overlay, stencilMap, keys);
+
+        capture.setWelds(bindings);
+        capture.setCaptureOnly(true);
+        CubicRenderer.processRenderModel(capture, null, stack, model);
+
+        for (WeldBinding binding : bindings)
+        {
+            for (WeldBinding.Layer layer : binding.layers)
+            {
+                layer.computeSeam();
             }
         }
     }
@@ -406,21 +498,22 @@ public class ModelInstance implements IModelInstance
     {
         if (this.model instanceof Model model)
         {
-            boolean isVao = this.isVAORendered();
+            List<WeldBinding> bindings = this.getWeldBindings();
 
-            CubicCubeRenderer renderProcessor = isVao
-                // TODO(1.21.11 render merge): per-mesh BOBJ material-texture resolver — re-port against pipeline API
-                // (was: 1.21.1 passed a ShaderProgram + Function<String,Link> textureResolver into CubicVAORenderer).
-                ? new CubicVAORenderer(this, light, overlay, stencilMap, keys)
-                : new CubicCubeRenderer(light, overlay, stencilMap, keys);
+            /* 1.21.11: cubic models always take the immediate CPU path ({@link #isVAORendered} is BOBJ-only
+             * here), so the 1.21.1 hybrid VAO/CPU split is unnecessary — the welded cubes deform right in
+             * CubicCubeRenderer's subdivided quad path. The seams must still be captured first, for the
+             * visible draw AND for picking (else a bent welded bone highlights its un-sealed rest silhouette). */
+            if (!bindings.isEmpty())
+            {
+                this.captureWelds(bindings, stack, model, light, overlay, stencilMap, keys);
+            }
+
+            CubicCubeRenderer renderProcessor = new CubicCubeRenderer(light, overlay, stencilMap, keys);
 
             renderProcessor.setColor(color.r, color.g, color.b, color.a);
+            renderProcessor.setWelds(bindings);
 
-            if (isVao)
-            {
-                CubicRenderer.processRenderModel(renderProcessor, null, stack, model);
-            }
-            else
             {
                 /* TODO(1.21.11 render): RenderSystem.setShader(...) + BufferRenderer.drawWithGlobalProgram(...)
                  * were removed in 1.21.5+. The immediate (non-VAO) cube geometry is built into a BufferBuilder

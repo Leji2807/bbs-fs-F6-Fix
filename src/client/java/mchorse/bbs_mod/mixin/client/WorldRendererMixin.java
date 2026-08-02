@@ -2,6 +2,7 @@ package mchorse.bbs_mod.mixin.client;
 
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.client.BBSRendering;
+import mchorse.bbs_mod.forms.FormTranslucentQueue;
 import mchorse.bbs_mod.utils.colors.Color;
 import net.minecraft.client.gl.Framebuffer;
 import net.minecraft.client.render.RenderLayer;
@@ -22,6 +23,22 @@ public class WorldRendererMixin
 {
     @Shadow
     public Framebuffer entityOutlinesFramebuffer;
+
+    /* Deferred form translucency spans the frame: forms enqueue their translucent pass while
+     * entities render, and the queue flushes right before the translucent terrain layer so the
+     * blending sits under water/glass the way vanilla entities do. The RETURN hook is a safety
+     * net for frames where the translucent layer never draws (e.g. a replaced terrain pipeline). */
+    @Inject(method = "render", at = @At("HEAD"))
+    public void onRenderWorldStart(CallbackInfo info)
+    {
+        FormTranslucentQueue.begin();
+    }
+
+    @Inject(method = "render", at = @At("RETURN"))
+    public void onRenderWorldEnd(CallbackInfo info)
+    {
+        FormTranslucentQueue.flush();
+    }
 
     @Inject(method = "renderSky(Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;FLnet/minecraft/client/render/Camera;ZLjava/lang/Runnable;)V", at = @At("HEAD"), cancellable = true)
     public void onRenderSky(CallbackInfo info)
@@ -44,6 +61,10 @@ public class WorldRendererMixin
     @Inject(method = "renderLayer", at = @At("HEAD"), cancellable = true)
     public void onRenderLayer(RenderLayer renderLayer, double cameraX, double cameraY, double cameraZ, Matrix4f positionMatrix, Matrix4f projectionMatrix, CallbackInfo info)
     {
+        /* TODO(1.21.11 render): this fired the deferred translucent flush on the vanilla translucent
+         * chunk layer. RenderLayer.getTranslucent() went with the state-based chunk pipeline, and the
+         * queue is disabled on this branch (see FormTranslucentQueue), so there is nothing to flush. */
+
         if (BBSSettings.chromaSkyEnabled.get() && !BBSSettings.chromaSkyTerrain.get())
         {
             BBSRendering.onRenderChunkLayer(positionMatrix);

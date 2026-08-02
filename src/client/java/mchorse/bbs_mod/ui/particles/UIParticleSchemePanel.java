@@ -5,7 +5,6 @@ import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.data.DataToString;
 import mchorse.bbs_mod.data.types.BaseType;
 import mchorse.bbs_mod.data.types.MapType;
-import mchorse.bbs_mod.settings.values.base.BaseValue;
 import mchorse.bbs_mod.settings.values.ui.EditorLayoutNode;
 import mchorse.bbs_mod.settings.values.ui.ValueEditorLayout;
 import mchorse.bbs_mod.forms.renderers.ParticleFormRenderer;
@@ -21,7 +20,6 @@ import mchorse.bbs_mod.ui.dashboard.panels.UIDataDashboardPanel;
 import mchorse.bbs_mod.ui.dashboard.panels.tabs.DataTab;
 import mchorse.bbs_mod.ui.dashboard.panels.tabs.UIDataTabs;
 import mchorse.bbs_mod.ui.framework.UIContext;
-import mchorse.bbs_mod.ui.framework.elements.UIElement;
 import mchorse.bbs_mod.ui.framework.elements.UIScrollView;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
 import mchorse.bbs_mod.ui.framework.elements.layout.ILayoutSource;
@@ -44,6 +42,7 @@ import mchorse.bbs_mod.ui.particles.sections.UIParticleSchemeShapeSection;
 import mchorse.bbs_mod.ui.particles.sections.UIParticleSchemeSpaceSection;
 import mchorse.bbs_mod.ui.particles.utils.MolangSyntaxHighlighter;
 import mchorse.bbs_mod.ui.utils.UI;
+import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.UIUtils;
 import mchorse.bbs_mod.ui.utils.icons.Icon;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
@@ -57,6 +56,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
@@ -100,14 +100,15 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
         this.dock = new UIDockLayout();
         this.dock.relative(this.editor).w(1F).h(1F);
         this.dock.source(this.createLayoutSource())
+            .locked(!BBSSettings.editorLayoutSettings.isDockUnlocked(ValueEditorLayout.PARTICLE))
             .frameless("preview")
             .gate(() -> this.data != null);
-        this.dock.addPanel("general", this.wrapScroll(this.generalView), Icons.GEAR);
-        this.dock.addPanel("emitter", this.wrapScroll(this.emitterView), Icons.BUBBLE);
-        this.dock.addPanel("particle", this.wrapScroll(this.particleView), Icons.PARTICLE);
-        this.dock.addPanel("appearance", this.wrapScroll(this.appearanceView), Icons.MATERIAL);
-        this.dock.addPanel("molang", this.textEditor, Icons.CODE);
-        this.dock.addPanel("preview", this.renderer, Icons.VIDEO_CAMERA);
+        this.dock.addPanel("general", this.generalView, Icons.GEAR, UIKeys.SNOWSTORM_PANELS_GENERAL);
+        this.dock.addPanel("emitter", this.emitterView, Icons.BUBBLE, UIKeys.SNOWSTORM_PANELS_EMITTER);
+        this.dock.addPanel("particle", this.particleView, Icons.PARTICLE, UIKeys.SNOWSTORM_PANELS_PARTICLE);
+        this.dock.addPanel("appearance", this.appearanceView, Icons.MATERIAL, UIKeys.SNOWSTORM_PANELS_APPEARANCE);
+        this.dock.addPanel("molang", this.textEditor, Icons.CODE, UIKeys.SNOWSTORM_PANELS_MOLANG);
+        this.dock.addPanel("preview", this.renderer, Icons.VIDEO_CAMERA, UIKeys.SNOWSTORM_PANELS_PREVIEW);
         this.dock.mount();
         this.editor.add(this.dock);
 
@@ -137,7 +138,7 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
         });
         presets.tooltip(UIKeys.FILM_LAYOUT_PRESETS, Direction.LEFT);
 
-        UIIcon lock = new UIIcon(() -> this.dock.isLocked() ? Icons.LOCKED : Icons.UNLOCKED, (b) -> this.dock.toggleLock());
+        UIIcon lock = new UIIcon(() -> this.dock.isLocked() ? Icons.LOCKED : Icons.UNLOCKED, (b) -> this.toggleLayoutLock());
         lock.tooltip(() -> (this.dock.isLocked() ? UIKeys.FILM_LAYOUT_UNLOCK : UIKeys.FILM_LAYOUT_LOCK).get(), Direction.LEFT);
 
         UIIcon resetLayout = new UIIcon(Icons.REFRESH, (b) -> this.dock.resetLayout());
@@ -158,6 +159,20 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
         this.keys().register(Keys.FILM_CONTROLLER_PREV_DOCK_TAB, () ->
         {
             if (this.dock.cycleDockStackTab(-1))
+            {
+                UIUtils.playClick();
+            }
+        }).category(UIKeys.SNOWSTORM_TITLE);
+        this.keys().register(Keys.DOCK_MAXIMIZE, () ->
+        {
+            if (this.dock.toggleMaximizeUnderCursor())
+            {
+                UIUtils.playClick();
+            }
+        }).category(UIKeys.SNOWSTORM_TITLE);
+        this.keys().register(Keys.DOCK_UNDO_LAYOUT, () ->
+        {
+            if (this.dock.undoLayout())
             {
                 UIUtils.playClick();
             }
@@ -255,6 +270,12 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
         this.dock.applyLayoutRoot(EditorLayoutNode.fromData(layoutData));
     }
 
+    private void toggleLayoutLock()
+    {
+        this.dock.toggleLock();
+        BBSSettings.editorLayoutSettings.setDockUnlocked(ValueEditorLayout.PARTICLE, !this.dock.isLocked());
+    }
+
     private ILayoutSource createLayoutSource()
     {
         ValueEditorLayout layout = BBSSettings.editorLayoutSettings;
@@ -262,33 +283,15 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
         return new ILayoutSource()
         {
             @Override
-            public BaseValue value()
-            {
-                return layout;
-            }
-
-            @Override
             public EditorLayoutNode getRoot()
             {
-                return layout.getParticleLayoutRoot();
+                return layout.getLayout(ValueEditorLayout.PARTICLE, EditorLayoutNode::defaultParticleLayout);
             }
 
             @Override
             public void setRoot(EditorLayoutNode root)
             {
-                layout.setParticleLayoutRoot(root);
-            }
-
-            @Override
-            public List<EditorLayoutNode.SplitterNode> getSplitters()
-            {
-                return layout.getParticleSplitters();
-            }
-
-            @Override
-            public List<EditorLayoutNode.SplitterNode> getSplittersForWrite()
-            {
-                return layout.getParticleSplittersForWrite();
+                layout.setLayout(ValueEditorLayout.PARTICLE, root);
             }
 
             @Override
@@ -296,30 +299,27 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
             {
                 return EditorLayoutNode.defaultParticleLayout();
             }
+
+            @Override
+            public Set<String> getHiddenPanels()
+            {
+                return layout.getHiddenPanels(ValueEditorLayout.PARTICLE);
+            }
+
+            @Override
+            public void setHiddenPanels(Set<String> hidden)
+            {
+                layout.setHiddenPanels(ValueEditorLayout.PARTICLE, hidden);
+            }
         };
     }
 
     private UIScrollView createSectionView()
     {
-        UIScrollView view = UI.scrollView(20, 10);
+        UIScrollView view = UI.scrollView(UIConstants.MARGIN, UIConstants.SCROLL_PADDING);
         view.scroll.cancelScrolling().opposite().scrollSpeed *= 3;
 
         return view;
-    }
-
-    /**
-     * Wrap a content element (column/scroll layout) in a plain container before docking it.
-     * The dock resets each panel's flex (which would wipe a column layout's {@code flex.post}),
-     * so the actual content must live one level down where the dock never touches it.
-     */
-    private UIElement wrapScroll(UIElement content)
-    {
-        UIElement panel = new UIElement();
-
-        content.relative(panel).w(1F).h(1F);
-        panel.add(content);
-
-        return panel;
     }
 
     private void addSection(UIScrollView view, UIParticleSchemeSection section)
@@ -420,9 +420,10 @@ public class UIParticleSchemePanel extends UIDataDashboardPanel<ParticleScheme>
     {
         super.resize();
 
+        /* The dock re-places its own handles while resizing; only the data gate needs a re-check. */
         if (this.dock != null)
         {
-            this.dock.setupFlex(true);
+            this.dock.refreshVisibility();
         }
     }
 

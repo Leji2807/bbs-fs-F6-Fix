@@ -8,7 +8,6 @@ import mchorse.bbs_mod.ui.film.UIFilmPanel;
 import mchorse.bbs_mod.ui.utils.Area;
 import mchorse.bbs_mod.ui.utils.Gizmo;
 import mchorse.bbs_mod.ui.utils.GizmoDrag;
-import mchorse.bbs_mod.ui.utils.TransformSpace;
 import mchorse.bbs_mod.ui.utils.pose.PoseBones;
 import mchorse.bbs_mod.ui.utils.icons.Icon;
 import mchorse.bbs_mod.cubic.ModelInstance;
@@ -23,7 +22,9 @@ import mchorse.bbs_mod.cubic.physics.ModelPhysicsConfig;
 import mchorse.bbs_mod.cubic.physics.ModelPhysicsIO;
 import mchorse.bbs_mod.cubic.physics.PhysicsControl;
 import mchorse.bbs_mod.cubic.physics.PhysicsControls;
+import mchorse.bbs_mod.cubic.physics.WindControl;
 import mchorse.bbs_mod.film.replays.FormProperties;
+import mchorse.bbs_mod.film.replays.FormControlKeys;
 import mchorse.bbs_mod.film.replays.PerLimbService;
 import mchorse.bbs_mod.film.replays.Replay;
 import mchorse.bbs_mod.forms.FormUtils;
@@ -46,9 +47,12 @@ import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UIPoseTra
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UITransformKeyframeFactory;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.graphs.IUIKeyframeGraph;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
+import mchorse.bbs_mod.utils.MatrixStackUtils;
 import mchorse.bbs_mod.utils.Pair;
+import mchorse.bbs_mod.utils.StringUtils;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.settings.values.core.ValueLink;
+import mchorse.bbs_mod.settings.values.core.ValuePose;
 import mchorse.bbs_mod.settings.values.core.ValueTransform;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
@@ -59,6 +63,7 @@ import mchorse.bbs_mod.settings.values.base.BaseValue;
 import mchorse.bbs_mod.settings.values.base.BaseValueBasic;
 import mchorse.bbs_mod.utils.pose.Pose;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -233,7 +238,7 @@ public class UIReplaysEditorUtils
 
         for (String bone : bones)
         {
-            if (PoseBones.isHidden(model.disabledBones, bone))
+            if (PoseBones.isHidden(model.getDisabledBones(), bone))
             {
                 continue;
             }
@@ -314,7 +319,7 @@ public class UIReplaysEditorUtils
         }
 
         String path = FormUtils.getPath(modelForm);
-        String id = PerLimbService.toIKControlKey(path);
+        String id = FormControlKeys.toIKControlKey(path);
         String title = path.isEmpty() ? "ik" : path + "/ik";
 
         KeyframeChannel channel = properties.registerChannel(id, KeyframeFactories.IK);
@@ -404,7 +409,7 @@ public class UIReplaysEditorUtils
         }
 
         String path = FormUtils.getPath(modelForm);
-        String id = PerLimbService.toPhysicsControlKey(path);
+        String id = FormControlKeys.toPhysicsControlKey(path);
         String title = path.isEmpty() ? "physics" : path + "/physics";
 
         KeyframeChannel channel = properties.registerChannel(id, KeyframeFactories.PHYSICS);
@@ -444,6 +449,62 @@ public class UIReplaysEditorUtils
         }
 
         return controls;
+    }
+
+    /**
+     * One wind track per form that has physics chains: a single keyframe sheet whose value holds the
+     * global wind scalars (strength, direction, turbulence), layered over the form's physics wind config
+     * at playback. The wind is global, so — unlike the physics-controls track — it is not keyed by a chain.
+     */
+    public static void addWindControlSheet(ModelForm modelForm, FormProperties properties, List<UIKeyframeSheet> out)
+    {
+        ModelPhysicsConfig physics = null;
+
+        if (modelForm.physics.get() instanceof MapType map)
+        {
+            physics = ModelPhysicsIO.fromData(map);
+        }
+
+        if (physics == null || physics.bones() == null || physics.bones().isEmpty())
+        {
+            return;
+        }
+
+        String path = FormUtils.getPath(modelForm);
+        String id = FormControlKeys.toWindControlKey(path);
+        String title = path.isEmpty() ? "wind" : path + "/wind";
+
+        KeyframeChannel channel = properties.registerChannel(id, KeyframeFactories.WIND);
+
+        out.add(new UIKeyframeSheet(id, IKey.constant(title), Colors.CYAN, false, channel, null)
+            .icon(Icons.ARROW_RIGHT).form(modelForm).seed(() -> buildWindControl(modelForm)));
+    }
+
+    /** A wind-control value seeded from the form's physics wind config, so a fresh keyframe matches the configured wind instead of drifting to defaults. */
+    private static WindControl buildWindControl(ModelForm modelForm)
+    {
+        WindControl control = new WindControl();
+
+        if (modelForm.physics.get() instanceof MapType map)
+        {
+            ModelPhysicsConfig config = ModelPhysicsIO.fromData(map);
+
+            if (config != null)
+            {
+                ModelPhysicsConfig.Wind wind = config.wind();
+
+                control.strength = wind.strength();
+                control.x = wind.x();
+                control.y = wind.y();
+                control.z = wind.z();
+                control.turbulence = wind.turbulence();
+                control.turbulenceSpeed = wind.turbulenceSpeed();
+                control.turbulenceScale = wind.turbulenceScale();
+                control.local = wind.local();
+            }
+        }
+
+        return control;
     }
 
     public static void addPhysicsTargetSheets(ModelForm modelForm, FormProperties properties, List<UIKeyframeSheet> out)
@@ -493,6 +554,13 @@ public class UIReplaysEditorUtils
             return;
         }
 
+        /* A model with at most one material ignores the material system entirely (its single texture is
+         * driven by form.texture), so it exposes no per-material texture tracks - see the renderer. */
+        if (model.materials.size() <= 1)
+        {
+            return;
+        }
+
         String path = FormUtils.getPath(modelForm);
 
         for (String material : model.materials)
@@ -513,7 +581,7 @@ public class UIReplaysEditorUtils
 
             if (materialDefault == null)
             {
-                materialDefault = model.getMaterialTexture(material, model.texture);
+                materialDefault = model.getMaterialTexture(material, model.getTexture());
             }
 
             ValueLink property = new ValueLink(id, materialDefault);
@@ -558,6 +626,7 @@ public class UIReplaysEditorUtils
         {
             addMaterialTextureSheets(modelForm, properties, sheets);
             addPhysicsControlSheet(modelForm, properties, sheets);
+            addWindControlSheet(modelForm, properties, sheets);
             addPhysicsTargetSheets(modelForm, properties, sheets);
             addBoneTrackSheets(modelForm, properties, sheets);
             addIKControlSheet(modelForm, properties, sheets);
@@ -662,6 +731,44 @@ public class UIReplaysEditorUtils
         boolean pose = panel.replayEditor.keyframeEditor.editor instanceof UIPoseKeyframeFactory;
 
         transform.worldTransform(pose ? new FilmBoneWorldProvider(panel) : null);
+        transform.rotationConstrained(pose ? () -> isFilmBoneRotationConstrained(panel) : null);
+    }
+
+    /**
+     * Whether the film pose editor's current bone rotation is owned by an
+     * enabled IK chain of its (possibly nested) model form — the gizmo then
+     * refuses rotation gestures and dims its rings (see
+     * {@link ModelIKRuntime#isRotationConstrained}).
+     */
+    private static boolean isFilmBoneRotationConstrained(UIFilmPanel panel)
+    {
+        UIKeyframeEditor keyframeEditor = panel.replayEditor.keyframeEditor;
+
+        if (keyframeEditor == null || !(keyframeEditor.editor instanceof UIPoseKeyframeFactory))
+        {
+            return false;
+        }
+
+        IEntity entity = panel.getController().getCurrentEntity();
+        Pair<String, Boolean> bone = keyframeEditor.getBone();
+
+        if (entity == null || bone == null || bone.a == null)
+        {
+            return false;
+        }
+
+        UIKeyframeSheet sheet = keyframeEditor.getSheet(keyframeEditor.editor.getKeyframe());
+        BaseValueBasic property = sheet == null ? null : FormUtils.getProperty(entity.getForm(), sheet.id);
+        Form owner = property == null ? null : FormUtils.getForm(property);
+
+        if (!(owner instanceof ModelForm modelForm))
+        {
+            return false;
+        }
+
+        ModelInstance instance = ModelFormRenderer.getModel(modelForm);
+
+        return instance != null && ModelIKRuntime.isRotationConstrained(instance.model, modelForm, StringUtils.fileName(bone.a));
     }
 
     /**
@@ -670,7 +777,9 @@ public class UIReplaysEditorUtils
      * {@link GizmoDrag#computeRotateAxes} / {@link GizmoDrag#computeTranslateJacobian}
      * driven by the composite bone matrix {@code target.mul(bone)} so replay
      * {@code bodyYaw}, anchor parents, and other film-only transforms match
-     * {@link BaseFilmController#renderEntity}.
+     * {@link BaseFilmController#renderEntity}. Also the one place the film's
+     * GLOBAL frame is set on the drag &mdash; the replay's own facing
+     * ({@link BaseFilmController#getReplayWorldAxes}).
      */
     public static GizmoDrag buildFilmGizmoDrag(
         UIFilmPanel panel,
@@ -682,7 +791,21 @@ public class UIReplaysEditorUtils
     {
         GizmoDrag drag = GizmoDrag.fromRenderedGizmo(camera, viewport);
 
-        if (drag == null || transform == null || transform.getTransform() == null || panel == null)
+        if (drag == null || panel == null)
+        {
+            return drag;
+        }
+
+        IEntity entity = panel.getController().getCurrentEntity();
+
+        /* The GLOBAL frame of a film edit is the edited replay's own facing, not
+         * the map's axes — set before any early return, since it is the gizmo's
+         * frame for every track (it doesn't depend on the bone or the sampled
+         * matrices below). The drawn handles get the same axes in
+         * BaseFilmController#renderAxes; the two must not drift apart. */
+        drag.setGlobalAxes(BaseFilmController.getReplayWorldAxes(entity, transition));
+
+        if (transform == null || transform.getTransform() == null)
         {
             return drag;
         }
@@ -694,9 +817,8 @@ public class UIReplaysEditorUtils
             return drag;
         }
 
-        Pair<String, TransformSpace> bone = keyframeEditor.getBone();
+        Pair<String, Boolean> bone = keyframeEditor.getBone();
         Replay replay = panel.replayEditor.getReplay();
-        IEntity entity = panel.getController().getCurrentEntity();
 
         if (bone == null || bone.a == null || replay == null || entity == null)
         {
@@ -742,7 +864,6 @@ public class UIReplaysEditorUtils
             transform.getTransform(),
             () -> matrixSampler.get().getTranslation(new Vector3f())
         ));
-
         /* Restore the form to its unperturbed state */
         Form form = entity.getForm();
         if (form != null)
@@ -751,7 +872,49 @@ public class UIReplaysEditorUtils
             replay.properties.applyProperties(form, tick);
         }
 
+        /* After the restore, so the evaluated channels the base reads reflect
+         * the unperturbed pose (the helper re-collects the capture itself). */
+        drag.setAdditiveRotationBase(filmPoseRotationBase(keyframeEditor, entity, transition, bone.a));
+
         return drag;
+    }
+
+    /**
+     * The additive euler base under the edited pose/overlay track's channels for
+     * the current bone ({@link FormUtils#additivePoseRotationBase}): the pose
+     * stack merges per-channel, so an overlay's drag deltas must compose at the
+     * bone's EFFECTIVE angles, not the overlay's own near-zero channels. The
+     * total comes from the bone's EVALUATED channels in the render capture
+     * ({@link BaseFilmController#getGizmoBoneEvaluatedRotation}) — folding the
+     * animator's actions and the model's rest rotation in — with the edited
+     * track resolved through the sheet's property path on the LIVE form and its
+     * own contribution subtracted. {@code null} (zero base) when the track isn't
+     * a pose one or the merge for this bone isn't purely additive.
+     */
+    private static Vector3f filmPoseRotationBase(UIKeyframeEditor keyframeEditor, IEntity entity, float transition, String bonePath)
+    {
+        if (!(keyframeEditor.editor instanceof UIPoseKeyframeFactory))
+        {
+            return null;
+        }
+
+        UIKeyframeSheet sheet = keyframeEditor.getSheet(keyframeEditor.editor.getKeyframe());
+
+        if (sheet == null)
+        {
+            return null;
+        }
+
+        BaseValueBasic property = FormUtils.getProperty(entity.getForm(), sheet.id);
+
+        if (!(property instanceof ValuePose valuePose))
+        {
+            return null;
+        }
+
+        Vector3f evaluated = BaseFilmController.getGizmoBoneEvaluatedRotation(entity, transition, bonePath);
+
+        return FormUtils.additivePoseRotationBase(valuePose, StringUtils.fileName(bonePath), evaluated);
     }
 
     /**
@@ -801,7 +964,6 @@ public class UIReplaysEditorUtils
             transform.getTransform(),
             () -> matrixSampler.get().getTranslation(new Vector3f())
         ));
-
         /* Restore the form to its unperturbed state */
         Form form = entity.getForm();
         if (form != null)
@@ -822,6 +984,20 @@ public class UIReplaysEditorUtils
     {
         if (form == null || keyframeEditor == null || bone.isEmpty())
         {
+            return;
+        }
+
+        /* Ctrl multi-select: toggle the bone in the live pose editor without changing the
+         * selected keyframe. Selecting a keyframe recreates the factory (see
+         * UIKeyframeEditor#pickKeyframe), which resets the pose editor — so it caps the
+         * multi-selection. When a pose factory is already up and owns this bone, just
+         * toggle it and stop, so the selection accumulates. */
+        if (!insert && Window.isCtrlPressed()
+            && keyframeEditor.editor instanceof UIPoseKeyframeFactory poseFactory
+            && poseFactory.poseEditor.hasBone(bone))
+        {
+            poseFactory.poseEditor.selectBone(bone, true);
+
             return;
         }
 
@@ -1187,7 +1363,7 @@ public class UIReplaysEditorUtils
 
         List<String> bones = new ArrayList<>(model.model.getGroupKeysInHierarchyOrder());
 
-        bones.removeIf((bone) -> PoseBones.isHidden(model.disabledBones, bone));
+        bones.removeIf((bone) -> PoseBones.isHidden(model.getDisabledBones(), bone));
 
         List<Keyframe<Pose>> selectedKeyframes = (List<Keyframe<Pose>>) (List<?>) poseSheet.selection.getSelected();
 
@@ -1279,11 +1455,11 @@ public class UIReplaysEditorUtils
     }
 
     /**
-     * Shared viewport bone-pick gesture for the film, replay and animation
-     * state editors: left / Ctrl+right select, middle inserts, Ctrl offers
-     * adjacent bones, Shift offers the hierarchy. The leaf {@code picker}
-     * supplies the editor-specific selection. Returns whether the click
-     * was consumed.
+     * Shared viewport bone-pick gesture for the film / replay editor: left / Ctrl+middle
+     * select, right inserts, Shift offers the hierarchy. Ctrl+click toggles the bone in
+     * the pose editor's multi-selection (handled at the leaf), so it no longer opens the
+     * adjacent-bones menu here. The leaf {@code picker} supplies the editor-specific
+     * selection. Returns whether the click was consumed.
      */
     public static boolean pickFormWithOffers(UIContext context, Pair<Form, String> pair, FormPicker picker)
     {
@@ -1295,11 +1471,9 @@ public class UIReplaysEditorUtils
             return false;
         }
 
-        if (Window.isCtrlPressed())
-        {
-            offerAdjacent(context, pair.a, pair.b, (bone) -> picker.pick(pair.a, bone, insert));
-        }
-        else if (Window.isShiftPressed())
+        /* Shift keeps the hierarchy menu; Ctrl now falls straight through to the pick,
+         * where the modifier turns the selection additive (multi-bone). */
+        if (Window.isShiftPressed())
         {
             offerHierarchy(context, pair.a, pair.b, (bone) -> picker.pick(pair.a, bone, insert));
         }
@@ -1331,7 +1505,7 @@ public class UIReplaysEditorUtils
             {
                 for (String modelGroup : model.model.getAdjacentGroups(bone))
                 {
-                    if (PoseBones.isHidden(model.disabledBones, modelGroup))
+                    if (PoseBones.isHidden(model.getDisabledBones(), modelGroup))
                     {
                         continue;
                     }
@@ -1364,7 +1538,7 @@ public class UIReplaysEditorUtils
             {
                 for (String modelGroup : model.model.getHierarchyGroups(bone))
                 {
-                    if (PoseBones.isHidden(model.disabledBones, modelGroup))
+                    if (PoseBones.isHidden(model.getDisabledBones(), modelGroup))
                     {
                         continue;
                     }

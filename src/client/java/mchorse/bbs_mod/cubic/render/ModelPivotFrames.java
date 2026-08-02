@@ -24,6 +24,16 @@ public final class ModelPivotFrames
 
     public static void collect(IModel model, Set<String> wanted, Map<String, CubicRenderer.PivotFrame> out, Matrix4f baseTransform)
     {
+        collect(model, wanted, out, baseTransform, false);
+    }
+
+    /**
+     * @param applyStretch see {@link CubicRenderer#collectPivotFrames(Model, Set, Map, Matrix4f,
+     * boolean)}. Ignored for BOBJ: a BOBJ stretch rides the skinning matrix and leaves the skeleton
+     * frames ({@code originMat}/{@code mat}) nominal by construction, so there is nothing to fold in.
+     */
+    public static void collect(IModel model, Set<String> wanted, Map<String, CubicRenderer.PivotFrame> out, Matrix4f baseTransform, boolean applyStretch)
+    {
         if (model == null || wanted == null || wanted.isEmpty() || out == null)
         {
             return;
@@ -31,7 +41,7 @@ public final class ModelPivotFrames
 
         if (model instanceof Model cubic)
         {
-            CubicRenderer.collectPivotFrames(cubic, wanted, out, baseTransform);
+            CubicRenderer.collectPivotFrames(cubic, wanted, out, baseTransform, applyStretch);
             return;
         }
 
@@ -48,8 +58,11 @@ public final class ModelPivotFrames
 
         if (baseTransform != null)
         {
+            /* Unnormalized: the base transform carries the model's and the form's scale, which
+             * getNormalizedRotation is not valid for — see the note in {@link
+             * CubicRenderer#collectPivotFrames}. */
             baseTranslation = baseTransform.getTranslation(new Vector3f());
-            baseRotation = baseTransform.getNormalizedRotation(new Quaternionf());
+            baseRotation = baseTransform.getUnnormalizedRotation(new Quaternionf());
         }
 
         model.getArmature().setupMatrices();
@@ -61,9 +74,11 @@ public final class ModelPivotFrames
                 continue;
             }
 
+            /* Unnormalized: a scaled bone leaves its scale on these skeleton matrices. */
             Vector3f position = bone.originMat.getTranslation(new Vector3f());
-            Quaternionf parentRotation = bone.originMat.getNormalizedRotation(new Quaternionf());
-            Quaternionf worldRotation = bone.mat.getNormalizedRotation(new Quaternionf());
+            Quaternionf parentRotation = bone.originMat.getUnnormalizedRotation(new Quaternionf());
+            Quaternionf worldRotation = bone.mat.getUnnormalizedRotation(new Quaternionf());
+            Vector3f scale = bone.originMat.getScale(new Vector3f());
 
             if (baseRotation != null && baseTranslation != null)
             {
@@ -74,7 +89,7 @@ public final class ModelPivotFrames
                 worldRotation = new Quaternionf(baseRotation).mul(worldRotation);
             }
 
-            out.put(bone.name, new CubicRenderer.PivotFrame(position, parentRotation, worldRotation));
+            out.put(bone.name, new CubicRenderer.PivotFrame(position, parentRotation, worldRotation, scale));
         }
     }
 }

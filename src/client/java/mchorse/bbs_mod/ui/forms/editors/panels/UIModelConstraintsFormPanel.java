@@ -10,10 +10,14 @@ import mchorse.bbs_mod.forms.renderers.ModelFormRenderer;
 import mchorse.bbs_mod.l10n.keys.IKey;
 import mchorse.bbs_mod.ui.UIKeys;
 import mchorse.bbs_mod.ui.forms.editors.forms.UIForm;
+import mchorse.bbs_mod.ui.framework.elements.UISection;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
+import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
-import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
+import mchorse.bbs_mod.ui.framework.elements.input.list.UISearchList;
+import mchorse.bbs_mod.ui.utils.PickedBone;
+import mchorse.bbs_mod.ui.utils.bones.UIBoneTreeList;
 import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.presets.UIDataContextMenu;
@@ -32,15 +36,16 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
     private static final float DEFAULT_MIN = -180F;
     private static final float DEFAULT_MAX = 180F;
 
-    public UIStringList bones;
+    public UIBoneTreeList bones;
+    public UISearchList<String> bonesSearch;
 
     public UIToggle enabled;
-    public UITrackpad minX;
-    public UITrackpad minY;
-    public UITrackpad minZ;
-    public UITrackpad maxX;
-    public UITrackpad maxY;
-    public UITrackpad maxZ;
+    public UISliderTrackpad minX;
+    public UISliderTrackpad minY;
+    public UISliderTrackpad minZ;
+    public UISliderTrackpad maxX;
+    public UISliderTrackpad maxY;
+    public UISliderTrackpad maxZ;
     public UIButton applyToChildren;
 
     private List<String> availableBones = Collections.emptyList();
@@ -56,12 +61,17 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
 
         IKey axis = IKey.constant("%s (%s)");
 
-        this.bones = new UIStringList((l) ->
+        this.bones = new UIBoneTreeList((l) ->
         {
             this.selectedBone = l.isEmpty() ? "" : l.get(0);
+
+            PickedBone.set(this.selectedBone);
             this.updateFields();
         });
-        this.bones.background().h(UIConstants.LIST_ITEM_HEIGHT * 8);
+        this.bones.background();
+        this.bonesSearch = new UISearchList<>(this.bones);
+        this.bonesSearch.label(UIKeys.GENERAL_SEARCH);
+        this.bonesSearch.h(20 + UIConstants.LIST_ITEM_HEIGHT * 8);
         this.bones.context(() -> new UIDataContextMenu(ModelConstraintsManager.INSTANCE, this.presetGroup, this::toPresetData, this::applyPresetData).tooltips("_CopyModelConstraints",
             UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_CONTEXT_COPY,
             UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_CONTEXT_PASTE,
@@ -98,10 +108,9 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
         this.maxZ = axisTrackpad((v) -> this.onFieldChanged(), Colors.BLUE, axis.format(UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_MAX, UIKeys.GENERAL_Z));
         this.applyToChildren = new UIButton(UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_APPLY_TO_CHILDREN, (b) -> this.applySelectedToChildren());
 
-        this.options.add(
-            UI.label(UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_BONES),
-            this.bones,
-            UI.label(UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_SETTINGS).background().marginTop(UIConstants.SECTION_GAP),
+        UISection params = this.section(UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_SETTINGS, "constraints.settings", true);
+
+        params.fields.add(
             this.enabled,
             UI.label(IKey.constant("%s / %s").format(UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_MIN, UIKeys.FORMS_EDITORS_MODEL_CONSTRAINTS_MAX)).marginTop(UIConstants.SECTION_GAP),
             UI.label(UIKeys.GENERAL_X),
@@ -112,11 +121,16 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
             UI.row(this.minZ, this.maxZ),
             this.applyToChildren.marginTop(UIConstants.SECTION_GAP)
         );
+
+        this.options.add(
+            this.bonesSearch,
+            params
+        );
     }
 
-    private static UITrackpad axisTrackpad(Consumer<Double> c, int color, IKey tooltip)
+    private static UISliderTrackpad axisTrackpad(Consumer<Double> c, int color, IKey tooltip)
     {
-        UITrackpad t = new UITrackpad(c).degrees().onlyNumbers().limit(-180D, 180D);
+        UISliderTrackpad t = new UISliderTrackpad(c).degrees().onlyNumbers().limit(-180D, 180D);
         t.textbox.setColor(color);
         t.tooltip(tooltip);
         return t;
@@ -137,8 +151,7 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
         if (model == null || model.model == null)
         {
             this.availableBones = Collections.emptyList();
-            this.bones.setList(Collections.emptyList());
-            this.bones.deselect();
+            this.bones.clear();
             this.setElementsEnabled(false);
             this.setDefaults();
             this.enabled.setValue(false);
@@ -147,10 +160,14 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
         }
 
         List<String> bones = new ArrayList<>(model.model.getGroupKeysInHierarchyOrder());
-        bones.removeIf(model.disabledBones::contains);
+        bones.removeIf(model.getDisabledBones()::contains);
         this.availableBones = bones;
 
-        this.bones.setList(bones);
+        this.bones.fillBones(model.model, model.getDisabledBones());
+
+        /* The fill resets the list's filter state, but the search box keeps its
+         * text across startEdit — reapply so what you see matches the query. */
+        this.bones.filter(this.bonesSearch.search.getText());
         this.setElementsEnabled(true);
 
         ModelConstraintsConfig config = null;
@@ -164,7 +181,13 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
             this.load(config);
         }
 
-        if (!bones.isEmpty())
+        /* Same as the other bone-list panels: keep the animator on the bone
+         * they are working on across a rebuild instead of resetting to the root. */
+        if (this.pickBoneInList(PickedBone.get()))
+        {
+            /* Already selected and filled in. */
+        }
+        else if (!bones.isEmpty())
         {
             this.selectBone(bones.get(0));
         }
@@ -186,6 +209,7 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
         }
 
         this.selectBone(bone);
+        PickedBone.set(bone);
 
         return true;
     }
@@ -349,6 +373,7 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
 
     private void setElementsEnabled(boolean enabled)
     {
+        this.bonesSearch.setEnabled(enabled);
         this.bones.setEnabled(enabled);
         this.enabled.setEnabled(enabled);
         this.applyToChildren.setEnabled(enabled);
@@ -446,7 +471,7 @@ public class UIModelConstraintsFormPanel extends UIFormPanel<ModelForm>
 
     private String resolvePresetGroup(ModelForm form, ModelInstance model)
     {
-        String group = model != null ? model.poseGroup : "";
+        String group = model != null ? model.getPoseGroup() : "";
 
         if (group == null || group.isEmpty())
         {

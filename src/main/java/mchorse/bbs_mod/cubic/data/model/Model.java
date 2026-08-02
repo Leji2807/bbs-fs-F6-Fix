@@ -11,8 +11,12 @@ import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.math.molang.MolangParser;
 import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Pose;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
+import mchorse.bbs_mod.utils.pose.Transform;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -143,17 +147,55 @@ public class Model implements IMapSerializable, IModel
             if (transform.fix > 0F)
             {
                 group.current.lerp(group.initial, transform.fix);
+
+                /* fix blends toward the bind pose, so any composed orientation from earlier layers no longer
+                 * applies — drop it and let composeOrient below re-seed from the fix-lerped euler. */
+                group.orient = null;
             }
 
             group.lighting = transform.lighting;
             group.color.copy(transform.color);
             group.current.translate.add(transform.translate);
             group.current.scale.add(transform.scale).sub(1, 1, 1);
-            group.current.rotate.add(
-                (float) Math.toDegrees(transform.rotate.x),
-                (float) Math.toDegrees(transform.rotate.y),
-                (float) Math.toDegrees(transform.rotate.z)
-            );
+
+            if (transform.rotationMode == Transform.RotationMode.QUATERNION)
+            {
+                /* Quaternion pose: seed orient from the euler accumulated so far
+                 * (rest + prior layers) if needed, then compose the pose quaternion
+                 * straight in — no euler decomposition, so the render stays gimbal-
+                 * free. The euler readback into current.rotate is only kept for the
+                 * gizmo/IK sampling, not the render (which follows orient). */
+                if (group.orient == null)
+                {
+                    group.orient = Matrices.toLocalRotationZYXDegrees(group.current.rotate);
+                }
+
+                group.orient.mul(transform.createRotation());
+
+                Vector3f euler = Matrices.toEulerZYXRadians(transform.quat, new Vector3f());
+
+                group.current.rotate.add(
+                    (float) Math.toDegrees(euler.x),
+                    (float) Math.toDegrees(euler.y),
+                    (float) Math.toDegrees(euler.z)
+                );
+            }
+            else
+            {
+                group.current.rotate.add(
+                    (float) Math.toDegrees(transform.rotate.x),
+                    (float) Math.toDegrees(transform.rotate.y),
+                    (float) Math.toDegrees(transform.rotate.z)
+                );
+
+                /* Compose the pose rotation into the orientation quaternion.
+                 * The euler readback above is kept for gizmo/IK; orient is the render truth past the first layer. */
+                group.composeOrient(Matrices.toQuaternionZYXDegrees(
+                    (float) Math.toDegrees(transform.rotate.x),
+                    (float) Math.toDegrees(transform.rotate.y),
+                    (float) Math.toDegrees(transform.rotate.z)
+                ));
+            }
         }
     }
 

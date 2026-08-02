@@ -188,6 +188,11 @@ public class Icons
 
     public static final Icon HORIZONTAL = register(new Icon(ATLAS, "horizontal", 0, 160));
     public static final Icon VERTICAL = register(new Icon(ATLAS, "vertical", 16, 160));
+    public static final Icon ARROW_SMALL = register(new Icon(ATLAS, "arrow_small", 80, 160));
+    public static final Icon SPACE_GLOBAL = register(new Icon(ATLAS, "space_global", 160, 160));
+    public static final Icon SPACE_LOCAL = register(new Icon(ATLAS, "space_local", 176, 160));
+    public static final Icon SPACE_VIEW = register(new Icon(ATLAS, "space_view", 192, 160));
+    public static final Icon SPACE_PARENT = register(new Icon(ATLAS, "space_parent", 208, 160)); 
 
     public static final Icon INTERP_LINEAR = register(new Icon(ATLAS, "interp_linear", 0, 192));
     public static final Icon INTERP_CONST = register(new Icon(ATLAS, "interp_const", 16, 192));
@@ -243,6 +248,11 @@ public class Icons
     public static final Icon ERASER = new Icon(ATLAS, "eraser", 32, 160, 16, 16);
     public static final Icon EYEDROPPER = new Icon(ATLAS, "eyedropper", 48, 160, 16, 16);
     public static final Icon BRUSH = new Icon(ATLAS, "brush", 64, 160, 16, 16);
+
+    public static final Icon ARMOR_HELMET = new Icon(ATLAS, "armor_helmet", 96, 160, 16, 16);
+    public static final Icon ARMOR_CHESTPLATE = new Icon(ATLAS, "armor_chestplate", 112, 160, 16, 16);
+    public static final Icon ARMOR_LEGGINGS = new Icon(ATLAS, "armor_leggings", 128, 160, 16, 16);
+    public static final Icon ARMOR_BOOTS = new Icon(ATLAS, "armor_boots", 144, 160, 16, 16);
 
     public static Icon register(Icon icon)
     {

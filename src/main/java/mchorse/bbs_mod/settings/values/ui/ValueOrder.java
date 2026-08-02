@@ -104,11 +104,21 @@ public class ValueOrder extends BaseValueBasic<List<String>>
             }
         }
 
-        for (String token : this.tokens)
+        /* Tokens the saved order doesn't mention — a step added to this setting
+         * after the user last saved it — land where the DEFAULT order puts them,
+         * not at the end. Appending would silently demote a new step to last
+         * place for everyone who had already touched the setting, which is
+         * exactly where it's least likely to be wanted (a new first step would
+         * arrive dead last). Walking the defaults in order keeps their relative
+         * placement, and clamping to the current size handles a token whose
+         * default index is past what's been filled in so far. */
+        for (int i = 0; i < this.tokens.size(); i++)
         {
+            String token = this.tokens.get(i);
+
             if (!order.contains(token))
             {
-                order.add(token);
+                order.add(Math.min(i, order.size()), token);
             }
         }
 

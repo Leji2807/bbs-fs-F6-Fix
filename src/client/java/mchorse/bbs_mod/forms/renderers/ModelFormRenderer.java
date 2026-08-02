@@ -1,5 +1,6 @@
 package mchorse.bbs_mod.forms.renderers;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.client.BBSRendering;
@@ -24,6 +25,7 @@ import mchorse.bbs_mod.cubic.model.ArmorSlot;
 import mchorse.bbs_mod.cubic.model.ArmorType;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.forms.CustomVertexConsumerProvider;
+import mchorse.bbs_mod.forms.FormTranslucentQueue;
 import mchorse.bbs_mod.forms.FormUtilsClient;
 import mchorse.bbs_mod.forms.ITickable;
 import mchorse.bbs_mod.forms.entities.IEntity;
@@ -50,6 +52,7 @@ import mchorse.bbs_mod.utils.pose.PoseTransform;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.ShaderProgram;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
+import mchorse.bbs_mod.graphics.texture.Texture;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.LightmapTextureManager;
 import net.minecraft.client.render.OverlayTexture;
@@ -100,7 +103,9 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
         if (model != null)
         {
-            stack.scale(model.scale.x, model.scale.y, model.scale.z);
+            Vector3f scale = model.getScale();
+
+            stack.scale(scale.x, scale.y, scale.z);
         }
     }
 
@@ -113,7 +118,9 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
         if (model != null)
         {
-            matrix.scale(model.scale.x, model.scale.y, model.scale.z);
+            Vector3f scale = model.getScale();
+
+            matrix.scale(scale.x, scale.y, scale.z);
         }
     }
 
@@ -204,13 +211,13 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             {
                 poseTransform.translate.lerp(value.translate, value.fix);
                 poseTransform.scale.lerp(value.scale, value.fix);
-                poseTransform.rotate.lerp(value.rotate, value.fix);
+                poseTransform.lerpRotation(value, value.fix);
             }
             else
             {
                 poseTransform.translate.add(value.translate);
                 poseTransform.scale.add(value.scale).sub(1, 1, 1);
-                poseTransform.rotate.add(value.rotate);
+                poseTransform.addRotation(value);
             }
         }
     }
@@ -219,6 +226,20 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
     {
         this.animator = null;
         this.lastModel = null;
+    }
+
+    /**
+     * The channels phase of the bone pipeline (rest &rarr; actions &rarr; pose): resets every bone
+     * to its bind pose, applies the animator's actions, then the form's pose stack. After this the
+     * channels are the FK truth; the constraint stages (IK &rarr; physics &rarr; limits) run on top
+     * of it separately (render: the apply*Once trio; matrix capture: its explicit IK solve) and
+     * write only evaluated orientations, never the channels.
+     */
+    private void evaluateChannels(IEntity entity, ModelInstance model, float transition)
+    {
+        model.model.resetPose();
+        this.animator.applyActions(entity, model, transition);
+        model.model.applyPose(this.getPose());
     }
 
     public void ensureAnimator(float transition)
@@ -240,7 +261,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             return;
         }
 
-        this.animator = model.procedural ? new ProceduralAnimator() : new Animator();
+        this.animator = model.isProcedural() ? new ProceduralAnimator() : new Animator();
         this.animator.setup(model, actionsConfig, false);
 
         this.lastConfigs = new ActionsConfig();
@@ -259,7 +280,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
         }
 
         List<String> bones = new ArrayList<>(model.model.getGroupKeysInHierarchyOrder());
-        bones.removeIf((bone) -> PoseBones.isHidden(model.disabledBones, bone));
+        bones.removeIf((bone) -> PoseBones.isHidden(model.getDisabledBones(), bone));
 
         return bones;
     }
@@ -324,10 +345,10 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
         }
 
         Link link = this.form.texture.get();
-        Link texture = link == null ? model.texture : link;
+        Link texture = link == null ? model.getTexture() : link;
         Color contextColor = Color.white();
         Color formColor = this.form.color.get();
-        float scale = this.form.uiScale.get() * model.uiScale;
+        float scale = this.form.uiScale.get() * model.getUiScale();
 
         /* Route cubic geometry through the vanilla entity layer keyed on this model's (adopted) texture,
          * exactly like render3D — this is what makes ModelInstance.render take the entityCutoutNoCull branch. */
@@ -403,7 +424,12 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             newStack.peek().getNormalMatrix().scale(1F / Vectors.EMPTY_3F.x, -1F / Vectors.EMPTY_3F.y, 1F / Vectors.EMPTY_3F.z);
         }
 
-        Matrix4f baseTransform = ui ? null : new Matrix4f((world != null ? world : stack).peek().getPositionMatrix());
+        /* Strictly the world frame: it's what places the model in the world for the simulating subsystems
+         * (bone physics resolves gravity, wind and its collisions against it), so falling back to the render
+         * stack when there is no world stack — the first person arm — resolved them against the camera
+         * instead, and gravity pulled toward the bottom of the screen. Without a world frame there is no
+         * honest answer, so they run model-local, as they do in the UI. */
+        Matrix4f baseTransform = ui || world == null ? null : new Matrix4f(world.peek().getPositionMatrix());
 
         this.applyIKOnce(model, baseTransform);
         this.applyPhysicsOnce(target, model, transition, baseTransform);
@@ -416,18 +442,26 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
         if (defaultTexture == null)
         {
-            defaultTexture = model.texture;
+            defaultTexture = model.getTexture();
         }
 
         final Link resolvedDefault = defaultTexture;
 
-        /* The form's single "Default" texture (form.texture) only applies when the model exposes no
-         * materials (e.g. cubic). Once there's a material list, materials fall back only to the model's
-         * base texture - the Default is hidden in the editor and must not affect them here either. */
-        final Link materialFallback = model.materials.isEmpty() ? resolvedDefault : model.texture;
+        /* A model with at most one material ignores the material system entirely: a single texture
+         * (form.texture, else the model's base texture) covers the whole model, regardless of any
+         * per-material folder/Kd default, editor pick, or animation track. Only with multiple materials
+         * is the Default ambiguous - it's hidden in the editor then and must not affect them here either,
+         * so they fall back to the model base texture. */
+        final boolean ignoreMaterials = model.materials.size() <= 1;
+        final Link materialFallback = ignoreMaterials ? resolvedDefault : model.getTexture();
 
         model.render(newStack, program, finalColor, light, overlay, stencilMap, this.form.shapeKeys.get(), (material) ->
         {
+            if (ignoreMaterials)
+            {
+                return resolvedDefault;
+            }
+
             /* Resolution order: animated per-material track > editor-picked static per-material
              * texture > the material's loaded default (folder/Kd) > the model base texture. */
             Link override = this.form.materialTextureOverrides.get(material);
@@ -447,7 +481,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             return model.getMaterialTexture(material, materialFallback);
         });
 
-        if (stencilMap == null && !this.renderingArm && ModelIKDebug.enabled && this.form != null && this.form.ik.get() instanceof MapType ikMap)
+        if (stencilMap == null && !this.renderingArm && this.form != null && this.form.ik.get() instanceof MapType ikMap)
         {
             ModelIKDebug.render(newStack, model.model, ikMap, "");
         }
@@ -462,10 +496,10 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
         if (stencilMap == null)
         {
-            this.renderItems(target, model, stack, EquipmentSlot.MAINHAND, ItemDisplayContext.THIRD_PERSON_RIGHT_HAND, model.itemsMain, finalColor, overlay, light);
-            this.renderItems(target, model, stack, EquipmentSlot.OFFHAND, ItemDisplayContext.THIRD_PERSON_LEFT_HAND, model.itemsOff, finalColor, overlay, light);
+            this.renderItems(target, model, stack, EquipmentSlot.MAINHAND, ItemDisplayContext.THIRD_PERSON_RIGHT_HAND, model.getItemsMain(), finalColor, overlay, light);
+            this.renderItems(target, model, stack, EquipmentSlot.OFFHAND, ItemDisplayContext.THIRD_PERSON_LEFT_HAND, model.getItemsOff(), finalColor, overlay, light);
 
-            for (Map.Entry<ArmorType, ArmorSlot> entry : model.armorSlots.entrySet())
+            for (Map.Entry<ArmorType, ArmorSlot> entry : model.getArmorSlots().entrySet())
             {
                 this.renderArmor(target, stack, entry.getKey(), entry.getValue(), finalColor, overlay, light);
             }
@@ -567,8 +601,15 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             /* TODO(1.21.11 render): blend/depth state is now pipeline-encoded; hijack hook left as a no-op. */
             CustomVertexConsumerProvider.hijackVertexFormat((l) -> {});
 
+            /* Translucent armor layers ride the deferred sorted pass (see
+             * CustomVertexConsumerProvider#draw(RenderLayer)); only reached outside picking. */
+            Vector3f armorOrigin = stack.peek().getPositionMatrix().getTranslation(new Vector3f());
+
+            FormTranslucentQueue.setSortOrigin(new Matrix4f(RenderSystem.getModelViewMatrix()).transformPosition(armorOrigin));
+
             ActorEntityRenderer.armorRenderer.renderArmorSlot(stack, consumers, target, type.slot, type, light);
             consumers.draw();
+            FormTranslucentQueue.setSortOrigin(null);
 
             CustomVertexConsumerProvider.clearRunnables();
 
@@ -603,6 +644,12 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
                 /* TODO(1.21.11 render): blend state now pipeline-encoded; hijack hook left as a no-op. */
                 CustomVertexConsumerProvider.hijackVertexFormat((l) -> {});
 
+                /* Translucent item layers (potions, glass blocks in hand) ride the deferred
+                 * sorted pass; only reached outside picking. */
+                Vector3f itemOrigin = stack.peek().getPositionMatrix().getTranslation(new Vector3f());
+
+                FormTranslucentQueue.setSortOrigin(new Matrix4f(RenderSystem.getModelViewMatrix()).transformPosition(itemOrigin));
+
                 consumers.setSubstitute(BBSRendering.getColorConsumer(color));
 
                 /* TODO(1.21.11 render): ItemRenderer.renderItem(entity, stack, mode, leftHanded, matrices,
@@ -613,6 +660,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
                  * mode == ItemDisplayContext.THIRD_PERSON_LEFT_HAND. */
                 consumers.draw();
                 consumers.setSubstitute(null);
+                FormTranslucentQueue.setSortOrigin(null);
 
                 CustomVertexConsumerProvider.clearRunnables();
 
@@ -628,7 +676,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
         if (this.animator != null && model != null)
         {
-            ArmorSlot slot = hand == Hand.MAIN_HAND ? model.fpMain : model.fpOffhand;
+            ArmorSlot slot = hand == Hand.MAIN_HAND ? model.getFpMain() : model.getFpOffhand();
 
             if (slot == null)
             {
@@ -636,7 +684,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             }
 
             Link link = this.form.texture.get();
-            Link texture = link == null ? model.texture : link;
+            Link texture = link == null ? model.getTexture() : link;
             Color contextColor = Color.white();
             Color formColor = this.form.color.get();
 
@@ -708,7 +756,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
         if (this.animator != null && model != null)
         {
             Link link = this.form.texture.get();
-            Link texture = link == null ? model.texture : link;
+            Link texture = link == null ? model.getTexture() : link;
             Color contextColor = new Color().set(context.color, true);
             Color formColor = this.form.color.get();
             boolean additive = this.form.additiveColor.get();
@@ -719,10 +767,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
                 formColor = Color.white();
                 additive = false;
             }
-            model.model.resetPose();
-
-            this.animator.applyActions(context.entity, model, context.getTransition());
-            model.model.applyPose(this.getPose());
+            this.evaluateChannels(context.entity, model, context.getTransition());
 
             context.stack.multiply(RotationAxis.POSITIVE_Y.rotation(MathUtils.PI));
             if (context.world != null)
@@ -760,7 +805,36 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
                 }
             }
 
-            this.renderModel(context.entity, shader, context.stack, model, context.light, context.overlay, contextColor, formColor, additive, false, context.stencilMap, context.getTransition(), context.world);
+            /* TODO(1.21.11 render): 1.21.1 degraded a translucent-texture model to the vanilla cutout
+             * program under Iris and suspended the deferred queue for that draw. Both the program swap
+             * (GameRenderer::getRenderTypeEntityCutoutProgram) and the queue are gone on this branch —
+             * the port keeps Iris/Sodium decoupled and draws single-pass — so the dance is dropped. */
+            boolean irisWorld = false;
+            boolean cutout = false;
+            boolean wasActive = false;
+
+            if (irisWorld)
+            {
+                /* Under Iris the model always draws right now, in the phase its program is meant
+                 * for. The end-of-frame replay runs after a deferred pack's shading composite —
+                 * Photon never shades it and the model vanishes (a 1% colour fade used to fall
+                 * into that path). Vanilla translucent entities don't sort either: vanilla-level
+                 * blending is the ceiling under shaders, the sorted queue stays a no-shader
+                 * feature. */
+                wasActive = FormTranslucentQueue.suspend();
+            }
+
+            try
+            {
+                this.renderModel(context.entity, shader, context.stack, model, context.light, context.overlay, contextColor, formColor, additive, false, context.stencilMap, context.getTransition(), context.world);
+            }
+            finally
+            {
+                if (irisWorld)
+                {
+                    FormTranslucentQueue.restore(wasActive);
+                }
+            }
         }
     }
 
@@ -776,12 +850,12 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
         model.fillStencilMap(context.stencilMap, this.form);
 
-        if (ModelIKDebug.enabled && this.form != null && this.form.ik.get() instanceof MapType ikMap)
+        if (this.form != null && this.form.ik.get() instanceof MapType ikMap)
         {
             ModelIKDebug.renderStencil(context.stack, model.model, ikMap, context.stencilMap, this.form);
         }
 
-        if (ModelPhysicsDebug.enabled && this.form != null && this.form.physics.get() instanceof MapType physicsMap)
+        if (this.form != null && this.form.physics.get() instanceof MapType physicsMap)
         {
             ModelPhysicsDebug.renderStencil(context.stack, model.model, physicsMap, context.stencilMap, this.form);
         }
@@ -867,10 +941,16 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
         /* Collect bones and add them to matrix list */
         if (this.animator != null && model != null)
         {
-            model.model.resetPose();
+            this.evaluateChannels(entity, model, transition);
 
-            this.animator.applyActions(entity, model, transition);
-            model.model.applyPose(this.getPose());
+            /* Solve IK here too, so a bone anchored to an IK-driven bone (a head pinned to
+             * body_upper) rides the solved pose — these matrices feed the anchor system, the
+             * gizmo and trackers, which otherwise see the FK-only pose the render path moved
+             * past. The live-drag world-space target overrides need a base transform this
+             * local pass doesn't carry, so the config/`ik`-track solve runs (controllers
+             * keyed into the pose are already baked in and reached). */
+            model.form = this.form;
+            ModelIKRuntime.apply(model, null, null);
 
             stack.multiply(RotationAxis.POSITIVE_Y.rotation(MathUtils.PI));
             this.captureMatrices(model);
@@ -891,7 +971,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             o.set(stack.peek().getPositionMatrix());
             stack.pop();
 
-            matrices.put(StringUtils.combinePaths(prefix, entry.getKey()), matrix, o);
+            matrices.put(StringUtils.combinePaths(prefix, entry.getKey()), matrix, o, entry.getValue().evaluatedRotation());
         }
 
         int i = 0;
@@ -918,7 +998,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
                 MatrixStackUtils.applyTransform(stack, part.transform.get());
 
-                FormUtilsClient.getRenderer(form).collectMatrices(part.useTarget.get() ? entity : part.getEntity(), stack, matrices, StringUtils.combinePaths(prefix, String.valueOf(i)), transition);
+                FormUtilsClient.getRenderer(form).collectMatrices(part.getRenderEntity(entity), stack, matrices, StringUtils.combinePaths(prefix, String.valueOf(i)), transition);
 
                 stack.pop();
             }
@@ -991,19 +1071,22 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
          * cancel and the bind pose ends up at a different height (a constant ~1/16 shadow sink). */
         if (rest)
         {
-            stack.scale(model.scale.x, model.scale.y, model.scale.z);
+            Vector3f scale = model.getScale();
+
+            stack.scale(scale.x, scale.y, scale.z);
         }
         else
         {
             this.applyTransforms(stack, false, transition);
         }
 
-        model.model.resetPose();
-
-        if (!rest && this.animator != null)
+        if (rest || this.animator == null)
         {
-            this.animator.applyActions(entity, model, transition);
-            model.model.applyPose(this.getPose());
+            model.model.resetPose();
+        }
+        else
+        {
+            this.evaluateChannels(entity, model, transition);
         }
 
         stack.multiply(RotationAxis.POSITIVE_Y.rotation(MathUtils.PI));

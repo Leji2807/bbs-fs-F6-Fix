@@ -1,65 +1,44 @@
 package mchorse.bbs_mod.settings.values.ui;
 
 import mchorse.bbs_mod.data.types.BaseType;
+import mchorse.bbs_mod.data.types.ListType;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.settings.values.base.BaseValue;
 import mchorse.bbs_mod.utils.MathUtils;
 
-import java.util.ArrayList;
-import java.util.EnumMap;
-import java.util.EnumSet;
-import java.util.List;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 
+/**
+ * Dockable layout trees, keyed by layout id, plus a few editor sizes that predate them.
+ *
+ * <p>Ids are opaque to this class: an editor decides what it stores and under which name, so adding
+ * one is a call site rather than another field with its own pair of accessors here. Whether two
+ * editors share a tree or keep their own is likewise the editor's policy &mdash; this only records
+ * which ids were marked as having their own, via {@link #setBound}.
+ */
 public class ValueEditorLayout extends BaseValue
 {
-    public enum FilmEditor
-    {
-        CAMERA("camera"),
-        REPLAY("replay");
+    /** Bumped when the stored shape changes; older data is migrated on read. */
+    private static final int VERSION = 1;
 
-        public final String id;
+    /** Layout ids the film editor stores under. */
+    public static final String FILM = "film";
+    public static final String FILM_CAMERA = "film.camera";
+    public static final String FILM_REPLAY = "film.replay";
+    public static final String PARTICLE = "particle";
 
-        FilmEditor(String id)
-        {
-            this.id = id;
-        }
-    }
+    private final Map<String, EditorLayoutNode> layouts = new LinkedHashMap<>();
+    private final Set<String> bound = new HashSet<>();
+    /** Panels the user hid, per layout id; hidden ids are not re-added by the dock's ensure pass. */
+    private final Map<String, Set<String>> hiddenByLayout = new LinkedHashMap<>();
+    /** Docks left in layout-editing mode, so unlock survives a restart. */
+    private final Set<String> unlockedDocks = new HashSet<>();
 
-    private static class LayoutState
-    {
-        private EditorLayoutNode root;
-        private final List<EditorLayoutNode.SplitterNode> splitters = new ArrayList<>();
-        private final Supplier<EditorLayoutNode> defaultSupplier;
-
-        public LayoutState(EditorLayoutNode root, Supplier<EditorLayoutNode> defaultSupplier)
-        {
-            this.defaultSupplier = defaultSupplier;
-            this.setRoot(root);
-        }
-
-        public EditorLayoutNode getRoot()
-        {
-            return this.root;
-        }
-
-        public List<EditorLayoutNode.SplitterNode> getSplitters()
-        {
-            return this.splitters;
-        }
-
-        public void setRoot(EditorLayoutNode root)
-        {
-            this.root = root == null ? this.defaultSupplier.get() : root;
-            this.splitters.clear();
-            EditorLayoutNode.collectSplitters(this.root, this.splitters);
-        }
-    }
-
-    private final LayoutState filmLayout = new LayoutState(EditorLayoutNode.defaultFilmLayout(), EditorLayoutNode::defaultFilmLayout);
-    private final EnumMap<FilmEditor, LayoutState> filmEditorLayouts = new EnumMap<>(FilmEditor.class);
-    private final EnumSet<FilmEditor> boundFilmEditors = EnumSet.noneOf(FilmEditor.class);
-    private final LayoutState particleLayout = new LayoutState(EditorLayoutNode.defaultParticleLayout(), EditorLayoutNode::defaultParticleLayout);
     private float stateEditorSizeH = 0.7F;
     private float stateEditorSizeV = 0.25F;
     private int keyframeLabelWidth = 120;
@@ -69,158 +48,104 @@ public class ValueEditorLayout extends BaseValue
         super(id);
     }
 
-    public EditorLayoutNode getFilmLayoutRoot()
+    /* Layout trees */
+
+    public EditorLayoutNode getLayout(String id, Supplier<EditorLayoutNode> defaultSupplier)
     {
-        return this.filmLayout.getRoot();
+        EditorLayoutNode root = this.layouts.get(id);
+
+        return root == null ? defaultSupplier.get() : root;
     }
 
-    public EditorLayoutNode getFilmLayoutRoot(FilmEditor editor)
+    public void setLayout(String id, EditorLayoutNode root)
     {
-        return this.getFilmLayoutState(editor, false).getRoot();
-    }
-
-    public void setFilmLayoutRoot(EditorLayoutNode root)
-    {
-        BaseValue.edit(this, (v) -> this.filmLayout.setRoot(root));
-    }
-
-    public void setFilmLayoutRoot(FilmEditor editor, EditorLayoutNode root)
-    {
-        if (!this.isFilmLayoutBound(editor))
-        {
-            this.setFilmLayoutRoot(root);
-
-            return;
-        }
-
-        BaseValue.edit(this, (v) -> this.getFilmLayoutState(editor, true).setRoot(root));
-    }
-
-    public List<EditorLayoutNode.SplitterNode> getFilmSplitters()
-    {
-        return this.filmLayout.getSplitters();
-    }
-
-    public List<EditorLayoutNode.SplitterNode> getFilmSplitters(FilmEditor editor)
-    {
-        return this.getFilmLayoutState(editor, false).getSplitters();
-    }
-
-    public List<EditorLayoutNode.SplitterNode> getFilmSplittersForWrite(FilmEditor editor)
-    {
-        return this.getFilmLayoutState(editor, true).getSplitters();
-    }
-
-    public boolean isFilmLayoutBound(FilmEditor editor)
-    {
-        return editor != null && this.boundFilmEditors.contains(editor);
-    }
-
-    public void setFilmLayoutBound(FilmEditor editor, boolean bound)
-    {
-        if (editor == null)
-        {
-            return;
-        }
-
         BaseValue.edit(this, (v) ->
         {
-            if (bound)
+            if (root == null)
             {
-                this.boundFilmEditors.add(editor);
+                this.layouts.remove(id);
             }
             else
             {
-                this.boundFilmEditors.remove(editor);
-                this.filmEditorLayouts.remove(editor);
+                this.layouts.put(id, root);
             }
         });
     }
 
-    public void setFilmSplitterRatio(int index, float ratio)
+    /** Whether this id keeps a layout of its own instead of sharing another one. */
+    public boolean isBound(String id)
     {
-        if (index < 0 || index >= this.filmLayout.getSplitters().size())
-        {
-            return;
-        }
-        int i = index;
-        BaseValue.edit(this, (v) -> this.filmLayout.getSplitters().get(i).setRatio(MathUtils.clamp(ratio, 0.05F, 0.95F)));
+        return this.bound.contains(id);
     }
 
-    public float getFilmMainRatio()
-    {
-        EditorLayoutNode root = this.filmLayout.getRoot();
-
-        if (root instanceof EditorLayoutNode.SplitterNode)
-        {
-            return ((EditorLayoutNode.SplitterNode) root).getRatio();
-        }
-        return 0.66F;
-    }
-
-    public float getFilmSmallRatio()
-    {
-        EditorLayoutNode root = this.filmLayout.getRoot();
-
-        if (root instanceof EditorLayoutNode.SplitterNode)
-        {
-            EditorLayoutNode second = ((EditorLayoutNode.SplitterNode) root).getSecond();
-            if (second instanceof EditorLayoutNode.SplitterNode)
-            {
-                return ((EditorLayoutNode.SplitterNode) second).getRatio();
-            }
-        }
-        return 0.5F;
-    }
-
-    public void setFilmRatios(float mainRatio, float smallRatio)
+    /**
+     * Marks an id as keeping its own layout, seeding it from {@code seed} so binding starts from
+     * what was on screen. Unbinding discards the copy.
+     */
+    public void setBound(String id, boolean isBound, EditorLayoutNode seed)
     {
         BaseValue.edit(this, (v) ->
         {
-            EditorLayoutNode root = this.filmLayout.getRoot();
-
-            if (root instanceof EditorLayoutNode.SplitterNode)
+            if (isBound)
             {
-                EditorLayoutNode.SplitterNode splitter = (EditorLayoutNode.SplitterNode) root;
-                splitter.setRatio(MathUtils.clamp(mainRatio, 0.05F, 0.95F));
-                EditorLayoutNode second = splitter.getSecond();
-                if (second instanceof EditorLayoutNode.SplitterNode)
+                this.bound.add(id);
+
+                if (!this.layouts.containsKey(id) && seed != null)
                 {
-                    ((EditorLayoutNode.SplitterNode) second).setRatio(MathUtils.clamp(smallRatio, 0.05F, 0.95F));
+                    this.layouts.put(id, seed);
                 }
             }
-        });
-    }
-
-    public void setFilmMainRatio(float mainRatio)
-    {
-        BaseValue.edit(this, (v) ->
-        {
-            EditorLayoutNode root = this.filmLayout.getRoot();
-
-            if (root instanceof EditorLayoutNode.SplitterNode)
+            else
             {
-                ((EditorLayoutNode.SplitterNode) root).setRatio(MathUtils.clamp(mainRatio, 0.05F, 0.95F));
+                this.bound.remove(id);
+                this.layouts.remove(id);
             }
         });
     }
 
-    public void setFilmSmallRatio(float smallRatio)
+    public Set<String> getHiddenPanels(String id)
+    {
+        Set<String> hidden = this.hiddenByLayout.get(id);
+
+        return hidden == null ? new HashSet<>() : new HashSet<>(hidden);
+    }
+
+    public void setHiddenPanels(String id, Set<String> hidden)
     {
         BaseValue.edit(this, (v) ->
         {
-            EditorLayoutNode root = this.filmLayout.getRoot();
-
-            if (root instanceof EditorLayoutNode.SplitterNode)
+            if (hidden == null || hidden.isEmpty())
             {
-                EditorLayoutNode second = ((EditorLayoutNode.SplitterNode) root).getSecond();
-                if (second instanceof EditorLayoutNode.SplitterNode)
-                {
-                    ((EditorLayoutNode.SplitterNode) second).setRatio(MathUtils.clamp(smallRatio, 0.05F, 0.95F));
-                }
+                this.hiddenByLayout.remove(id);
+            }
+            else
+            {
+                this.hiddenByLayout.put(id, new HashSet<>(hidden));
             }
         });
     }
+
+    public boolean isDockUnlocked(String dockId)
+    {
+        return this.unlockedDocks.contains(dockId);
+    }
+
+    public void setDockUnlocked(String dockId, boolean unlocked)
+    {
+        BaseValue.edit(this, (v) ->
+        {
+            if (unlocked)
+            {
+                this.unlockedDocks.add(dockId);
+            }
+            else
+            {
+                this.unlockedDocks.remove(dockId);
+            }
+        });
+    }
+
+    /* Editor sizes that are not layout trees, kept here because they ship in the same settings key */
 
     public void setStateEditorSizeH(float stateEditorSizeH)
     {
@@ -252,188 +177,213 @@ public class ValueEditorLayout extends BaseValue
         BaseValue.edit(this, (v) -> this.keyframeLabelWidth = MathUtils.clamp(keyframeLabelWidth, 40, 400));
     }
 
-    /* Particle editor layout (separate tree from the film editors). */
-
-    public EditorLayoutNode getParticleLayoutRoot()
-    {
-        return this.particleLayout.getRoot();
-    }
-
-    public void setParticleLayoutRoot(EditorLayoutNode root)
-    {
-        BaseValue.edit(this, (v) -> this.particleLayout.setRoot(root));
-    }
-
-    public List<EditorLayoutNode.SplitterNode> getParticleSplitters()
-    {
-        return this.particleLayout.getSplitters();
-    }
-
-    public List<EditorLayoutNode.SplitterNode> getParticleSplittersForWrite()
-    {
-        return this.particleLayout.getSplitters();
-    }
-
-    public void setParticleSplitterRatio(int index, float ratio)
-    {
-        if (index < 0 || index >= this.particleLayout.getSplitters().size())
-        {
-            return;
-        }
-        int i = index;
-        BaseValue.edit(this, (v) -> this.particleLayout.getSplitters().get(i).setRatio(MathUtils.clamp(ratio, 0.05F, 0.95F)));
-    }
+    /* Serialization */
 
     @Override
     public BaseType toData()
     {
         MapType data = new MapType();
-        MapType filmEditorLayouts = new MapType();
-        MapType filmEditorBindings = new MapType();
+        MapType layouts = new MapType();
+        ListType bound = new ListType();
 
-        data.put("film_layout", this.filmLayout.getRoot().toData());
-        data.put("particle_layout", this.particleLayout.getRoot().toData());
-
-        for (FilmEditor editor : FilmEditor.values())
+        for (Map.Entry<String, EditorLayoutNode> entry : this.layouts.entrySet())
         {
-            LayoutState state = this.filmEditorLayouts.get(editor);
-
-            if (state != null)
-            {
-                filmEditorLayouts.put(editor.id, state.getRoot().toData());
-            }
-
-                if (this.boundFilmEditors.contains(editor))
-            {
-                filmEditorBindings.putBool(editor.id, true);
-            }
+            layouts.put(entry.getKey(), entry.getValue().toData());
         }
 
-        if (!filmEditorLayouts.isEmpty())
+        for (String id : this.bound)
         {
-            data.put("film_editor_layouts", filmEditorLayouts);
+            bound.addString(id);
         }
 
-        if (!filmEditorBindings.isEmpty())
+        data.putInt("version", VERSION);
+        data.put("layouts", layouts);
+
+        if (!bound.isEmpty())
         {
-            data.put("film_editor_layout_bindings", filmEditorBindings);
+            data.put("bound", bound);
+        }
+
+        MapType hidden = new MapType();
+
+        for (Map.Entry<String, Set<String>> entry : this.hiddenByLayout.entrySet())
+        {
+            ListType ids = new ListType();
+
+            for (String id : entry.getValue())
+            {
+                ids.addString(id);
+            }
+
+            hidden.put(entry.getKey(), ids);
+        }
+
+        if (!hidden.isEmpty())
+        {
+            data.put("hidden", hidden);
+        }
+
+        ListType unlocked = new ListType();
+
+        for (String id : this.unlockedDocks)
+        {
+            unlocked.addString(id);
+        }
+
+        if (!unlocked.isEmpty())
+        {
+            data.put("unlocked_docks", unlocked);
         }
 
         data.putFloat("state_editor_size_h", this.stateEditorSizeH);
         data.putFloat("state_editor_size_v", this.stateEditorSizeV);
         data.putInt("keyframe_label_width", this.keyframeLabelWidth);
+
         return data;
     }
 
     @Override
     public void fromData(BaseType data)
     {
-        this.resetFilmLayouts();
-        this.particleLayout.setRoot(EditorLayoutNode.defaultParticleLayout());
+        this.layouts.clear();
+        this.bound.clear();
+        this.hiddenByLayout.clear();
+        this.unlockedDocks.clear();
 
-        if (data.isMap())
+        if (!data.isMap())
         {
-            MapType map = data.asMap();
+            return;
+        }
 
-            if (map.has("particle_layout"))
+        MapType map = data.asMap();
+
+        if (map.has("layouts"))
+        {
+            MapType layouts = map.getMap("layouts");
+
+            for (String id : layouts.keys())
             {
-                this.particleLayout.setRoot(EditorLayoutNode.fromData(map.get("particle_layout")));
-            }
-
-            if (map.has("film_layout"))
-            {
-                EditorLayoutNode filmLayoutRoot = EditorLayoutNode.fromData(map.get("film_layout"));
-
-                if (filmLayoutRoot == null)
-                {
-                    filmLayoutRoot = EditorLayoutNode.defaultFilmLayout();
-                }
-
-                this.filmLayout.setRoot(filmLayoutRoot);
-            }
-            else
-            {
-                float mainV = map.getFloat("main_size_v", 0.66F);
-                float editorV = map.getFloat("editor_size_v", 0.5F);
-                EditorLayoutNode filmLayoutRoot = EditorLayoutNode.defaultFilmLayout();
-
-                if (filmLayoutRoot instanceof EditorLayoutNode.SplitterNode)
-                {
-                    EditorLayoutNode.SplitterNode root = (EditorLayoutNode.SplitterNode) filmLayoutRoot;
-                    root.setRatio(MathUtils.clamp(mainV, 0.05F, 0.95F));
-                    EditorLayoutNode second = root.getSecond();
-                    if (second instanceof EditorLayoutNode.SplitterNode)
-                    {
-                        ((EditorLayoutNode.SplitterNode) second).setRatio(MathUtils.clamp(editorV, 0.05F, 0.95F));
-                    }
-                }
-
-                this.filmLayout.setRoot(filmLayoutRoot);
-            }
-
-            MapType filmEditorLayouts = map.getMap("film_editor_layouts");
-
-            for (FilmEditor editor : FilmEditor.values())
-            {
-                if (!filmEditorLayouts.has(editor.id))
-                {
-                    continue;
-                }
-
-                EditorLayoutNode root = EditorLayoutNode.fromData(filmEditorLayouts.get(editor.id));
+                EditorLayoutNode root = EditorLayoutNode.fromData(layouts.get(id));
 
                 if (root != null)
                 {
-                    this.filmEditorLayouts.put(editor, new LayoutState(root, EditorLayoutNode::defaultFilmLayout));
+                    this.layouts.put(id, root);
                 }
             }
 
-            MapType filmEditorBindings = map.getMap("film_editor_layout_bindings");
-
-            for (FilmEditor editor : FilmEditor.values())
+            for (BaseType id : map.getList("bound"))
             {
-                if (filmEditorBindings.getBool(editor.id))
+                if (id != null && id.isString())
                 {
-                    this.boundFilmEditors.add(editor);
+                    this.bound.add(id.asString());
+                }
+            }
+        }
+        else
+        {
+            this.readLegacyLayouts(map);
+        }
+
+        MapType hiddenMap = map.getMap("hidden");
+
+        for (String id : hiddenMap.keys())
+        {
+            Set<String> ids = new HashSet<>();
+
+            for (BaseType panelId : hiddenMap.getList(id))
+            {
+                if (panelId != null && panelId.isString())
+                {
+                    ids.add(panelId.asString());
                 }
             }
 
-            this.stateEditorSizeH = map.getFloat("state_editor_size_h", 0.7F);
-            this.stateEditorSizeV = map.getFloat("state_editor_size_v", 0.25F);
-            this.keyframeLabelWidth = map.getInt("keyframe_label_width", 120);
+            if (!ids.isEmpty())
+            {
+                this.hiddenByLayout.put(id, ids);
+            }
         }
-    }
 
-    /* Bound editors reuse the shared layout until the first layout write creates a local copy. */
-    private LayoutState getFilmLayoutState(FilmEditor editor, boolean forWrite)
-    {
-        if (!this.isFilmLayoutBound(editor))
+        for (BaseType id : map.getList("unlocked_docks"))
         {
-            return this.filmLayout;
+            if (id != null && id.isString())
+            {
+                this.unlockedDocks.add(id.asString());
+            }
         }
 
-        LayoutState state = this.filmEditorLayouts.get(editor);
+        this.stateEditorSizeH = map.getFloat("state_editor_size_h", 0.7F);
+        this.stateEditorSizeV = map.getFloat("state_editor_size_v", 0.25F);
+        this.keyframeLabelWidth = map.getInt("keyframe_label_width", 120);
+    }
 
-        if (state == null && forWrite)
+    /** Reads the pre-{@link #VERSION} shape: one field per editor, plus the ratios that came before. */
+    private void readLegacyLayouts(MapType map)
+    {
+        EditorLayoutNode particle = EditorLayoutNode.fromData(map.get("particle_layout"));
+
+        if (particle != null)
         {
-            state = new LayoutState(copyFilmLayoutRoot(this.filmLayout.getRoot()), EditorLayoutNode::defaultFilmLayout);
-            this.filmEditorLayouts.put(editor, state);
+            this.layouts.put(PARTICLE, particle);
         }
 
-        return state == null ? this.filmLayout : state;
+        EditorLayoutNode film = EditorLayoutNode.fromData(map.get("film_layout"));
+
+        if (film == null && (map.has("main_size_v") || map.has("editor_size_v")))
+        {
+            film = migrateLegacyFilmRatios(map.getFloat("main_size_v", 0.66F), map.getFloat("editor_size_v", 0.5F));
+        }
+
+        if (film != null)
+        {
+            this.layouts.put(FILM, film);
+        }
+
+        MapType editorLayouts = map.getMap("film_editor_layouts");
+        MapType bindings = map.getMap("film_editor_layout_bindings");
+
+        this.readLegacyFilmEditor(editorLayouts, bindings, "camera", FILM_CAMERA);
+        this.readLegacyFilmEditor(editorLayouts, bindings, "replay", FILM_REPLAY);
     }
 
-    private void resetFilmLayouts()
+    private void readLegacyFilmEditor(MapType layouts, MapType bindings, String legacyId, String id)
     {
-        this.filmLayout.setRoot(EditorLayoutNode.defaultFilmLayout());
-        this.filmEditorLayouts.clear();
-        this.boundFilmEditors.clear();
+        EditorLayoutNode root = EditorLayoutNode.fromData(layouts.get(legacyId));
+
+        if (root != null)
+        {
+            this.layouts.put(id, root);
+        }
+
+        if (bindings.getBool(legacyId))
+        {
+            this.bound.add(id);
+        }
     }
 
-    private static EditorLayoutNode copyFilmLayoutRoot(EditorLayoutNode root)
+    /**
+     * Settings saved before the layout tree existed only knew two ratios: the main vertical split
+     * and the one below it. Rebuild the default tree with those two applied.
+     */
+    private static EditorLayoutNode migrateLegacyFilmRatios(float mainRatio, float smallRatio)
     {
-        EditorLayoutNode copy = EditorLayoutNode.fromData((root == null ? EditorLayoutNode.defaultFilmLayout() : root).toData());
+        EditorLayoutNode root = EditorLayoutNode.defaultFilmLayout();
 
-        return copy == null ? EditorLayoutNode.defaultFilmLayout() : copy;
+        if (!(root instanceof EditorLayoutNode.SplitterNode))
+        {
+            return root;
+        }
+
+        EditorLayoutNode.SplitterNode splitter = (EditorLayoutNode.SplitterNode) root;
+        Map<EditorLayoutNode.SplitterNode, Float> ratios = new HashMap<>();
+
+        ratios.put(splitter, mainRatio);
+
+        if (splitter.getSecond() instanceof EditorLayoutNode.SplitterNode)
+        {
+            ratios.put((EditorLayoutNode.SplitterNode) splitter.getSecond(), smallRatio);
+        }
+
+        return EditorLayoutNode.copyWithSplitterRatios(root, ratios);
     }
 }

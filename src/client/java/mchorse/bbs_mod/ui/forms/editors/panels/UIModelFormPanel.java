@@ -11,6 +11,7 @@ import mchorse.bbs_mod.ui.UIKeys;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.ui.forms.editors.forms.UIForm;
 import mchorse.bbs_mod.ui.forms.editors.panels.widgets.UIModelPoseEditor;
+import mchorse.bbs_mod.ui.framework.elements.UISection;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIButton;
 import mchorse.bbs_mod.ui.framework.elements.input.UIColor;
 import mchorse.bbs_mod.ui.framework.elements.input.UITexturePicker;
@@ -30,6 +31,7 @@ public class UIModelFormPanel extends UIFormPanel<ModelForm>
     public UIColor color;
     public UIModelPoseEditor poseEditor;
     public UIShapeKeys shapeKeys;
+    public UISection shapeKeysSection;
 
     public UIButton pickModel;
     public UIButton pick;
@@ -50,7 +52,7 @@ public class UIModelFormPanel extends UIFormPanel<ModelForm>
 
                     if (model != null)
                     {
-                        this.form.texture.set(model.texture);
+                        this.form.texture.set(model.getTexture());
                     }
                 }
 
@@ -68,21 +70,20 @@ public class UIModelFormPanel extends UIFormPanel<ModelForm>
         this.poseEditor = new UIModelPoseEditor();
         this.poseEditor.transform.barBackground();
         this.shapeKeys = new UIShapeKeys();
+        this.shapeKeys.title.removeFromParent();
+        this.shapeKeysSection = this.section(UIKeys.SHAPE_KEYS_TITLE, "model.shape_keys", false);
+        this.shapeKeysSection.fields.add(this.shapeKeys);
         this.pick = new UIButton(UIKeys.FORMS_EDITOR_MODEL_PICK_TEXTURE, (b) ->
         {
             ModelInstance model = ModelFormRenderer.getModel(this.form);
             List<String> materials = model == null ? Collections.emptyList() : model.materials;
 
-            /* No materials (single global texture, e.g. cubic): pick the form's default texture.
-             * Exactly one material: pick it directly. Multiple: choose which material to pick. When
-             * materials exist the form's "Default" texture is irrelevant, so it isn't offered. */
-            if (materials.isEmpty())
+            /* At most one material (a single global texture, e.g. cubic, or one unambiguous material):
+             * pick the form's default texture. Multiple: choose which material to pick - the form's
+             * "Default" texture is ambiguous then, so it isn't offered. */
+            if (materials.size() <= 1)
             {
                 this.openTexturePicker(null);
-            }
-            else if (materials.size() == 1)
-            {
-                this.openTexturePicker(materials.get(0));
             }
             else
             {
@@ -116,7 +117,7 @@ public class UIModelFormPanel extends UIFormPanel<ModelForm>
 
             if (model != null && link == null)
             {
-                link = model.texture;
+                link = model.getTexture();
             }
 
             callback = (l) -> this.form.texture.set(l);
@@ -127,7 +128,7 @@ public class UIModelFormPanel extends UIFormPanel<ModelForm>
 
             if (link == null && model != null)
             {
-                Link fallback = this.form.texture.get() != null ? this.form.texture.get() : model.texture;
+                Link fallback = this.form.texture.get() != null ? this.form.texture.get() : model.getTexture();
 
                 link = model.getMaterialTexture(material, fallback);
             }
@@ -156,22 +157,15 @@ public class UIModelFormPanel extends UIFormPanel<ModelForm>
         ModelInstance model = ModelFormRenderer.getModel(this.form);
 
         this.poseEditor.setValuePose(form.pose);
-        this.poseEditor.setPose(form.pose.get(), model == null ? this.form.model.get() : model.poseGroup);
-        this.poseEditor.fillGroups(model == null ? null : model.model, model == null ? null : model.flippedParts, true, model == null ? null : model.disabledBones);
+        this.poseEditor.setPose(form.pose.get(), model == null ? this.form.model.get() : model.getPoseGroup());
+        this.poseEditor.fillGroups(model == null ? null : model.model, model == null ? null : model.getFlippedParts(), true, model == null ? null : model.getDisabledBones());
         this.color.setColor(form.color.get().getARGBColor());
 
-        this.shapeKeys.removeFromParent();
+        Set<String> modelShapeKeys = model == null ? Collections.emptySet() : model.model.getShapeKeys();
 
-        if (model != null)
-        {
-            Set<String> modelShapeKeys = model.model.getShapeKeys();
-
-            if (!modelShapeKeys.isEmpty())
-            {
-                this.options.add(this.shapeKeys);
-                this.shapeKeys.setShapeKeys(model.poseGroup, modelShapeKeys, this.form.shapeKeys.get());
-            }
-        }
+        this.shapeKeysSection.removeFromParent();
+        this.options.add(this.shapeKeysSection);
+        this.shapeKeys.setShapeKeys(model == null ? "" : model.getPoseGroup(), modelShapeKeys, this.form.shapeKeys.get());
 
         this.options.resize();
     }

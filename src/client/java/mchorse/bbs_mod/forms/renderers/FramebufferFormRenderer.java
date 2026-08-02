@@ -2,6 +2,8 @@ package mchorse.bbs_mod.forms.renderers;
 
 import com.mojang.blaze3d.vertex.VertexFormat;
 import mchorse.bbs_mod.BBSModClient;
+import mchorse.bbs_mod.client.BBSRendering;
+import mchorse.bbs_mod.forms.FormTranslucentQueue;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.forms.entities.StubEntity;
 import mchorse.bbs_mod.forms.forms.FramebufferForm;
@@ -130,6 +132,16 @@ public class FramebufferFormRenderer extends FormRenderer<FramebufferForm>
 
         depth += 1;
 
+        if (depth == 1)
+        {
+            BBSRendering.setIrisMainBound(false);
+        }
+
+        /* The nested forms render under an ortho projection into this framebuffer — deferring
+         * their translucent pixels into the world's queue would replay them with the wrong
+         * projection, so they render single-pass as before. */
+        boolean queueWasActive = FormTranslucentQueue.suspend();
+
         try
         {
             super.renderBodyParts(context);
@@ -137,6 +149,13 @@ public class FramebufferFormRenderer extends FormRenderer<FramebufferForm>
         finally
         {
             depth -= 1;
+
+            if (depth == 0)
+            {
+                BBSRendering.setIrisMainBound(true);
+            }
+
+            FormTranslucentQueue.restore(queueWasActive);
         }
 
         context.stack.pop();
@@ -156,10 +175,10 @@ public class FramebufferFormRenderer extends FormRenderer<FramebufferForm>
          * shading ? entity-translucent program : position-tex-color program. */
         Supplier<ShaderProgram> shader = () -> null;
 
-        this.renderModel(framebuffer.getMainTexture(), format, shader, context.stack, context.overlay, context.light, context.color, context.getTransition());
+        this.renderModel(framebuffer.getMainTexture(), format, shader, context.stack, context.overlay, context.light, context.color, context.getTransition(), !context.isPicking());
     }
 
-    private void renderModel(Texture texture, VertexFormat format, Supplier<ShaderProgram> shader, MatrixStack matrices, int overlay, int light, int overlayColor, float transition)
+    private void renderModel(Texture texture, VertexFormat format, Supplier<ShaderProgram> shader, MatrixStack matrices, int overlay, int light, int overlayColor, float transition, boolean defer)
     {
         float w = texture.width;
         float h = texture.height;
@@ -189,10 +208,10 @@ public class FramebufferFormRenderer extends FormRenderer<FramebufferForm>
         quad.p3.set(TLx, BRy, 0);
         quad.p4.set(BRx, BRy, 0);
 
-        this.renderQuad(format, texture, shader, matrices, overlay, light, overlayColor, transition);
+        this.renderQuad(format, texture, shader, matrices, overlay, light, overlayColor, transition, defer);
     }
 
-    private void renderQuad(VertexFormat format, Texture texture, Supplier<ShaderProgram> shader, MatrixStack matrices, int overlay, int light, int overlayColor, float transition)
+    private void renderQuad(VertexFormat format, Texture texture, Supplier<ShaderProgram> shader, MatrixStack matrices, int overlay, int light, int overlayColor, float transition, boolean defer)
     {
         Color color = Color.white();
         Matrix4f matrix = matrices.peek().getPositionMatrix();

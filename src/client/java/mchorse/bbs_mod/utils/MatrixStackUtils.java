@@ -5,7 +5,6 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import mchorse.bbs_mod.utils.joml.Vectors;
 import mchorse.bbs_mod.utils.pose.Transform;
 import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.math.RotationAxis;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fStack;
@@ -87,9 +86,7 @@ public class MatrixStackUtils
     public static void applyTransform(MatrixStack stack, Transform transform)
     {
         stack.translate(transform.translate.x, transform.translate.y, transform.translate.z);
-        stack.multiply(RotationAxis.POSITIVE_Z.rotation(transform.rotate.z));
-        stack.multiply(RotationAxis.POSITIVE_Y.rotation(transform.rotate.y));
-        stack.multiply(RotationAxis.POSITIVE_X.rotation(transform.rotate.x));
+        stack.multiply(transform.createRotation());
         scaleStack(stack, transform.scale.x, transform.scale.y, transform.scale.z);
     }
 

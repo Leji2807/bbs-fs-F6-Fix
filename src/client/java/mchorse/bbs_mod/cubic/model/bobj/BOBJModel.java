@@ -10,13 +10,17 @@ import mchorse.bbs_mod.cubic.data.model.ModelGroup;
 import mchorse.bbs_mod.cubic.render.vao.BOBJModelSimpleVAO;
 import mchorse.bbs_mod.cubic.render.vao.BOBJModelVAO;
 import mchorse.bbs_mod.forms.entities.IEntity;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Pose;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
 import mchorse.bbs_mod.utils.pose.Transform;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -30,6 +34,9 @@ public class BOBJModel implements IModel
     private List<BOBJModelVAO> vaos = new ArrayList<>();
     private boolean simple;
 
+    /** Bone indices with at least one weighted vertex; lazily filled by {@link #boneDeformsMesh}. */
+    private Set<Integer> deformingBones;
+
     public BOBJModel(BOBJArmature armature, List<BOBJLoader.CompiledData> meshes, boolean simple)
     {
         this.armature = armature;
@@ -40,6 +47,35 @@ public class BOBJModel implements IModel
     public BOBJArmature getArmature()
     {
         return this.armature;
+    }
+
+    /**
+     * Whether any mesh vertex is weighted to this bone. A bone with no skin is a bare reach marker
+     * (an end bone), so IK stretch ends the chain at the last deforming bone instead — the marker
+     * would otherwise pull the visible mesh short of the controller. Scans the weights once and caches.
+     */
+    public boolean boneDeformsMesh(int boneIndex)
+    {
+        if (this.deformingBones == null)
+        {
+            this.deformingBones = new HashSet<>();
+
+            for (BOBJLoader.CompiledData mesh : this.meshes)
+            {
+                int[] indices = mesh.boneIndexData;
+                float[] weights = mesh.weightData;
+
+                for (int i = 0; i < indices.length; i++)
+                {
+                    if (indices[i] >= 0 && weights[i] > 0F)
+                    {
+                        this.deformingBones.add(indices[i]);
+                    }
+                }
+            }
+        }
+
+        return this.deformingBones.contains(boneIndex);
     }
 
     public List<BOBJModelVAO> getVaos()
@@ -115,13 +151,37 @@ public class BOBJModel implements IModel
             if (transform.fix > 0F)
             {
                 bone.transform.lerp(Transform.DEFAULT, transform.fix);
+
+                /* fix blends toward rest, so a composed orientation from earlier layers no longer applies —
+                 * drop it and let composeOrient below re-seed from the fix-lerped euler. */
+                bone.orient = null;
             }
 
             // TODO: bone.lighting = transform.lighting;
             // TODO: bone.color.copy(transform.color);
             bone.transform.translate.add(transform.translate);
             bone.transform.scale.add(transform.scale).sub(1, 1, 1);
-            bone.transform.rotate.add(transform.rotate);
+
+            if (transform.rotationMode == Transform.RotationMode.QUATERNION)
+            {
+                /* Quaternion pose: seed orient from the euler so far, compose the
+                 * pose quaternion straight in (gimbal-free), keep the euler readback
+                 * for gizmo/IK. Mirrors Model.applyPose. */
+                if (bone.orient == null)
+                {
+                    bone.orient = Matrices.toLocalRotationZYXRadians(bone.transform.rotate);
+                }
+
+                bone.orient.mul(transform.createRotation());
+                bone.transform.rotate.add(Matrices.toEulerZYXRadians(transform.quat, new Vector3f()));
+            }
+            else
+            {
+                bone.transform.rotate.add(transform.rotate);
+
+                /* Compose the pose rotation into the orientation quaternion (radians). */
+                bone.composeOrient(Matrices.toQuaternionZYXRadians(transform.rotate.x, transform.rotate.y, transform.rotate.z));
+            }
         }
     }
 

@@ -6,7 +6,9 @@ import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.client.BBSShaders;
 import mchorse.bbs_mod.cubic.render.vao.ModelVAO;
 import mchorse.bbs_mod.cubic.render.vao.ModelVAORenderer;
+import mchorse.bbs_mod.forms.FormTranslucentQueue;
 import mchorse.bbs_mod.forms.forms.ExtrudedForm;
+import mchorse.bbs_mod.graphics.texture.Texture;
 import mchorse.bbs_mod.forms.renderers.utils.FormColorBlend;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.ui.framework.UIContext;
@@ -17,6 +19,7 @@ import mchorse.bbs_mod.utils.joml.Vectors;
 import net.minecraft.client.render.LightmapTextureManager;
 import net.minecraft.client.render.OverlayTexture;
 import net.minecraft.client.util.math.MatrixStack;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -107,7 +110,9 @@ public class ExtrudedFormRenderer extends FormRenderer<ExtrudedForm>
 
             FormColorBlend.blend(color, formColor, this.form.additiveColor.get());
 
-            BBSModClient.getTextures().bindTexture(texture);
+            Texture textureObject = BBSModClient.getTextures().getTexture(texture);
+
+            BBSModClient.getTextures().bindTexture(textureObject);
 
             /* Blend/depth/cull and the lightmap/overlay samplers are encoded by the model RenderLayer
              * (BBSShaders.getModelLayer()); the geometry is baked CPU-side and drawn immediately, the

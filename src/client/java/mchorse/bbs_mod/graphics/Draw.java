@@ -129,6 +129,16 @@ public class Draw
         flush(builder, getPositionColorLinesLayer());
     }
 
+    /**
+     * Submit a TRIANGLES POSITION_COLOR buffer through the BBS depth-tested triangle pipeline.
+     * Replacement for the old {@code BufferRenderer.drawWithGlobalProgram} used by immediate-mode
+     * world overlays (e.g. the film motion path). No-op on an empty buffer.
+     */
+    public static void flushTriangles(BufferBuilder builder)
+    {
+        flush(builder, getPositionColorLayer());
+    }
+
     /** Finish a buffer and submit it through the given layer (no-op on an empty buffer). */
     private static void flush(BufferBuilder builder, RenderLayer layer)
     {

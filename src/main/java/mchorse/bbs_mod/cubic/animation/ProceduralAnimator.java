@@ -9,14 +9,14 @@ import mchorse.bbs_mod.cubic.data.model.Model;
 import mchorse.bbs_mod.cubic.data.model.ModelGroup;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.utils.MathUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
+import mchorse.bbs_mod.utils.pose.Transform;
 import mchorse.bbs_mod.utils.interps.Lerps;
 import net.minecraft.entity.EntityPose;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
-import org.joml.Matrix3f;
-import org.joml.Vector3f;
 
 import java.util.Arrays;
 import java.util.List;
@@ -145,6 +145,18 @@ public class ProceduralAnimator implements IAnimator
         if (target.isSneaking())
         {
             model.applyPose(armature.getSneakingPose());
+
+            /* The code below finalizes bones in euler, and the sneaking pose fully lives in its euler
+             * readback — drop the composed orientation so the euler writes stay authoritative. */
+            for (ModelGroup group : model.getAllGroups())
+            {
+                group.orient = null;
+            }
+
+            for (BOBJBone bone : model.getAllBOBJBones())
+            {
+                bone.orient = null;
+            }
         }
 
         /* For regular models */
@@ -160,7 +172,12 @@ public class ProceduralAnimator implements IAnimator
                 {
                     if (target.isUsingRiptide())
                     {
-                        group.current.rotate.x = -90.0F - pitch;
+                        /* Riptide spin was rotate.x·rotate2.y (a pitch then a Y spin
+                         * composed after); with rotate2 gone, hold that exact
+                         * composition as a quaternion (degrees for cubic current). */
+                        group.current.rotationMode = Transform.RotationMode.QUATERNION;
+                        group.current.quat.set(Matrices.toQuaternionZYXDegrees(-90.0F - pitch, 0F, 0F)
+                            .mul(Matrices.toQuaternionZYXDegrees(0F, age * -75.0F, 0F)));
                     }
 
                     if (target.isFallFlying())
@@ -197,19 +214,6 @@ public class ProceduralAnimator implements IAnimator
                             group.current.translate.y -= 0.5F * 16F;
                             group.current.translate.z += 0.3F * 16F;
                         }
-                    }
-
-                    /* The spin turns about the anchor's own Y axis, so it composes
-                     * after the branches above are done writing the euler channels. */
-                    if (target.isUsingRiptide())
-                    {
-                        Vector3f r = group.current.rotate;
-                        Vector3f spun = new Matrix3f()
-                            .rotationZ(MathUtils.toRad(r.z)).rotateY(MathUtils.toRad(r.y)).rotateX(MathUtils.toRad(r.x))
-                            .rotateY(MathUtils.toRad(age * -75.0F))
-                            .getEulerAnglesZYX(new Vector3f());
-
-                        r.set(MathUtils.toDeg(spun.x), MathUtils.toDeg(spun.y), MathUtils.toDeg(spun.z));
                     }
                 }
                 else if (group.id.equals("head"))
@@ -313,7 +317,10 @@ public class ProceduralAnimator implements IAnimator
                 {
                     if (target.isUsingRiptide())
                     {
-                        bone.transform.rotate.x = MathUtils.toRad(-90.0F - pitch);
+                        /* See the cubic riptide above; BOBJ channels are radians. */
+                        bone.transform.rotationMode = Transform.RotationMode.QUATERNION;
+                        bone.transform.quat.set(Matrices.toQuaternionZYXRadians(MathUtils.toRad(-90.0F - pitch), 0F, 0F)
+                            .mul(Matrices.toQuaternionZYXRadians(0F, MathUtils.toRad(age * -75.0F), 0F)));
                     }
 
                     if (target.isFallFlying())
@@ -350,18 +357,6 @@ public class ProceduralAnimator implements IAnimator
                             bone.transform.translate.y -= MathUtils.toRad(0.5F * 16F);
                             bone.transform.translate.z += MathUtils.toRad(0.3F * 16F);
                         }
-                    }
-
-                    /* Same as the cubic anchor: the spin composes about the bone's own Y
-                     * after the branches above are done writing the euler channels. */
-                    if (target.isUsingRiptide())
-                    {
-                        Vector3f r = bone.transform.rotate;
-
-                        new Matrix3f()
-                            .rotationZ(r.z).rotateY(r.y).rotateX(r.x)
-                            .rotateY(MathUtils.toRad(age * -75.0F))
-                            .getEulerAnglesZYX(r);
                     }
                 }
                 else if (bone.name.equals("head"))

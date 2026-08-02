@@ -23,9 +23,12 @@ import mchorse.bbs_mod.ui.framework.elements.input.UIColor;
 import mchorse.bbs_mod.ui.framework.elements.input.UIKeybind;
 import mchorse.bbs_mod.ui.framework.elements.input.UIOrder;
 import mchorse.bbs_mod.ui.framework.elements.input.UITexturePicker;
-import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
+import mchorse.bbs_mod.ui.framework.elements.input.UINumericInput;
+import mchorse.bbs_mod.ui.framework.elements.context.UIInterpolationContextMenu;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.shapes.IKeyframeShapeRenderer;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.shapes.KeyframeShapeRenderers;
+import mchorse.bbs_mod.utils.interps.Interpolation;
+import mchorse.bbs_mod.utils.interps.Interpolations;
 import mchorse.bbs_mod.ui.framework.elements.input.text.UITextbox;
 import mchorse.bbs_mod.ui.framework.elements.overlay.UILabelOverlayPanel;
 import mchorse.bbs_mod.ui.framework.elements.overlay.UIOverlay;
@@ -63,7 +66,7 @@ public class UIValueMap
 
         register(ValueDouble.class, (value, ui) ->
         {
-            UITrackpad trackpad = UIValueFactory.doubleUI(value, null);
+            UINumericInput<?> trackpad = UIValueFactory.doubleUI(value, null);
 
             trackpad.w(90);
 
@@ -72,7 +75,7 @@ public class UIValueMap
 
         register(ValueFloat.class, (value, ui) ->
         {
-            UITrackpad trackpad = UIValueFactory.floatUI(value, null);
+            UINumericInput<?> trackpad = UIValueFactory.floatUI(value, null);
 
             trackpad.w(90);
 
@@ -153,7 +156,7 @@ public class UIValueMap
                 return Arrays.asList(UIValueFactory.column(button, value));
             }
 
-            UITrackpad trackpad = UIValueFactory.intUI(value, null);
+            UINumericInput<?> trackpad = UIValueFactory.intUI(value, null);
 
             trackpad.w(90);
 
@@ -192,6 +195,24 @@ public class UIValueMap
 
         register(ValueString.class, (value, ui) ->
         {
+            if (value == BBSSettings.keyframeDefaultInterpolation)
+            {
+                UIIcon button = new UIIcon(
+                    () -> UIInterpolationContextMenu.INTERP_ICON_MAP.getOrDefault(BBSSettings.getDefaultKeyframeInterpolation(), Icons.INTERP_LINEAR),
+                    (b) ->
+                    {
+                        /* Open the same interpolation picker used everywhere else (grid + graph preview),
+                         * seeded from the current value, and store the picked type's key back. */
+                        Interpolation interpolation = new Interpolation("interp", Interpolations.MAP, BBSSettings.getDefaultKeyframeInterpolation());
+
+                        b.getContext().replaceContextMenu(new UIInterpolationContextMenu(interpolation)
+                            .callback(() -> value.set(interpolation.getInterp().getKey())));
+                    }
+                );
+
+                return Arrays.asList(UIValueFactory.column(button, value));
+            }
+
             UITextbox textbox = UIValueFactory.stringUI(value, null);
 
             textbox.w(90);

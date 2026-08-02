@@ -17,10 +17,12 @@ import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.colors.Colors;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.AxisAngle4f;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
@@ -47,6 +49,7 @@ public abstract class UITransform extends UIElement
     protected UIIcon iconR;
 
     protected UIElement scaleRow;
+    protected UIElement rotateRow;
 
     private boolean uniformDrag;
     private boolean uniformScale;
@@ -78,21 +81,21 @@ public abstract class UITransform extends UIElement
             this.internalSetS(value, Axis.X);
             this.syncScale(value);
         }).disableCanceling();
-        this.sx.onlyNumbers().tooltip(raw.format(UIKeys.TRANSFORMS_SCALE, UIKeys.GENERAL_X));
+        this.sx.factor().onlyNumbers().tooltip(raw.format(UIKeys.TRANSFORMS_SCALE, UIKeys.GENERAL_X));
         this.sx.textbox.setColor(Colors.RED);
         this.sy = new UITrackpad((value) ->
         {
             this.internalSetS(value, Axis.Y);
             this.syncScale(value);
         }).disableCanceling();
-        this.sy.onlyNumbers().tooltip(raw.format(UIKeys.TRANSFORMS_SCALE, UIKeys.GENERAL_Y));
+        this.sy.factor().onlyNumbers().tooltip(raw.format(UIKeys.TRANSFORMS_SCALE, UIKeys.GENERAL_Y));
         this.sy.textbox.setColor(Colors.GREEN);
         this.sz = new UITrackpad((value) ->
         {
             this.internalSetS(value, Axis.Z);
             this.syncScale(value);
         }).disableCanceling();
-        this.sz.onlyNumbers().tooltip(raw.format(UIKeys.TRANSFORMS_SCALE, UIKeys.GENERAL_Z));
+        this.sz.factor().onlyNumbers().tooltip(raw.format(UIKeys.TRANSFORMS_SCALE, UIKeys.GENERAL_Z));
         this.sz.textbox.setColor(Colors.BLUE);
 
         this.rx = new UITrackpad((value) -> this.internalSetR(value, Axis.X)).degrees().onlyNumbers();
@@ -124,7 +127,7 @@ public abstract class UITransform extends UIElement
 
         this.add(UI.row(2, 0, UIConstants.CONTROL_HEIGHT, this.iconT, this.tx, this.ty, this.tz));
         this.add(this.scaleRow = UI.row(2, 0, UIConstants.CONTROL_HEIGHT, this.iconS, this.sx, this.sy, this.sz));
-        this.add(UI.row(2, 0, UIConstants.CONTROL_HEIGHT, this.iconR, this.rx, this.ry, this.rz));
+        this.add(this.rotateRow = UI.row(2, 0, UIConstants.CONTROL_HEIGHT, this.iconR, this.rx, this.ry, this.rz));
 
         this.context((menu) ->
         {
@@ -212,6 +215,12 @@ public abstract class UITransform extends UIElement
         return this.uniformDrag || Window.isKeyPressed(GLFW.GLFW_KEY_SPACE);
     }
 
+    /** Whether the scale row is collapsed to the single linked field (see {@link #toggleUniformScale()}). */
+    protected boolean isScaleRowCollapsed()
+    {
+        return this.uniformScale;
+    }
+
     private void syncScale(double value)
     {
         if (this.isUniformScale())
@@ -259,7 +268,7 @@ public abstract class UITransform extends UIElement
         this.ry.setValue(y);
         this.rz.setValue(z);
     }
-
+    
     protected void internalSetT(double x, Axis axis)
     {
         try
@@ -317,11 +326,28 @@ public abstract class UITransform extends UIElement
         }
     }
 
+
     public abstract void setT(Axis axis, double x, double y, double z);
 
     public abstract void setS(Axis axis, double x, double y, double z);
 
     public abstract void setR(Axis axis, double x, double y, double z);
+
+    /**
+     * Store a full rotation given as a quaternion. The base editor folds it onto
+     * the euler fields; {@link UIPropTransform} overrides this with the direct
+     * quaternion write for quaternion-mode transforms (and the delta editors fan
+     * it as a quaternion delta across the selection). This is the delivery for
+     * rotations solved as a whole (world paste), where a per-channel euler delta
+     * against a quaternion bone's stale channels would have the wrong basis.
+     */
+    public void setRQuat(Quaternionf quat)
+    {
+        Vector3f euler = Matrices.toEulerZYXRadians(quat, new Vector3f());
+
+        this.fillSetR(MathUtils.toDeg(euler.x), MathUtils.toDeg(euler.y), MathUtils.toDeg(euler.z));
+    }
+
 
     private void copyTransformations()
     {
@@ -398,6 +424,12 @@ public abstract class UITransform extends UIElement
         return this;
     }
 
+    /** The world-matrix source wired by the host, or {@code null} (see {@link #worldTransform}). */
+    protected IWorldTransformProvider getWorldProvider()
+    {
+        return this.worldProvider;
+    }
+
     /** Capture the element's current full world matrix into the shared world clipboard. */
     private void copyWorldTransform()
     {
@@ -462,52 +494,91 @@ public abstract class UITransform extends UIElement
         Vector3f startTranslate = new Vector3f(transform.translate);
         Vector3f startRotate = new Vector3f(transform.rotate);
         Vector3f startScale = new Vector3f(transform.scale);
+        Quaternionf startQuat = new Quaternionf(transform.quat);
+        Transform.RotationMode startMode = transform.rotationMode;
+        boolean wasQuaternion = startMode == Transform.RotationMode.QUATERNION;
 
-        Vector3f targetScale = new Vector3f();
-        Matrix3f targetRotation = orthonormalize(cached.get3x3(new Matrix3f()), targetScale);
-        Vector3f targetPosition = cached.getTranslation(new Vector3f());
+        Vector3f finalTranslate;
+        Vector3f finalRotate;
+        Vector3f finalScale;
 
-        Matrix3f jacobian = GizmoDrag.computeTranslateJacobian(transform, () -> sampler.get().getTranslation(new Vector3f()));
-
-        if (Math.abs(jacobian.determinant()) > 1.0E-9F)
+        /* The solve mutates the live transform as scratch (and force-flips a
+         * quaternion bone to euler); the sampler runs real render code every
+         * pass, so the finally guarantees the scratch state can't leak into the
+         * scene if any of that throws mid-solve. */
+        try
         {
-            Vector3f error = targetPosition.sub(sampler.get().getTranslation(new Vector3f()), new Vector3f());
-
-            jacobian.invert().transform(error);
-            transform.translate.add(error);
-        }
-
-        for (int i = 0; i < WORLD_PASTE_ITERATIONS; i++)
-        {
-            Matrix3f axes = GizmoDrag.computeRotateAxes(transform, sampler);
-
-            if (Math.abs(axes.determinant()) > 1.0E-9F)
+            /* The solve iterates on the euler channels, but on a quaternion-mode bone the render follows
+             * the quat — the euler writes would leave the sampled matrix frozen and the loop would add the
+             * same error every pass (garbage handed to setR). Fold the quat into the euler channels for
+             * the solve (same orientation, nearest branch), so the sampler tracks the writes. */
+            if (wasQuaternion)
             {
-                Matrix3f current = orthonormalize(sampler.get().get3x3(new Matrix3f()), new Vector3f());
-                Matrix3f delta = new Matrix3f(targetRotation).mul(current.invert());
-                AxisAngle4f axisAngle = new AxisAngle4f().set(delta);
-                Vector3f error = new Vector3f(axisAngle.x, axisAngle.y, axisAngle.z).mul(axisAngle.angle);
-
-                axes.invert().transform(error);
-                transform.rotate.add(error);
+                transform.setModeEuler();
             }
 
-            this.solveScale(transform, sampler, targetScale);
+            Vector3f targetScale = new Vector3f();
+            Matrix3f targetRotation = orthonormalize(cached.get3x3(new Matrix3f()), targetScale);
+            Vector3f targetPosition = cached.getTranslation(new Vector3f());
+
+            Matrix3f jacobian = GizmoDrag.computeTranslateJacobian(transform, () -> sampler.get().getTranslation(new Vector3f()));
+
+            if (Math.abs(jacobian.determinant()) > 1.0E-9F)
+            {
+                Vector3f error = targetPosition.sub(sampler.get().getTranslation(new Vector3f()), new Vector3f());
+
+                jacobian.invert().transform(error);
+                transform.translate.add(error);
+            }
+
+            for (int i = 0; i < WORLD_PASTE_ITERATIONS; i++)
+            {
+                Matrix3f axes = GizmoDrag.computeRotateAxes(transform, sampler);
+
+                if (Math.abs(axes.determinant()) > 1.0E-9F)
+                {
+                    Matrix3f current = orthonormalize(sampler.get().get3x3(new Matrix3f()), new Vector3f());
+                    Matrix3f delta = new Matrix3f(targetRotation).mul(current.invert());
+                    AxisAngle4f axisAngle = new AxisAngle4f().set(delta);
+                    Vector3f error = new Vector3f(axisAngle.x, axisAngle.y, axisAngle.z).mul(axisAngle.angle);
+
+                    axes.invert().transform(error);
+                    transform.rotate.add(error);
+                }
+
+                this.solveScale(transform, sampler, targetScale);
+            }
+
+            finalTranslate = new Vector3f(transform.translate);
+            finalRotate = new Vector3f(transform.rotate);
+            finalScale = new Vector3f(transform.scale);
         }
-
-        Vector3f finalTranslate = new Vector3f(transform.translate);
-        Vector3f finalRotate = new Vector3f(transform.rotate);
-        Vector3f finalScale = new Vector3f(transform.scale);
-
-        /* The solve used the live transform as scratch; hand the net result to the editor's own
-         * apply path (undo, notify, multi-bone) from the original values. */
-        transform.translate.set(startTranslate);
-        transform.rotate.set(startRotate);
-        transform.scale.set(startScale);
+        finally
+        {
+            /* The solve used the live transform as scratch; hand the net result to the editor's own
+             * apply path (undo, notify, multi-bone) from the original values — mode included. */
+            transform.translate.set(startTranslate);
+            transform.rotate.set(startRotate);
+            transform.scale.set(startScale);
+            transform.quat.set(startQuat);
+            transform.rotationMode = startMode;
+        }
 
         this.fillSetT(finalTranslate.x, finalTranslate.y, finalTranslate.z);
         this.fillSetS(finalScale.x, finalScale.y, finalScale.z);
-        this.fillSetR(MathUtils.toDeg(finalRotate.x), MathUtils.toDeg(finalRotate.y), MathUtils.toDeg(finalRotate.z));
+
+        if (wasQuaternion)
+        {
+            /* A per-channel euler delivery (fillSetR) is measured by the delta
+             * editors against a quaternion bone's STALE channels — a delta with
+             * the wrong basis. Hand the solved rotation over whole instead;
+             * setRQuat applies it mode-aware in every editor. */
+            this.setRQuat(Matrices.toQuaternionZYXRadians(finalRotate.x, finalRotate.y, finalRotate.z));
+        }
+        else
+        {
+            this.fillSetR(MathUtils.toDeg(finalRotate.x), MathUtils.toDeg(finalRotate.y), MathUtils.toDeg(finalRotate.z));
+        }
     }
 
     /**

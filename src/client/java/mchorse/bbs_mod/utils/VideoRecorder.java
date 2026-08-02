@@ -24,7 +24,6 @@ import java.nio.channels.WritableByteChannel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -66,7 +65,7 @@ public class VideoRecorder
     /**
      * Start recording the video using ffmpeg
      */
-    public void startRecording(File audioFile, int textureId, int width, int height)
+    public void startRecording(String movieName, File audioFile, int textureId, int width, int height)
     {
         if (this.recording)
         {
@@ -92,7 +91,12 @@ public class VideoRecorder
             movies.mkdirs();
 
             Path path = Paths.get(movies.toString());
-            String movieName = StringUtils.createTimestampFilename();
+
+            if (movieName == null || movieName.isEmpty())
+            {
+                movieName = StringUtils.createTimestampFilename();
+            }
+
             String params = audioFile == null
                 ? BBSSettings.videoArguments.get()
                 : BBSSettings.videoArgumentsAudio.get();
@@ -106,22 +110,34 @@ public class VideoRecorder
                 filters.append(",tblend=all_mode=average,framestep=2");
             }
 
-            params = params.replace("%WIDTH%", String.valueOf(width));
-            params = params.replace("%HEIGHT%", String.valueOf(height));
-            params = params.replace("%FPS%", String.valueOf(frameRate));
-            params = params.replace("%NAME%", movieName);
-            params = params.replace("%FILTERS%", filters.toString());
-
-            if (audioFile != null)
-            {
-                params = params.replace("%AUDIO_TRACK%", "\"" + audioFile.getAbsolutePath() + "\"");
-            }
-
             List<String> args = new ArrayList<>();
             String encoder = FFMpegUtils.getFFMPEG();
 
             args.add(encoder);
-            args.addAll(Arrays.asList(params.split(" ")));
+
+            /* Tokens are substituted after splitting, so a movie name or an audio path
+             * with spaces stays a single argument. ProcessBuilder passes quote characters
+             * literally, so they must not be added around paths either. */
+            for (String arg : params.split(" "))
+            {
+                if (arg.isEmpty())
+                {
+                    continue;
+                }
+
+                arg = arg.replace("%WIDTH%", String.valueOf(width));
+                arg = arg.replace("%HEIGHT%", String.valueOf(height));
+                arg = arg.replace("%FPS%", String.valueOf(frameRate));
+                arg = arg.replace("%NAME%", movieName);
+                arg = arg.replace("%FILTERS%", filters.toString());
+
+                if (audioFile != null)
+                {
+                    arg = arg.replace("%AUDIO_TRACK%", audioFile.getAbsolutePath());
+                }
+
+                args.add(arg);
+            }
 
             System.out.println("Recording video with following arguments: " + args);
 
@@ -206,6 +222,16 @@ public class VideoRecorder
      */
     public void stopRecording()
     {
+        this.stopRecording(true);
+    }
+
+    /**
+     * Stop recording. With {@code finishEffects} false the completion sound and the
+     * folder opening are skipped - the caller runs {@link #playFinishEffects()} itself
+     * once the file is actually final (audio post pass).
+     */
+    public void stopRecording(boolean finishEffects)
+    {
         if (!this.recording)
         {
             return;
@@ -260,6 +286,19 @@ public class VideoRecorder
 
         this.recording = false;
 
+        if (finishEffects)
+        {
+            this.playFinishEffects();
+        }
+
+        this.serverTicks = this.lastServerTicks = 0;
+    }
+
+    /**
+     * The end-of-export feedback (completion sound, opening the movies folder).
+     */
+    public void playFinishEffects()
+    {
         if (BBSSettings.videoPlaySoundAfterExport.get())
         {
             if (BBSModClient.getSounds().play(RENDER_COMPLETE_SOUND) == null)
@@ -273,8 +312,6 @@ public class VideoRecorder
             File folder = BBSRendering.getVideoFolder();
             MinecraftClient.getInstance().execute(() -> UIUtils.openFolder(folder));
         }
-
-        this.serverTicks = this.lastServerTicks = 0;
     }
 
     /**
@@ -371,7 +408,7 @@ public class VideoRecorder
         }
         else
         {
-            this.startRecording(null, textureId, textureWidth, textureHeight);
+            this.startRecording(StringUtils.createTimestampFilename(), null, textureId, textureWidth, textureHeight);
         }
 
         UIUtils.playClick();

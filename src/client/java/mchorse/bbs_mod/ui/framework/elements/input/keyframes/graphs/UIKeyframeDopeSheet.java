@@ -513,7 +513,7 @@ public class UIKeyframeDopeSheet implements IUIKeyframeGraph
 
         if (sheet != null)
         {
-            this.addKeyframe(sheet, tick, null);
+            this.addKeyframeManually(sheet, tick, null);
         }
 
         return sheet != null;
@@ -655,8 +655,8 @@ public class UIKeyframeDopeSheet implements IUIKeyframeGraph
                         return true;
                     }
 
-                    this.addKeyframe(sheet, this.keyframes.getTick(), null);
-                    
+                    this.addKeyframeManually(sheet, this.keyframes.getTick(), null);
+
                     return true;
                 }
             }
@@ -947,7 +947,7 @@ public class UIKeyframeDopeSheet implements IUIKeyframeGraph
         Matrix3x2fc matrix = context.batcher.getContext().getMatrices();
         VertexConsumer builder = null;
 
-        context.batcher.clip(area.x, rulerBottom, area.ex(), area.ey(), context);
+        context.batcher.clipBox(area.x, rulerBottom, area.ex(), area.ey(), context);
         this.renderElements(context, builder, matrix, area, this.elements, 0, this.getDopeSheetY());
         this.renderOutOfRangeShading(context, builder, matrix, area);
         context.batcher.unclip(context);
@@ -988,7 +988,7 @@ public class UIKeyframeDopeSheet implements IUIKeyframeGraph
         /* Render background */
         context.batcher.box(area.x + w - 1, area.y, area.x + w, area.ey(), BBSSettings.dividerColor());
 
-        context.batcher.clip(area.x, area.y, area.x + w, area.ey(), context);
+        context.batcher.clipBox(area.x, area.y, area.x + w, area.ey(), context);
 
         for (UIKeyframeElement element : elements)
         {
@@ -1366,7 +1366,7 @@ public class UIKeyframeDopeSheet implements IUIKeyframeGraph
         int rulerBottom = TimelineRulerRenderer.getRulerBottom(area);
         Matrix3x2fc matrix = context.batcher.getContext().getMatrices();
 
-        context.batcher.clip(area.x, rulerBottom, area.ex(), area.ey(), context);
+        context.batcher.clipBox(area.x, rulerBottom, area.ex(), area.ey(), context);
         VertexConsumer builder = beginShapes();
         this.renderElementsTopmostKeyframes(context, builder, matrix, area, this.elements, this.getDopeSheetY());
         drawShapes(context, builder);

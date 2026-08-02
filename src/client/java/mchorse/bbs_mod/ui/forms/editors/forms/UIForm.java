@@ -15,7 +15,7 @@ import mchorse.bbs_mod.ui.forms.editors.panels.UIGeneralFormPanel;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.UIPanelBase;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
-import mchorse.bbs_mod.ui.utils.TransformSpace;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.utils.UIUtils;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.utils.Direction;
@@ -60,12 +60,18 @@ public abstract class UIForm <T extends Form> extends UIPanelBase<UIFormPanel<T>
 
     public Matrix4f getOrigin(float transition)
     {
-        return this.getOrigin(transition, FormUtils.getPath(this.form), this.generalPanel != null ? this.generalPanel.transform.getSpace() : TransformSpace.PARENT);
+        return this.getOrigin(transition, FormUtils.getPath(this.form), this.generalPanel != null && this.generalPanel.transform.isLocal());
+    }
+
+    /** The space the gizmo should be drawn in (the active panel's transform space). */
+    public TransformSpace getGizmoSpace()
+    {
+        return this.generalPanel != null ? this.generalPanel.transform.getSpace() : TransformSpace.LOCAL;
     }
 
     /**
      * Always returns the bone's full local matrix (including its own rotation),
-     * irrespective of the UI's space toggle. Required for sampling-based
+     * irrespective of the LOCAL/GLOBAL UI toggle. Required for sampling-based
      * gizmo helpers that need the rotation to be visible in the matrix &mdash;
      * the rotation-stripped &quot;origin&quot; variant doesn't move when
      * {@code transform.rotate} is perturbed, so axis extraction would silently
@@ -73,7 +79,7 @@ public abstract class UIForm <T extends Form> extends UIPanelBase<UIFormPanel<T>
      */
     public Matrix4f getOriginMatrix(float transition)
     {
-        return this.getOrigin(transition, FormUtils.getPath(this.form), TransformSpace.LOCAL);
+        return this.getOrigin(transition, FormUtils.getPath(this.form), true);
     }
 
     /**
@@ -83,23 +89,30 @@ public abstract class UIForm <T extends Form> extends UIPanelBase<UIFormPanel<T>
      * correct for editing the body part transform because the attach bone is constant w.r.t. it and
      * the form's own transform cancels in the Jacobian/rotate-axes derivatives.
      */
-    public Matrix4f getBodyPartGizmoOrigin(float transition, TransformSpace space)
+    public Matrix4f getBodyPartGizmoOrigin(float transition, boolean local)
     {
-        return this.getOrigin(transition, FormUtils.getPath(this.form), space);
+        return this.getOrigin(transition, FormUtils.getPath(this.form), local);
     }
 
-    protected Matrix4f getOrigin(float transition, String path, TransformSpace space)
+    protected Matrix4f getOrigin(float transition, String path, boolean local)
     {
         Form root = FormUtils.getRoot(this.form);
         MatrixCache map = FormUtilsClient.getRenderer(root).collectMatrices(this.editor.renderer.getTargetEntity(), transition);
-        Matrix4f matrix = space == TransformSpace.LOCAL ? map.get(path).matrix() : map.get(path).origin();
+        Matrix4f matrix = local ? map.get(path).matrix() : map.get(path).origin();
 
-        if (matrix == null)
-        {
-            return Matrices.EMPTY_4F;
-        }
+        return matrix == null ? Matrices.EMPTY_4F : matrix;
+    }
 
-        return space == TransformSpace.WORLD ? new Matrix4f().translation(matrix.getTranslation(new Vector3f())) : matrix;
+    /**
+     * The bone's EVALUATED channel rotation (radians) from the same capture
+     * {@link #getOrigin(float, String, boolean)} reads, or {@code null} — feeds
+     * the gizmo's additive overlay-editing base.
+     */
+    protected Vector3f getEvaluatedRotation(float transition, String path)
+    {
+        Form root = FormUtils.getRoot(this.form);
+
+        return FormUtilsClient.getRenderer(root).collectMatrices(this.editor.renderer.getTargetEntity(), transition).get(path).evaluatedRotation();
     }
 
     protected void registerDefaultPanels()
@@ -172,6 +185,17 @@ public abstract class UIForm <T extends Form> extends UIPanelBase<UIFormPanel<T>
         }
     }
 
+    /**
+     * Toggle a bone in the pose editor's multi-selection without rebuilding the panel,
+     * so a viewport Ctrl+click accumulates a selection instead of resetting it. Returns
+     * whether this form actually owns the bone and handled the toggle (only model forms
+     * with a pose editor do). See {@link mchorse.bbs_mod.ui.forms.editors.forms.UIModelForm}.
+     */
+    public boolean toggleBoneSelection(String bone)
+    {
+        return false;
+    }
+
     public Class<?> getActivePanelClass()
     {
         return this.view == null ? null : this.view.getClass();
@@ -208,9 +232,20 @@ public abstract class UIForm <T extends Form> extends UIPanelBase<UIFormPanel<T>
     }
 
     @Override
+    public void render(UIContext context)
+    {
+        if (this.view != null)
+        {
+            this.view.options.area.render(context.batcher, BBSSettings.deepSurface());
+        }
+
+        super.render(context);
+    }
+
+    @Override
     protected void renderBackground(UIContext context, int x, int y, int w, int h)
     {
-        context.batcher.box(x, y, x + w, y + h, BBSSettings.baseSurface());
+        context.batcher.box(x, y, x + w, y + h, BBSSettings.deepSurface());
     }
 
     @Override

@@ -1,6 +1,7 @@
 package mchorse.bbs_mod.ui.film.replays;
 
 import mchorse.bbs_mod.BBSMod;
+import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.blocks.entities.ModelBlockEntity;
 import mchorse.bbs_mod.blocks.entities.ModelProperties;
 import mchorse.bbs_mod.camera.Camera;
@@ -59,6 +60,8 @@ import mchorse.bbs_mod.ui.utils.UI;
 import mchorse.bbs_mod.ui.utils.UIConstants;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.ui.utils.icons.Icon;
+import mchorse.bbs_mod.ui.utils.presets.UICopyPasteController;
+import mchorse.bbs_mod.ui.utils.presets.UIPresetContextMenu;
 import mchorse.bbs_mod.utils.CollectionUtils;
 import mchorse.bbs_mod.utils.Direction;
 import mchorse.bbs_mod.utils.MathUtils;
@@ -71,6 +74,7 @@ import mchorse.bbs_mod.utils.keyframes.Keyframe;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 import mchorse.bbs_mod.utils.keyframes.factories.KeyframeFactories;
 import mchorse.bbs_mod.utils.pose.Transform;
+import mchorse.bbs_mod.utils.presets.PresetManager;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
@@ -78,6 +82,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 import org.joml.Vector3d;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -101,6 +106,8 @@ public class UIReplayList extends UIList<ReplayListEntry>
 
     public UIFilmPanel panel;
     private final Consumer<Form> formConsumer;
+
+    private final UICopyPasteController presetController;
 
     /** Category names whose replay rows are hidden (headers stay visible). */
     private final Set<String> collapsedCategories = new HashSet<>();
@@ -131,10 +138,20 @@ public class UIReplayList extends UIList<ReplayListEntry>
         this.formConsumer = formConsumer;
         this.panel = panel;
 
+        this.presetController = new UICopyPasteController(PresetManager.REPLAYS, "_CopyReplay")
+            .supplier(() -> this.hasReplaySelection() ? this.replaysToData() : null)
+            .consumer((data, mouseX, mouseY) -> this.pasteReplay(data))
+            .canCopy(this::hasReplaySelection)
+            .canPaste(() -> this.panel != null && this.panel.getData() != null);
+
         this.multi().sorting();
         this.context((menu) ->
         {
             Film film = this.panel.getData();
+            UIContext context = this.getContext();
+
+            menu.custom(new UIPresetContextMenu(this.presetController, context.mouseX, context.mouseY)
+                .labels(UIKeys.SCENE_REPLAYS_CONTEXT_COPY, UIKeys.SCENE_REPLAYS_CONTEXT_PASTE));
 
             menu.action(Icons.ADD, UIKeys.SCENE_REPLAYS_CONTEXT_ADD, this::addReplay);
 
@@ -148,18 +165,6 @@ public class UIReplayList extends UIList<ReplayListEntry>
                 String cat = this.contextFolderCategoryName;
 
                 menu.action(Icons.TRASH, UIKeys.SCENE_REPLAYS_CONTEXT_REMOVE_CATEGORY, () -> this.removeReplayCategory(cat));
-            }
-
-            if (this.hasReplaySelection())
-            {
-                menu.action(Icons.COPY, UIKeys.SCENE_REPLAYS_CONTEXT_COPY, this::copyReplay);
-            }
-
-            MapType copyReplay = Window.getClipboardMap("_CopyReplay");
-
-            if (copyReplay != null)
-            {
-                menu.action(Icons.PASTE, UIKeys.SCENE_REPLAYS_CONTEXT_PASTE, () -> this.pasteReplay(copyReplay));
             }
 
             if (film != null)
@@ -1849,6 +1854,15 @@ public class UIReplayList extends UIList<ReplayListEntry>
 
     public void copyReplay()
     {
+        Window.setClipboard(this.replaysToData(), "_CopyReplay");
+    }
+
+    /**
+     * Serialize the selected replays into the shared {@code {"replays": [...]}} format
+     * used by both clipboard copy/paste and presets.
+     */
+    private MapType replaysToData()
+    {
         MapType replays = new MapType();
         ListType replayList = new ListType();
 
@@ -1859,7 +1873,20 @@ public class UIReplayList extends UIList<ReplayListEntry>
             replayList.add(replay.toData());
         }
 
-        Window.setClipboard(replays, "_CopyReplay");
+        return replays;
+    }
+
+    /**
+     * Open the presets overlay for replays (save the current selection, or load a preset into the film).
+     */
+    public void openReplayPresets()
+    {
+        UIContext context = this.getContext();
+
+        if (context != null)
+        {
+            this.presetController.openPresets(context, context.mouseX, context.mouseY);
+        }
     }
 
     public void pasteReplay(MapType data)
@@ -2038,13 +2065,18 @@ public class UIReplayList extends UIList<ReplayListEntry>
         replay.keyframes.y.insert(0, y);
         replay.keyframes.z.insert(0, z);
 
+        /* Mode-aware read: on a quaternion-mode transform the euler channels are
+         * stale zeros — reading them raw would take the yaw-only path with yaw 0
+         * and silently drop the block's whole rotation. */
+        Vector3f rotation = transform.getEulerRotation(new Vector3f());
+
         if (!transform.isDefault())
         {
             if (
-                transform.rotate.x == 0 && transform.rotate.z == 0 &&
+                rotation.x == 0 && rotation.z == 0 &&
                 transform.scale.x == 1 && transform.scale.y == 1 && transform.scale.z == 1
             ) {
-                double yaw = -Math.toDegrees(transform.rotate.y);
+                double yaw = -Math.toDegrees(rotation.y);
 
                 replay.keyframes.yaw.insert(0, yaw);
                 replay.keyframes.headYaw.insert(0, yaw);
@@ -2219,14 +2251,16 @@ public class UIReplayList extends UIList<ReplayListEntry>
         if (form != null)
         {
             int formX = this.area.x + this.area.w - 30;
-
-            context.batcher.clip(formX, y, 40, 20, context);
-
             int formY = y - 10;
 
-            FormUtilsClient.renderUI(form, context, formX, formY, formX + 40, formY + 40);
+            if (BBSSettings.listModelPreview.get())
+            {
+                context.batcher.clip(formX, y, 40, 20, context);
 
-            context.batcher.unclip(context);
+                FormUtilsClient.renderUI(form, context, formX, formY, formX + 40, formY + 40);
+
+                context.batcher.unclip(context);
+            }
 
             if (replay.fp.get())
             {

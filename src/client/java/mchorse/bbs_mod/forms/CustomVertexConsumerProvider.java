@@ -1,18 +1,25 @@
 package mchorse.bbs_mod.forms;
 
 import mchorse.bbs_mod.forms.renderers.utils.RecolorVertexConsumer;
+import net.minecraft.client.render.BufferBuilder;
+import net.minecraft.client.render.BuiltBuffer;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
+import net.minecraft.client.render.VertexFormats;
+import net.minecraft.client.util.BufferAllocator;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
+import org.lwjgl.opengl.GL11;
 
+import java.util.SequencedMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-public class CustomVertexConsumerProvider implements VertexConsumerProvider
+public class CustomVertexConsumerProvider extends VertexConsumerProvider.Immediate
 {
     private static Consumer<RenderLayer> runnables;
 
-    private final VertexConsumerProvider.Immediate delegate;
     private Function<VertexConsumer, VertexConsumer> substitute;
     private boolean ui;
 
@@ -34,9 +41,9 @@ public class CustomVertexConsumerProvider implements VertexConsumerProvider
         runnables = null;
     }
 
-    public CustomVertexConsumerProvider(VertexConsumerProvider.Immediate delegate)
+    public CustomVertexConsumerProvider(BufferAllocator allocator, SequencedMap<RenderLayer, BufferAllocator> layers)
     {
-        this.delegate = delegate;
+        super(allocator, layers);
     }
 
     public void setSubstitute(Function<VertexConsumer, VertexConsumer> substitute)
@@ -57,7 +64,7 @@ public class CustomVertexConsumerProvider implements VertexConsumerProvider
     @Override
     public VertexConsumer getBuffer(RenderLayer renderLayer)
     {
-        VertexConsumer buffer = this.delegate.getBuffer(renderLayer);
+        VertexConsumer buffer = super.getBuffer(renderLayer);
 
         if (this.substitute != null)
         {
@@ -72,9 +79,33 @@ public class CustomVertexConsumerProvider implements VertexConsumerProvider
         return buffer;
     }
 
+    /**
+     * Translucent layers of buffered forms (blocks, items) defer into the frame's sorted
+     * translucent queue instead of drawing immediately — otherwise their semi-transparent
+     * pixels write depth mid-frame and occlude forms drawn after them. Active only when the
+     * current form renderer published its sort origin (never in picking or UI paths).
+     */
+    @Override
+    public void draw(RenderLayer layer)
+    {
+        /* TODO(1.21.11 render): the deferred branch that used to live here retained the built
+         * geometry in a VertexBuffer and handed it to FormTranslucentQueue. Both the buffer type
+         * and the replay draw were removed by the GPU-pipeline rewrite, so the queue is disabled
+         * on this branch (see FormTranslucentQueue) and every layer draws immediately. */
+        super.draw(layer);
+    }
+
+    private static boolean isDeferrableTranslucent(RenderLayer layer)
+    {
+        String name = layer.toString();
+
+        return name.contains("translucent") && !name.contains("glint");
+    }
+
+    @Override
     public void draw()
     {
-        this.delegate.draw();
+        super.draw();
 
         if (this.ui)
         {

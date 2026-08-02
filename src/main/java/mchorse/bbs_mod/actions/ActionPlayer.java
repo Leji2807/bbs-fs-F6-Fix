@@ -5,6 +5,7 @@ import mchorse.bbs_mod.data.types.BaseType;
 import mchorse.bbs_mod.entity.ActorEntity;
 import mchorse.bbs_mod.film.Film;
 import mchorse.bbs_mod.film.replays.Replay;
+import mchorse.bbs_mod.film.replays.ReplayKeyframes;
 import mchorse.bbs_mod.forms.FormUtils;
 import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.morphing.Morph;
@@ -167,10 +168,15 @@ public class ActionPlayer
         float pitch = replay.keyframes.pitch.interpolate(tick).floatValue();
 
         Vec3d pos = actor.getEntityPos();
+        boolean grounded = replay.keyframes.grounded.interpolate(tick) > 0;
 
         if (ticking)
         {
-            actor.move(MovementType.SELF, new Vec3d(x - pos.x, y - pos.y, z - pos.z));
+            /* Probe downwards so vanilla's collision registers the floor - see
+             * ReplayKeyframes#GRAVITY_PROBE. */
+            double dY = y - pos.y - (grounded ? ReplayKeyframes.GRAVITY_PROBE : 0D);
+
+            actor.move(MovementType.SELF, new Vec3d(x - pos.x, dY, z - pos.z));
         }
 
         actor.setPosition(x, y, z);
@@ -179,7 +185,11 @@ public class ActionPlayer
         actor.setPitch(pitch);
         actor.setBodyYaw(yawBody);
         actor.setSneaking(replay.keyframes.sneaking.interpolate(tick) > 0);
-        actor.setOnGround(replay.keyframes.grounded.interpolate(tick) > 0);
+        actor.setOnGround(grounded);
+
+        /* The sprinting flag is tracked data, so setting it here is what makes the
+         * client spawn vanilla's sprinting particles for this actor */
+        actor.setSprinting(replay.keyframes.sprinting.interpolate(tick) > 0);
         actor.equipStack(EquipmentSlot.OFFHAND, replay.keyframes.offHand.interpolate(tick, ItemStack.EMPTY));
         actor.equipStack(EquipmentSlot.HEAD, replay.keyframes.armorHead.interpolate(tick, ItemStack.EMPTY));
         actor.equipStack(EquipmentSlot.CHEST, replay.keyframes.armorChest.interpolate(tick, ItemStack.EMPTY));
@@ -209,7 +219,7 @@ public class ActionPlayer
 
         if (vy == 0D)
         {
-            vy = -0.0784;
+            vy = -ReplayKeyframes.GRAVITY_PROBE;
         }
 
         actor.setVelocity(vx, vy, vz);

@@ -1127,22 +1127,32 @@ public class UIPixelsEditor extends UICanvasEditor
         }
 
         Pixels copy;
+        int originX;
+        int originY;
 
         if (this.hasSelection())
         {
-            copy = this.extractSelection(source, layer != null ? layer.offsetX : 0, layer != null ? layer.offsetY : 0);
+            Vector2i origin = new Vector2i();
+
+            copy = this.extractSelection(source, layer != null ? layer.offsetX : 0, layer != null ? layer.offsetY : 0, origin);
 
             if (copy == null)
             {
                 return false;
             }
+
+            originX = origin.x;
+            originY = origin.y;
         }
         else
         {
             copy = source.createCopy(0, 0, source.width, source.height);
+            /* The layer's pixel buffer top-left sits at its move offset in document space. */
+            originX = layer != null ? layer.offsetX : 0;
+            originY = layer != null ? layer.offsetY : 0;
         }
 
-        ImageClipboard.copy(copy);
+        ImageClipboard.copy(copy, originX, originY);
         copy.delete();
         UIUtils.playClick();
 
@@ -1203,18 +1213,19 @@ public class UIPixelsEditor extends UICanvasEditor
 
         if (this.hasSelection())
         {
-            Pixels cropped = this.extractSelection(flat, 0, 0);
+            Vector2i origin = new Vector2i();
+            Pixels cropped = this.extractSelection(flat, 0, 0, origin);
 
             if (cropped != null)
             {
-                ImageClipboard.copy(cropped);
+                ImageClipboard.copy(cropped, origin.x, origin.y);
                 cropped.delete();
                 UIUtils.playClick();
             }
         }
         else
         {
-            ImageClipboard.copy(flat);
+            ImageClipboard.copy(flat, 0, 0);
             UIUtils.playClick();
         }
 
@@ -1224,10 +1235,12 @@ public class UIPixelsEditor extends UICanvasEditor
     /**
      * Extract the current selection from a document-space {@code source} into a new Pixels cropped to
      * the selection's bounding box (unselected pixels left transparent). {@code offsetX/Y} map document
-     * coordinates into the source (0 for a document-sized image; the layer's offset for a layer).
-     * Returns {@code null} when the selection is empty.
+     * coordinates into the source (0 for a document-sized image; the layer's offset for a layer). When
+     * non-null, {@code outOrigin} receives the document-space top-left of the cropped region so the
+     * caller can preserve its on-canvas position on paste. Returns {@code null} when the selection is
+     * empty.
      */
-    private Pixels extractSelection(Pixels source, int offsetX, int offsetY)
+    private Pixels extractSelection(Pixels source, int offsetX, int offsetY, Vector2i outOrigin)
     {
         int w = this.document != null ? this.document.width : source.width;
         int h = this.document != null ? this.document.height : source.height;
@@ -1250,6 +1263,11 @@ public class UIPixelsEditor extends UICanvasEditor
         if (maxX < minX || maxY < minY)
         {
             return null;
+        }
+
+        if (outOrigin != null)
+        {
+            outOrigin.set(minX, minY);
         }
 
         Pixels copy = Pixels.fromSize(maxX - minX + 1, maxY - minY + 1);
@@ -1285,8 +1303,9 @@ public class UIPixelsEditor extends UICanvasEditor
 
     /**
      * Ctrl+V (and the layers panel's "paste as layer"): paste a clipboard image as a new layer above
-     * the active one, centered on the canvas and clipped to it. No-op when the clipboard holds no
-     * image. Recorded as a single undo step; refreshes the layers list.
+     * the active one. When the clipboard remembers where the image was copied from, it is placed back
+     * at that on-canvas position; otherwise it is centered. Clipped to the canvas. No-op when the
+     * clipboard holds no image. Recorded as a single undo step; refreshes the layers list.
      */
     public void pasteImage()
     {
@@ -1308,7 +1327,10 @@ public class UIPixelsEditor extends UICanvasEditor
             int h = this.document.height;
             Pixels layerPixels = Pixels.fromSize(w, h);
 
-            layerPixels.draw(pasted, (w - pasted.width) / 2, (h - pasted.height) / 2);
+            int px = ImageClipboard.hasOrigin() ? ImageClipboard.getOriginX() : (w - pasted.width) / 2;
+            int py = ImageClipboard.hasOrigin() ? ImageClipboard.getOriginY() : (h - pasted.height) / 2;
+
+            layerPixels.draw(pasted, px, py);
             layerPixels.rewindBuffer();
 
             int index = this.document.activeLayerIndex + 1;
@@ -1727,7 +1749,11 @@ public class UIPixelsEditor extends UICanvasEditor
                     }
                 }
             }
-            else if (this.isStrokePaintTool())
+            /* Only an actually started stroke can be continued: the undo record is created in
+             * startDragging() and holds the pre-stroke pixels that blending, the eraser and alpha
+             * lock read back. Switching to a stroke tool (or enabling the editor) while the button
+             * is already held leaves the drag without one &mdash; such a drag paints nothing. */
+            else if (this.isStrokePaintTool() && this.pixelsUndo != null)
             {
                 Vector2i last = this.getHoverPixel(this.lastX, this.lastY);
                 Vector2i current = this.getHoverPixel(context.mouseX, context.mouseY);

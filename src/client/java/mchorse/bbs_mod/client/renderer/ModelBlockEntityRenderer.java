@@ -5,6 +5,7 @@ import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.blocks.entities.ModelBlockEntity;
 import mchorse.bbs_mod.blocks.entities.ModelProperties;
 import mchorse.bbs_mod.cubic.ModelInstance;
+import mchorse.bbs_mod.cubic.model.View;
 import mchorse.bbs_mod.entity.ActorEntity;
 import mchorse.bbs_mod.forms.FormUtilsClient;
 import mchorse.bbs_mod.forms.entities.IEntity;
@@ -22,6 +23,7 @@ import mchorse.bbs_mod.ui.framework.UIScreen;
 import mchorse.bbs_mod.ui.model_blocks.UIModelBlockPanel;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.MatrixStackUtils;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.Camera;
@@ -229,7 +231,7 @@ public class ModelBlockEntityRenderer implements BlockEntityRenderer<ModelBlockE
         double dz = position.z - z;
         double distance = Math.sqrt(dx * dx + dz * dz);
 
-        float initialYaw = transform.rotate.y;
+        float initialYaw = lookYaw(transform);
         float yaw = (float) Math.atan2(dx, dz);
         float yawContinuous = entity.updateLookYawContinuous(yaw);
         float yawDelta = yawContinuous - initialYaw;
@@ -246,13 +248,15 @@ public class ModelBlockEntityRenderer implements BlockEntityRenderer<ModelBlockE
         {
             ModelInstance model = ModelFormRenderer.getModel(modelForm);
 
-            if (model != null && model.view != null)
+            View view = model == null ? null : model.getView();
+
+            if (view != null)
             {
-                String headKey = model.view.headBone;
+                String headKey = view.headBone;
 
                 lookAt = true;
-                constraint = model.view.constraint;
-                isPitching = model.view.pitch;
+                constraint = view.constraint;
+                isPitching = view.pitch;
 
                 if (FormUtilsClient.getBones(modelForm).contains(headKey))
                 {
@@ -270,7 +274,7 @@ public class ModelBlockEntityRenderer implements BlockEntityRenderer<ModelBlockE
             }
         }
 
-        finalTransform.rotate.y = yawContinuous;
+        setLookYaw(finalTransform, yawContinuous);
 
         if (lookAt)
         {
@@ -288,7 +292,7 @@ public class ModelBlockEntityRenderer implements BlockEntityRenderer<ModelBlockE
                 entity.snapLookYawToBase(yaw, initialYaw);
             }
 
-            finalTransform.rotate.y = initialYaw + anchorYaw;
+            setLookYaw(finalTransform, initialYaw + anchorYaw);
             headYaw = -MathUtils.toDeg(headYaw);
             pitch = -MathUtils.toDeg(isPitching ? pitch : 0F);
 
@@ -299,6 +303,42 @@ public class ModelBlockEntityRenderer implements BlockEntityRenderer<ModelBlockE
         }
 
         return finalTransform;
+    }
+
+    /**
+     * The block transform's ZYX yaw channel, mode-aware: the euler channel directly, or — on a
+     * quaternion transform, where the channels are stale — the quat decomposed on the branch
+     * nearest those stale channels, so the yaw reads the same value the euler mode would hold
+     * (a naive principal decomposition flips branches past ±90° and would read a wrong yaw).
+     */
+    private static float lookYaw(Transform transform)
+    {
+        if (transform.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            return Matrices.toCompatibleEulerZYXRadians(transform.quat, transform.rotate, new Vector3f()).y;
+        }
+
+        return transform.rotate.y;
+    }
+
+    /**
+     * Writes the ZYX yaw channel mode-aware: the euler channel directly, or the quaternion
+     * re-composed about the same compatible decomposition's X/Z tilt with the new yaw — the exact
+     * quaternion equivalent of {@code rotate.y = yaw}, so look-at turns a quaternion-mode block
+     * identically to a euler one.
+     */
+    private static void setLookYaw(Transform transform, float yaw)
+    {
+        if (transform.rotationMode == Transform.RotationMode.QUATERNION)
+        {
+            Vector3f euler = Matrices.toCompatibleEulerZYXRadians(transform.quat, transform.rotate, new Vector3f());
+
+            transform.quat.rotationZYX(euler.z, yaw, euler.x);
+
+            return;
+        }
+
+        transform.rotate.y = yaw;
     }
 
     @Override

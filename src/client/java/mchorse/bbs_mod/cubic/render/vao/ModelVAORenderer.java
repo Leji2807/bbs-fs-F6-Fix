@@ -1,5 +1,6 @@
 package mchorse.bbs_mod.cubic.render.vao;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import mchorse.bbs_mod.client.BBSShaders;
 import net.minecraft.client.render.BufferBuilder;
@@ -7,9 +8,21 @@ import net.minecraft.client.render.BuiltBuffer;
 import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.util.math.MatrixStack;
+import org.joml.Matrix4f;
 
 public class ModelVAORenderer
 {
+    /**
+    /**
+     * The full model-view a draw issued right now would use. Kept from 1.21.1 because callers still
+     * capture the frame's model-view for their own maths (the deferred translucent queue it was
+     * written for is disabled on 1.21.11).
+     */
+    public static Matrix4f captureModelView(MatrixStack stack)
+    {
+        return new Matrix4f(RenderSystem.getModelViewMatrix()).mul(stack.peek().getPositionMatrix());
+    }
+
     /**
      * Draw a static {@link ModelVAO} through the immediate model RenderLayer. The 1.21.5+ rewrite
      * removed ShaderProgram.bind()/unbind() and the imperative uniform/sampler/fog/light setup; the

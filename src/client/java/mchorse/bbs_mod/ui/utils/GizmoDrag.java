@@ -2,10 +2,13 @@ package mchorse.bbs_mod.ui.utils;
 
 import mchorse.bbs_mod.camera.Camera;
 import mchorse.bbs_mod.camera.CameraUtils;
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.utils.Axis;
+import mchorse.bbs_mod.utils.joml.Matrices;
 import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.joml.Vector2f;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
@@ -68,6 +71,32 @@ public class GizmoDrag
      * doesn't have to know which model type it's editing.
      */
     public final Matrix3f rotateAxes = new Matrix3f();
+
+    /**
+     * World-space orthonormal basis {@link TransformSpace#GLOBAL} aligns to.
+     * Identity &mdash; the plain world axes &mdash; unless a host sets it, which
+     * is what the editors without a scene of their own (form editor, model
+     * blocks, animation states) leave it at. The film viewport instead fills it
+     * with the edited replay's own facing
+     * ({@code BaseFilmController.getReplayWorldAxes}), so "global" there means
+     * the actor's world rather than the map's: it stays flat and axis-aligned,
+     * it just turns with the replay. Read through {@link #frameBasis}, and drawn
+     * by the twin {@link #stackBasisForSpace}.
+     */
+    public final Matrix3f globalWorldAxes = new Matrix3f();
+
+    /**
+     * Euler rotation (ZYX radians) the renderer SUMS UNDER the edited transform's
+     * rotate channels — non-zero when the edited value is an additive layer, like
+     * a pose overlay stacked per-channel onto the base pose. The renderer then
+     * shows {@code ZYX(base + rotate)}, so the drag's euler frame recovery and
+     * write composition must run on the effective angles and subtract the base
+     * back out of the written channels ({@code RotationDragMath}); with a zero
+     * base (a plain transform) both collapse to the classic math. Quaternion
+     * transforms never need it — their layers compose multiplicatively, which
+     * the parent-frame recovery already absorbs.
+     */
+    public final Vector3f additiveRotationBase = new Vector3f();
 
     public GizmoDrag setup(Camera camera, Area viewport, Vector3f gizmoOrigin)
     {
@@ -176,7 +205,10 @@ public class GizmoDrag
      */
     public boolean intersectPlane(int mouseX, int mouseY, Vector3f planeNormal, Vector3d out)
     {
-        Vector3f dir = this.rayDirection(mouseX, mouseY, new Vector3f());
+        /* Projection-agnostic ray: under ortho the direction is constant and
+         * the per-pixel shift lives in the origin offset instead. */
+        Vector3f originOffset = new Vector3f();
+        Vector3f dir = CameraUtils.getMouseRay(this.projection, this.view, mouseX, mouseY, this.viewportX, this.viewportY, this.viewportW, this.viewportH, originOffset);
         double denom = dir.x * planeNormal.x + dir.y * planeNormal.y + dir.z * planeNormal.z;
 
         if (Math.abs(denom) < PARALLEL_EPSILON)
@@ -184,16 +216,20 @@ public class GizmoDrag
             return false;
         }
 
-        double t = ((this.gizmoOrigin.x - this.cameraOrigin.x) * planeNormal.x
-            + (this.gizmoOrigin.y - this.cameraOrigin.y) * planeNormal.y
-            + (this.gizmoOrigin.z - this.cameraOrigin.z) * planeNormal.z) / denom;
+        double originX = this.cameraOrigin.x + originOffset.x;
+        double originY = this.cameraOrigin.y + originOffset.y;
+        double originZ = this.cameraOrigin.z + originOffset.z;
+
+        double t = ((this.gizmoOrigin.x - originX) * planeNormal.x
+            + (this.gizmoOrigin.y - originY) * planeNormal.y
+            + (this.gizmoOrigin.z - originZ) * planeNormal.z) / denom;
 
         if (t <= 0D)
         {
             return false;
         }
 
-        out.set(this.cameraOrigin.x + dir.x * t, this.cameraOrigin.y + dir.y * t, this.cameraOrigin.z + dir.z * t);
+        out.set(originX + dir.x * t, originY + dir.y * t, originZ + dir.z * t);
 
         return true;
     }
@@ -234,6 +270,130 @@ public class GizmoDrag
         return a.cross(b, out).normalize();
     }
 
+    /**
+     * The world-space orthonormal basis a {@link TransformSpace} aligns the gizmo
+     * GEOMETRY to: the frame its handles are drawn and picked in, and the world
+     * directions a constrained translate slides along or a scale levers along.
+     * {@link TransformSpace#LOCAL} is the bone's rendered frame ({@link #gizmoWorldAxes},
+     * the visible arrows); {@link TransformSpace#GLOBAL} is {@link #globalWorldAxes}
+     * (the world axes, turned by the replay's facing in the film viewport);
+     * {@link TransformSpace#WORLD} is the world identity, container and all
+     * ignored;
+     * {@link TransformSpace#VIEW} is the camera's right/up/forward
+     * ({@link #cameraBasis}, world axes when the view is degenerate);
+     * {@link TransformSpace#PARENT} is {@link #gizmoWorldAxes} as well &mdash;
+     * in that space the gizmo is PLACED on the cache's origin-flavour matrix
+     * (the bone's frame before its own rotation, i.e. the parent frame), so the
+     * drawn arrows already are the parent axes.
+     *
+     * <p>Rotation rings in LOCAL/GLOBAL/VIEW both DRAW and TURN about these
+     * axes: a ring gesture composes a delta rotation about the drawn axis
+     * (mapped into the bone's parent frame via
+     * {@link mchorse.bbs_mod.ui.framework.elements.input.drag.RotationDragMath#parentInverse}),
+     * so the bone always follows the ring the user grabbed. PARENT rings
+     * instead bump the driven channel directly — the deliberate pre-spaces
+     * behaviour (see {@link TransformSpace#PARENT}). The MEASURED
+     * {@link #rotateAxes} (the renderer's response to the euler channels, which
+     * folds in the cubic {@code Ry(180°)} post-flip AND the euler stack's gimbal
+     * skew) is deliberately NOT a gesture basis anymore &mdash; a LOCAL ring
+     * driven by it turned about the channel's intermediate gimbal axis, not the
+     * bone's own drawn axis, drifting off the visual as the inner channels tilt.
+     * It remains the ground truth for recovering the parent frame.
+     */
+    public Matrix3f frameBasis(TransformSpace space)
+    {
+        switch (space)
+        {
+            case GLOBAL:
+                return new Matrix3f(this.globalWorldAxes);
+            case WORLD:
+                /* Deliberately NOT globalWorldAxes: this frame's whole point is
+                 * to ignore whatever container the edited thing sits in. */
+                return new Matrix3f();
+            case VIEW:
+                Matrix3f camera = this.cameraBasis();
+
+                /* Constrained drags need axes whatever happens, so a degenerate
+                 * view falls back to the world frame. */
+                return camera == null ? new Matrix3f() : camera;
+            default:
+                /* LOCAL and PARENT: the frame the gizmo was drawn in IS the
+                 * space frame — the placement matrix carries the bone's own
+                 * frame in LOCAL and the origin/parent frame in PARENT. */
+                return new Matrix3f(this.gizmoWorldAxes);
+        }
+    }
+
+    /**
+     * The camera's world-space right/up/forward as the columns of an orthonormal
+     * basis &mdash; the single source of the screen frame. {@link #view} is the
+     * rotation-only world&rarr;camera map, so its inverse takes the camera's own
+     * axes back into world space. This is {@link #frameBasis}'s VIEW frame, and
+     * the inherently screen-relative gestures (the screen translate, the sphere's
+     * trackball/arcball tumble) read their right/up axes from here instead of
+     * re-inverting the view matrix themselves. Returns {@code null} when the view
+     * is degenerate; those gestures then don't start.
+     */
+    public Matrix3f cameraBasis()
+    {
+        Matrix3f viewAxes = this.view.get3x3(new Matrix3f());
+
+        if (Math.abs(viewAxes.determinant()) < PARALLEL_EPSILON)
+        {
+            return null;
+        }
+
+        return viewAxes.invert();
+    }
+
+    /**
+     * The 3&times;3 the gizmo's view-space drawing frame gets for a
+     * {@link TransformSpace} ({@link Gizmo#reorientForSpace}). The drawing stack
+     * already carries world&rarr;view, so this is {@code view · frameBasis(space)}
+     * spelled out: {@link TransformSpace#GLOBAL} is {@code view · globalAxes},
+     * {@link TransformSpace#WORLD} the view rotation itself
+     * ({@code view · identity}) and {@link TransformSpace#VIEW} the identity
+     * ({@code view · view⁻¹}).
+     * {@code globalAxes} is the drawn twin of {@link #globalWorldAxes} and must
+     * come from the same source the drag's does &mdash; {@code null} means the
+     * plain world axes. {@link TransformSpace#LOCAL} and
+     * {@link TransformSpace#PARENT} never reach this &mdash; the reorient keeps
+     * the placement frame for them (bone frame / origin-flavour parent frame).
+     * Keeping it here ties the drawn frame to the same space&rarr;basis mapping
+     * the drags read.
+     */
+    public static Matrix3f stackBasisForSpace(TransformSpace space, Matrix4f view, Matrix3f globalAxes)
+    {
+        if (space == TransformSpace.WORLD)
+        {
+            return view.get3x3(new Matrix3f());
+        }
+
+        if (space != TransformSpace.GLOBAL)
+        {
+            return new Matrix3f();
+        }
+
+        Matrix3f basis = view.get3x3(new Matrix3f());
+
+        return globalAxes == null ? basis : basis.mul(globalAxes);
+    }
+
+    /** See {@link #globalWorldAxes}; {@code null} restores the plain world axes. */
+    public GizmoDrag setGlobalAxes(Matrix3f axes)
+    {
+        if (axes == null)
+        {
+            this.globalWorldAxes.identity();
+        }
+        else
+        {
+            this.globalWorldAxes.set(axes);
+        }
+
+        return this;
+    }
+
     public GizmoDrag setJacobian(Matrix3f jacobian)
     {
         this.translateJacobian.set(jacobian);
@@ -244,6 +404,21 @@ public class GizmoDrag
     public GizmoDrag setRotateAxes(Matrix3f axes)
     {
         this.rotateAxes.set(axes);
+
+        return this;
+    }
+
+    /** See {@link #additiveRotationBase}; {@code null} clears it to zero. */
+    public GizmoDrag setAdditiveRotationBase(Vector3f base)
+    {
+        if (base == null)
+        {
+            this.additiveRotationBase.set(0F, 0F, 0F);
+        }
+        else
+        {
+            this.additiveRotationBase.set(base);
+        }
 
         return this;
     }
@@ -319,7 +494,17 @@ public class GizmoDrag
      */
     public static Matrix3f computeRotateAxes(Transform transform, Supplier<Matrix4f> matrixSampler)
     {
-        Vector3f saved = new Vector3f(transform.rotate);
+        boolean quat = transform.rotationMode == Transform.RotationMode.QUATERNION;
+        Vector3f savedRotate = new Vector3f(transform.rotate);
+        Quaternionf savedQuat = new Quaternionf(transform.quat);
+
+        /* In quaternion mode the euler channels don't drive the render, so
+         * perturbing transform.rotate leaves no trace and the axes collapse to
+         * identity — losing the model's flips (e.g. the cubic Ry(180)). Instead
+         * perturb the QUATERNION with the euler-bumped equivalent of its own ZYX
+         * angles, which reproduces the euler perturbation exactly, so the axes
+         * (and their signs) match the euler path. */
+        Vector3f source = quat ? Matrices.toEulerZYXRadians(transform.quat, new Vector3f()) : savedRotate;
         float delta = 0.05F;
 
         try
@@ -344,11 +529,14 @@ public class GizmoDrag
 
             for (int i = 0; i < 3; i++)
             {
-                transform.rotate.set(saved);
+                Vector3f bumped = new Vector3f(source);
 
-                if (i == 0) transform.rotate.x += delta;
-                else if (i == 1) transform.rotate.y += delta;
-                else transform.rotate.z += delta;
+                if (i == 0) bumped.x += delta;
+                else if (i == 1) bumped.y += delta;
+                else bumped.z += delta;
+
+                if (quat) transform.quat.set(new Quaternionf().rotationZYX(bumped.z, bumped.y, bumped.x));
+                else transform.rotate.set(bumped);
 
                 matrixSampler.get().get3x3(perturbed);
                 relative.set(perturbed).mul(baseInverse);
@@ -381,7 +569,8 @@ public class GizmoDrag
         }
         finally
         {
-            transform.rotate.set(saved);
+            transform.rotate.set(savedRotate);
+            transform.quat.set(savedQuat);
         }
     }
 }

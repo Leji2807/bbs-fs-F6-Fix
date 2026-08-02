@@ -1,11 +1,13 @@
 package mchorse.bbs_mod.forms.renderers;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.DepthTestFunction;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import mchorse.bbs_mod.BBSMod;
 import mchorse.bbs_mod.forms.CustomVertexConsumerProvider;
+import mchorse.bbs_mod.forms.FormTranslucentQueue;
 import mchorse.bbs_mod.forms.FormUtilsClient;
 import mchorse.bbs_mod.forms.forms.LabelForm;
 import mchorse.bbs_mod.forms.renderers.utils.FormColorBlend;
@@ -26,6 +28,7 @@ import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.Identifier;
 import org.joml.Matrix4f;
+import org.joml.Vector3f;
 
 import java.util.List;
 
@@ -127,6 +130,18 @@ public class LabelFormRenderer extends FormRenderer<LabelForm>
             light = 0;
         }
 
+        /* The whole label (text + background) records as ONE deferred group: its parts rely on
+         * each other's depth (glyphs over the background quad), so they replay together in
+         * original order, while the group as a whole sorts against other translucent forms. */
+        boolean grouped = !context.isPicking() && FormTranslucentQueue.isActive();
+
+        if (grouped)
+        {
+            Vector3f origin = context.stack.peek().getPositionMatrix().getTranslation(new Vector3f());
+
+            FormTranslucentQueue.beginGroup(new Matrix4f(RenderSystem.getModelViewMatrix()).transformPosition(origin), false);
+        }
+
         if (this.form.max.get() <= 10)
         {
             this.renderString(context, consumers, renderer, light);
@@ -134,6 +149,11 @@ public class LabelFormRenderer extends FormRenderer<LabelForm>
         else
         {
             this.renderLimitedString(context, consumers, renderer, light);
+        }
+
+        if (grouped)
+        {
+            FormTranslucentQueue.endGroup();
         }
 
         CustomVertexConsumerProvider.clearRunnables();

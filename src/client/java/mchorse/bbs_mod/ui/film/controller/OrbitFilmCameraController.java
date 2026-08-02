@@ -11,6 +11,7 @@ import org.joml.Vector3i;
 
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.camera.Camera;
+import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.camera.controller.ICameraController;
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.film.BaseFilmController;
@@ -22,6 +23,7 @@ import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.forms.forms.ModelForm;
 import mchorse.bbs_mod.forms.forms.utils.Anchor;
 import mchorse.bbs_mod.forms.renderers.ModelFormRenderer;
+import mchorse.bbs_mod.forms.renderers.utils.FormFrameCache;
 import mchorse.bbs_mod.forms.renderers.utils.MatrixCache;
 import mchorse.bbs_mod.graphics.window.Window;
 import mchorse.bbs_mod.ui.Keys;
@@ -74,6 +76,11 @@ public class OrbitFilmCameraController implements ICameraController
      * moves the camera.
      */
     private boolean attached = true;
+    private boolean ortho;
+
+    /* Whether ortho was turned on by an axis snap rather than by the user, in
+     * which case orbiting away from the axis turns it back off (see rotate). */
+    private boolean autoOrtho;
     private Replay anchorReplay;
     private final Vector3d anchorPosition = new Vector3d();
     private float anchorYaw;
@@ -293,10 +300,12 @@ public class OrbitFilmCameraController implements ICameraController
     {
         Area viewport = this.controller.panel.preview.getViewport();
         Vector3d vector = new Vector3d();
-        Vector3d origin = new Vector3d(this.panState.camera.position).sub(this.panState.pivot.x, this.panState.pivot.y, this.panState.pivot.z);
-        Vector3d destination = new Vector3d(
-            this.panState.camera.getMouseDirection(context.mouseX, context.mouseY, viewport.x, viewport.y, viewport.w, viewport.h)
-        ).mul(Math.max(this.distance, MIN_DISTANCE) * 2F).add(origin);
+        Vector3f originOffset = new Vector3f();
+        Vector3f direction = this.panState.camera.getMouseRay(context.mouseX, context.mouseY, viewport.x, viewport.y, viewport.w, viewport.h, originOffset);
+        Vector3d origin = new Vector3d(this.panState.camera.position)
+            .add(originOffset.x, originOffset.y, originOffset.z)
+            .sub(this.panState.pivot.x, this.panState.pivot.y, this.panState.pivot.z);
+        Vector3d destination = new Vector3d(direction).mul(Math.max(this.distance, MIN_DISTANCE) * 2F).add(origin);
 
         Intersectiond.intersectLineSegmentPlane(
             origin.x,
@@ -318,6 +327,15 @@ public class OrbitFilmCameraController implements ICameraController
     @Override
     public void setup(Camera camera, float transition)
     {
+        /* Re-armed every frame: BBSRendering resets it at the start of every
+         * world render, so ortho turns itself off the moment the orbit stops
+         * driving the camera. Shaderpacks get the ortho matrix too — Iris
+         * captures gbufferProjection from the same WorldRenderer#render
+         * argument the mixin replaces, so pack math built on the matrices
+         * stays consistent (analytic perspective assumptions, e.g. the sky
+         * direction or depth linearization, are up to the pack). */
+        BBSRendering.setOrthoDistance(this.ortho ? this.distance : -1F);
+
         this.updateAnchor(transition);
 
         if (!this.positioned)
@@ -365,6 +383,20 @@ public class OrbitFilmCameraController implements ICameraController
             this.targetPivot.set(this.toLocal(replay));
             this.positioned = true;
         }
+    }
+
+    public boolean isOrtho()
+    {
+        return this.ortho;
+    }
+
+    public void toggleOrtho()
+    {
+        this.ortho = !this.ortho;
+
+        /* Toggling by hand takes the projection away from the axis snap: it
+         * stays whatever the user set until they toggle it again. */
+        this.autoOrtho = false;
     }
 
     public boolean isAttached()
@@ -532,7 +564,10 @@ public class OrbitFilmCameraController implements ICameraController
 
         if (form != null)
         {
-            MatrixCache map = FormUtilsClient.getRenderer(form).collectMatrices(entity, transition);
+            /* Shared with the anchor resolution below (nothing between them touches the pose): a form
+             * anchored within its own tree would otherwise evaluate the same pose twice. */
+            FormFrameCache frame = new FormFrameCache();
+            MatrixCache map = FormFrameCache.collect(frame, form, entity, transition);
             String group = "anchor";
 
             if (form instanceof ModelForm modelForm)
@@ -553,7 +588,7 @@ public class OrbitFilmCameraController implements ICameraController
             {
                 Anchor v = form.anchor.get();
                 Matrix4f defaultMatrix = BaseFilmController.getMatrixForRenderWithRotation(entity, x, y, z, transition);
-                Pair<Matrix4f, Float> totalMatrix = BaseFilmController.getTotalMatrix(this.controller.getEntities(), v, defaultMatrix, x, y, z, transition, 0);
+                Pair<Matrix4f, Float> totalMatrix = BaseFilmController.getTotalMatrix(this.controller.getEntities(), v, defaultMatrix, x, y, z, transition, 0, false, frame);
 
                 if (totalMatrix.a != null)
                 {
@@ -607,12 +642,79 @@ public class OrbitFilmCameraController implements ICameraController
         this.targetPivot.set(this.toLocal(pivot));
     }
 
-    private void rotate(int dx, int dy)
+    public void rotate(int dx, int dy)
     {
+        if (dx == 0 && dy == 0)
+        {
+            return;
+        }
+
         float orbitSpeed = this.controller.panel.dashboard.orbit.getAngleSpeed() * 4F;
 
         this.targetRotation.x = MathUtils.clamp(this.targetRotation.x - dy * orbitSpeed, -PITCH_LIMIT, PITCH_LIMIT);
         this.targetRotation.y -= dx * orbitSpeed;
+
+        /* Orbiting off the axis gives the perspective back: an ortho view is
+         * what an axis snap is for, but away from an axis it only costs the
+         * depth cues. A projection the user picked themselves is left alone
+         * (see autoOrtho). */
+        if (this.autoOrtho)
+        {
+            this.ortho = false;
+            this.autoOrtho = false;
+        }
+    }
+
+    /**
+     * Snap the orbit rotation so the camera ends up on the given axis side of
+     * the pivot, looking at it. The axis is given in the anchor's space: for a
+     * detached orbit (or one without a valid anchor) that is world space, for
+     * an attached orbit it is the replay's space, matching the axes the
+     * navigation ball displays. Yaw is unwrapped to the closest turn, so the
+     * camera never spins the long way around.
+     *
+     * The snap turns the orthographic projection on (editorOrbitAxisOrtho): an
+     * axis view is asked for to read the pose as a blueprint (front, side,
+     * top), and perspective skews exactly the alignment it is being read for.
+     * Orbiting away turns it back off, unless the user had turned it on
+     * themselves — and with the setting off nothing arms autoOrtho in the
+     * first place, so the projection is left alone in both directions.
+     */
+    public void snapToAxis(int x, int y, int z)
+    {
+        float pitch;
+        float yaw;
+
+        if (y != 0)
+        {
+            pitch = y > 0 ? -PITCH_LIMIT : PITCH_LIMIT;
+            yaw = this.targetRotation.y;
+        }
+        else
+        {
+            float twoPi = MathUtils.PI * 2F;
+
+            pitch = 0F;
+            yaw = (float) Math.atan2(x, z);
+            yaw += Math.round((this.targetRotation.y - yaw) / twoPi) * twoPi;
+        }
+
+        this.targetRotation.set(pitch, yaw);
+
+        if (!this.ortho && BBSSettings.editorOrbitAxisOrtho.get())
+        {
+            this.ortho = true;
+            this.autoOrtho = true;
+        }
+    }
+
+    /**
+     * Yaw of the attachment anchor (zero when detached), i.e. the rotation
+     * between the orbit's local space and world space.
+     */
+    public float getAnchorYaw()
+    {
+        return this.anchorYaw;
     }
 
     private Vector3f getOffset()
