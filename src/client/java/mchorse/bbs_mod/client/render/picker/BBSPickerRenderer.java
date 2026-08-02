@@ -71,6 +71,32 @@ public class BBSPickerRenderer
     /** Highlight colour for picker_preview's matched-pixel overlay (ARGB); unused by the geometry pickers. */
     private static int highlightColor = Colors.WHITE;
 
+    /**
+     * Projection the picker passes should draw with, or null to use whatever the engine has bound.
+     *
+     * <p>{@link RenderSystem#bindDefaultUniforms} binds the CURRENT Projection UBO. That is right when the
+     * picking pass runs inside a render pass that already set the world/preview projection (the form editor's
+     * ModelPreviewRenderer does), and wrong when it runs in the GUI phase — the film editor picks from
+     * {@code UIFilmController#renderPickingPreview}, where the bound projection is the interface's ortho, so
+     * world-space geometry landed nowhere near the cursor and the whole stencil map read empty.
+     */
+    private static Matrix4f projectionOverride;
+
+    /** Set the projection the following picker passes bind; null restores the engine default. */
+    public static void setProjectionOverride(Matrix4f projection)
+    {
+        projectionOverride = projection == null ? null : new Matrix4f(projection);
+    }
+
+    /** Bind the override after the engine defaults, so it wins for this pass. No-op when unset. */
+    private static void applyProjectionOverride(RenderPass pass, CommandEncoder encoder)
+    {
+        if (projectionOverride != null)
+        {
+            pass.setUniform("Projection", writeProjection(encoder, projectionOverride));
+        }
+    }
+
     /** std140 size of the Projection block: a single mat4. */
     private static final int PROJECTION_UBO_SIZE = 64;
 
@@ -271,6 +297,7 @@ public class BBSPickerRenderer
         {
             pass.setPipeline(pipeline);
             RenderSystem.bindDefaultUniforms(pass);
+            applyProjectionOverride(pass, encoder);
             pass.setUniform("DynamicTransforms", dynamicTransforms);
             pass.setUniform(BBSShaders.PICKER_UNIFORM, pickerUniform);
             pass.setVertexBuffer(0, vertexBuffer);
@@ -343,6 +370,7 @@ public class BBSPickerRenderer
         {
             pass.setPipeline(pipeline);
             RenderSystem.bindDefaultUniforms(pass);
+            applyProjectionOverride(pass, encoder);
             pass.setUniform("DynamicTransforms", dynamicTransforms);
             pass.setVertexBuffer(0, vertexBuffer);
             pass.setIndexBuffer(indexBuffer, indexType);

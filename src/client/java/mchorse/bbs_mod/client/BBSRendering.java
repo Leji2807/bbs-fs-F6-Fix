@@ -69,6 +69,28 @@ public class BBSRendering
 
     public static final Matrix4f camera = new Matrix4f();
 
+    /**
+     * The projection the world was last rendered with, captured per frame by
+     * {@code GameRendererMixin#onRenderProjection} (the same argument WorldRenderer.render receives, so
+     * it already carries the orthographic substitution when the orbit camera asks for one).
+     *
+     * <p>Needed because BBS picking runs in the GUI phase, where the engine's bound Projection UBO is the
+     * interface's ortho — drawing world geometry against it puts every pixel somewhere other than where the
+     * user sees it. 1.21.1 solved this with RenderSystem.setProjectionMatrix; on 1.21.11 the projection is
+     * GPU-owned, so the picker passes bind this explicitly instead (BBSPickerRenderer#setProjectionOverride).
+     */
+    private static final Matrix4f worldProjection = new Matrix4f();
+
+    public static void setWorldProjection(Matrix4f projection)
+    {
+        worldProjection.set(projection);
+    }
+
+    public static Matrix4f getWorldProjection()
+    {
+        return worldProjection;
+    }
+
     private static boolean customSize;
     private static boolean iris;
     private static boolean sodium;

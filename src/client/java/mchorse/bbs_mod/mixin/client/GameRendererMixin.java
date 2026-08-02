@@ -139,6 +139,10 @@ public class GameRendererMixin
     {
         Matrix4f ortho = BBSRendering.getOrthoProjection((GameRenderer) (Object) this, projection, 0F);
 
+        /* Cache what the world is actually drawn with, so the GUI-phase picking passes can bind the same
+         * projection instead of the interface ortho that happens to be current there. */
+        BBSRendering.setWorldProjection(ortho);
+
         /* TODO(1.21.11 render): 1.21.1 also pushed the ortho matrix straight into RenderSystem, which now
          * takes a GpuBufferSlice (the projection rides a UBO). The ModifyArg return value below is the one
          * the renderer actually uses, so the push was belt-and-braces; verify nothing downstream read the

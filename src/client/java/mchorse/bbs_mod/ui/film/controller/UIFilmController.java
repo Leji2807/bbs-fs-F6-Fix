@@ -1384,8 +1384,6 @@ public class UIFilmController extends UIElement implements GizmoViewport
         /* Cache the global stuff */
         MatrixStackUtils.cacheMatrices();
 
-        /* TODO(1.21.11 render): projection matrix is now GPU-owned (RenderSystem.getProjectionMatrix/setProjectionMatrix(Matrix4f) removed).
-         * Restore the picking projection (this.panel.lastProjection) via the new pipeline foundation once available. */
         InverseView.set(new Matrix3f(BBSRendering.camera).invert());
 
         /* Render the stencil */
@@ -1394,8 +1392,23 @@ public class UIFilmController extends UIElement implements GizmoViewport
         worldStack.push();
         worldStack.loadIdentity();
         MatrixStackUtils.multiply(worldStack, BBSRendering.camera);
-        this.renderStencil(this.worldRenderContext, this.getContext(), altPressed);
-        worldStack.pop();
+
+        /* This runs in the GUI phase, so the engine has the interface's ortho projection bound. The camera
+         * is baked into worldStack above, but without the world's PROJECTION the picker geometry still
+         * lands somewhere other than what the user sees — which is why nothing in the film editor could be
+         * picked, replays included. Bind the projection the world was actually drawn with for these passes.
+         * (1.21.1 did this with RenderSystem.setProjectionMatrix; that no longer exists.) */
+        BBSPickerRenderer.setProjectionOverride(BBSRendering.getWorldProjection());
+
+        try
+        {
+            this.renderStencil(this.worldRenderContext, this.getContext(), altPressed);
+        }
+        finally
+        {
+            BBSPickerRenderer.setProjectionOverride(null);
+            worldStack.pop();
+        }
 
         /* Return back to orthographic projection */
         MatrixStackUtils.restoreMatrices();
