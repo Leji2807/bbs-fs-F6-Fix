@@ -620,7 +620,25 @@ public class Batcher2D
      * composite it through {@code context.drawTexture} exactly like the {@link Texture} overload. The
      * region span is signed ({@code u2 - u1} / {@code v2 - v1}); a negative span flips that axis.
      */
+    /**
+     * Blit an off-screen target whose contents are PREMULTIPLIED by alpha.
+     *
+     * <p>Anything rendered into a target cleared to transparent black comes out premultiplied — that is
+     * simply what blending against (0,0,0,0) produces. Compositing it back with ordinary alpha blending
+     * multiplies by alpha a second time, so every translucent pixel darkens (the rotation pie's fill, the
+     * IK/physics overlay colours). Vanilla ships the matching pipeline for exactly this case.
+     */
+    public void texturedBoxPremultiplied(int texture, int color, float x, float y, float w, float h, float u1, float v1, float u2, float v2, int textureW, int textureH)
+    {
+        this.drawAdoptedGlTexture(RenderPipelines.GUI_TEXTURED_PREMULTIPLIED_ALPHA, texture, color, x, y, w, h, u1, v1, u2, v2, textureW, textureH);
+    }
+
     private void drawAdoptedGlTexture(int glId, int color, float x, float y, float w, float h, float u1, float v1, float u2, float v2, int textureW, int textureH)
+    {
+        this.drawAdoptedGlTexture(RenderPipelines.GUI_TEXTURED, glId, color, x, y, w, h, u1, v1, u2, v2, textureW, textureH);
+    }
+
+    private void drawAdoptedGlTexture(RenderPipeline pipeline, int glId, int color, float x, float y, float w, float h, float u1, float v1, float u2, float v2, int textureW, int textureH)
     {
         Identifier id = AdoptedTexture.identifier(glId, textureW, textureH, true);
 
@@ -636,7 +654,7 @@ public class Batcher2D
             color = Colors.opaque(color);
         }
 
-        this.context.drawTexture(RenderPipelines.GUI_TEXTURED, id,
+        this.context.drawTexture(pipeline, id,
             (int) x, (int) y, u1, v1, (int) w, (int) h,
             (int) (u2 - u1), (int) (v2 - v1), textureW, textureH, color);
     }

@@ -383,7 +383,11 @@ public abstract class UIModelRenderer extends UIElement
              * deterministic version of what previously only happened by luck when a hovered tooltip
              * appended a late root layer (GuiRenderState painter-order; see Batcher2D.newRootLayer). */
             context.batcher.newRootLayer();
-            context.batcher.texturedBox(this.previewGlId, Colors.WHITE,
+            /* The preview FBO is cleared to transparent black, so everything drawn into it — the model, and
+             * the gizmo's translucent parts (the sweep pie's fill, the IK/physics overlay colours) — is
+             * premultiplied. Blitting it with ordinary alpha blending applied alpha twice and darkened all
+             * of them. */
+            context.batcher.texturedBoxPremultiplied(this.previewGlId, Colors.WHITE,
                 this.area.x, this.area.y, this.area.w, this.area.h,
                 0, this.previewVh, this.previewVw, 0, this.previewVw, this.previewVh);
             context.batcher.newRootLayer();

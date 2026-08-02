@@ -47,6 +47,12 @@ public final class AdoptedTexture extends AbstractTexture
      * Texture-keyed cache this cannot be weak (the key is a primitive box), so this map retains its
      * wrappers — see the bounded-leak TODO in the class javadoc. */
     private static final Map<Integer, Identifier> GLID_REGISTRY = new HashMap<>();
+
+    /** Filter each adopted Texture was last registered with, so a change forces a re-adopt. */
+    private static final Map<Texture, Boolean> LINEAR = new HashMap<>();
+
+    /** Size+filter each adopted GL id was last registered with (ids get recycled by the driver). */
+    private static final Map<Integer, Long> GLID_STAMP = new HashMap<>();
     private static int counter;
 
     /**
@@ -61,15 +67,31 @@ public final class AdoptedTexture extends AbstractTexture
         }
 
         Identifier id = REGISTRY.get(texture);
+        boolean linear = texture.isLinear();
+
+        /* The sampler is baked into the wrapper at adoption time, so a cached entry keeps whatever filter
+         * the texture had the FIRST time it was drawn. Textures change theirs afterwards (a billboard's
+         * linear/mipmap flags, an editor toggling one), and the stale wrapper then sampled a pixel-art
+         * texture blurred — permanently, since nothing ever re-registered it. Re-adopt when it changes. */
+        if (id != null && !Boolean.valueOf(linear).equals(LINEAR.get(texture)))
+        {
+            id = null;
+        }
 
         if (id == null)
         {
-            id = Identifier.of(BBSMod.MOD_ID, "adopted/" + (counter++));
+            id = REGISTRY.get(texture);
+
+            if (id == null)
+            {
+                id = Identifier.of(BBSMod.MOD_ID, "adopted/" + (counter++));
+                REGISTRY.put(texture, id);
+            }
 
             MinecraftClient.getInstance().getTextureManager().registerTexture(id,
                 new AdoptedTexture(texture.id, "bbs_adopted_" + texture.id,
-                    texture.width, texture.height, texture.isLinear()));
-            REGISTRY.put(texture, id);
+                    texture.width, texture.height, linear));
+            LINEAR.put(texture, linear);
         }
 
         return id;
@@ -94,14 +116,30 @@ public final class AdoptedTexture extends AbstractTexture
         }
 
         Identifier id = GLID_REGISTRY.get(glId);
+        long stamp = (linear ? 1L : 0L) | ((long) width << 1) | ((long) height << 33);
+
+        /* Keyed by a bare GL id, which the driver RECYCLES: once an id is freed, the next texture to take
+         * it inherited this cached wrapper — its size and, worse, its filter. That is how unrelated
+         * textures started sampling linear and never went back. Re-adopt whenever the id is presented with
+         * a different size or filter. */
+        if (id != null && !Long.valueOf(stamp).equals(GLID_STAMP.get(glId)))
+        {
+            id = null;
+        }
 
         if (id == null)
         {
-            id = Identifier.of(BBSMod.MOD_ID, "adopted/glid_" + glId);
+            id = GLID_REGISTRY.get(glId);
+
+            if (id == null)
+            {
+                id = Identifier.of(BBSMod.MOD_ID, "adopted/glid_" + glId);
+                GLID_REGISTRY.put(glId, id);
+            }
 
             MinecraftClient.getInstance().getTextureManager().registerTexture(id,
                 new AdoptedTexture(glId, "bbs_adopted_glid_" + glId, width, height, linear));
-            GLID_REGISTRY.put(glId, id);
+            GLID_STAMP.put(glId, stamp);
         }
 
         return id;
