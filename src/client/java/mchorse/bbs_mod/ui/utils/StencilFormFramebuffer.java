@@ -11,6 +11,7 @@ import mchorse.bbs_mod.graphics.Framebuffer;
 import mchorse.bbs_mod.graphics.Renderbuffer;
 import mchorse.bbs_mod.graphics.texture.Texture;
 import mchorse.bbs_mod.resources.Link;
+import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.Pair;
@@ -192,7 +193,11 @@ public class StencilFormFramebuffer
 
     public void pick(int x, int y)
     {
-        if (this.colorTexture == null)
+        /* Outside the attachment there is nothing to sample, and a degenerate target (the film
+         * preview reports 0x0 for a frame while its custom size is being applied) must not reach
+         * GL at all. */
+        if (this.colorTexture == null
+            || x < 0 || y < 0 || x >= this.gpuWidth || y >= this.gpuHeight)
         {
             this.index = 0;
 
@@ -254,17 +259,27 @@ public class StencilFormFramebuffer
             return;
         }
 
-        if (this.colorTexture == null)
+        if (this.colorTexture == null || this.gpuWidth <= 0 || this.gpuHeight <= 0)
         {
             this.index = 0;
 
             return;
         }
 
-        int x0 = Math.max(0, x - radius);
-        int y0 = Math.max(0, y - radius);
-        int x1 = Math.min(this.gpuWidth - 1, x + radius);
-        int y1 = Math.min(this.gpuHeight - 1, y + radius);
+        /* All of this is computed in long and clamped to the attachment before it reaches GL.
+         * The int version overflowed: a caller that divides by a zero-sized viewport hands in
+         * x/y = (int) Infinity = Integer.MAX_VALUE, and then `x + radius` wraps negative while
+         * `x1 - x0 + 1` wraps back to a small POSITIVE width — which slipped past the `w <= 0`
+         * guard and asked the driver for a region that did not match the buffer we sized for it,
+         * so glReadPixels wrote past the end (EXCEPTION_ACCESS_VIOLATION in the GL driver). */
+        long cx = MathUtils.clamp((long) x, 0L, this.gpuWidth - 1L);
+        long cy = MathUtils.clamp((long) y, 0L, this.gpuHeight - 1L);
+        long r = Math.min((long) radius, Math.max(this.gpuWidth, this.gpuHeight));
+
+        int x0 = (int) Math.max(0L, cx - r);
+        int y0 = (int) Math.max(0L, cy - r);
+        int x1 = (int) Math.min(this.gpuWidth - 1L, cx + r);
+        int y1 = (int) Math.min(this.gpuHeight - 1L, cy + r);
         int w = x1 - x0 + 1;
         int h = y1 - y0 + 1;
 
@@ -274,6 +289,10 @@ public class StencilFormFramebuffer
 
             return;
         }
+
+        /* The centre the nearest-handle search measures from, after the same clamping. */
+        x = (int) cx;
+        y = (int) cy;
 
         int needed = w * h * 4;
 

@@ -1718,11 +1718,23 @@ public class UIFilmController extends UIElement implements GizmoViewport
                 .anchorGizmo(this.isAnchorGizmo(), this.getAnchorLocal()));
         }
 
-        int x = (int) ((context.mouseX - viewport.x) / (float) viewport.w * mainTexture.width);
-        int y = (int) ((1F - (context.mouseY - viewport.y) / (float) viewport.h) * mainTexture.height);
-        int radius = Math.round(BBSSettings.gizmoHoverTolerance.get() * mainTexture.width / (float) viewport.w);
+        /* A degenerate viewport or stencil texture would divide by zero here and hand (int) Infinity
+         * = Integer.MAX_VALUE to the pick. The film preview genuinely reports 0x0 for a frame while
+         * its custom size is being applied (BBSRendering#setCustomSize), so this is a real state,
+         * not a paranoia guard — there is simply nothing under the cursor to resolve yet. */
+        if (viewport.w > 0 && viewport.h > 0 && mainTexture.width > 0 && mainTexture.height > 0)
+        {
+            int x = (int) ((context.mouseX - viewport.x) / (float) viewport.w * mainTexture.width);
+            int y = (int) ((1F - (context.mouseY - viewport.y) / (float) viewport.h) * mainTexture.height);
+            int radius = Math.round(BBSSettings.gizmoHoverTolerance.get() * mainTexture.width / (float) viewport.w);
 
-        this.stencil.pick(x, y, radius, Gizmo.STENCIL_MAX);
+            this.stencil.pick(x, y, radius, Gizmo.STENCIL_MAX);
+        }
+        else
+        {
+            this.stencil.clearPicking();
+        }
+
         this.stencil.unbind(this.stencilMap);
 
         /* TODO(1.21.11 render): Framebuffer.beginWrite(boolean) removed; rebind MC main framebuffer as the
@@ -1734,12 +1746,16 @@ public class UIFilmController extends UIElement implements GizmoViewport
         this.stencil.setup(Link.bbs("stencil_film"));
 
         Texture mainTexture = this.stencil.getFramebuffer().getMainTexture();
-        int w = BBSRendering.getVideoWidth();
-        int h = BBSRendering.getVideoHeight();
+        float scale = BBSModClient.getGUIScale();
+        int w = Math.round(BBSRendering.getVideoWidth() * scale);
+        int h = Math.round(BBSRendering.getVideoHeight() * scale);
 
+        /* Compare against the SCALED size resizeGUI actually produces. Comparing the raw video size
+         * meant the condition never settled at any GUI scale other than 1, so this re-allocated the
+         * stencil texture and its renderbuffer on every frame. */
         if (mainTexture.width != w || mainTexture.height != h)
         {
-            this.stencil.resizeGUI(w, h);
+            this.stencil.resize(w, h);
         }
     }
 }
