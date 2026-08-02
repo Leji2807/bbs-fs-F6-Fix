@@ -1,5 +1,6 @@
 package mchorse.bbs_mod.graphics.texture;
 
+
 import com.mojang.blaze3d.opengl.GlStateManager;
 import mchorse.bbs_mod.utils.resources.Pixels;
 import org.lwjgl.opengl.GL11;
@@ -17,6 +18,9 @@ import java.nio.ByteBuffer;
 public class Texture
 {
     public int id;
+
+    /** TEMPORARY (1.21.11 filter diagnosis): where this texture came from, so the log names it. */
+    public String debugName;
     public int target;
 
     public int width;
@@ -188,6 +192,8 @@ public class Texture
 
     public void setFilter(int filter)
     {
+        TextureFilterLog.record(this, this.filter, filter);
+
         this.filter = filter;
 
         this.setParameter(GL11.GL_TEXTURE_MAG_FILTER, filter);

@@ -151,6 +151,8 @@ public final class AdoptedTexture extends AbstractTexture
      */
     private AdoptedTexture(int glId, String label, int width, int height, boolean linear)
     {
+        TextureFilterLog.recordAdopt(label, glId, linear);
+
         AdoptedGlTexture glTexture = new AdoptedGlTexture(glId, label, width, height);
 
         this.glTexture = glTexture;
