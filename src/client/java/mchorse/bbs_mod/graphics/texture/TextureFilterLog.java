@@ -62,6 +62,40 @@ public class TextureFilterLog
             what, glId, linear ? "LINEAR" : "NEAREST", caller);
     }
 
+    /**
+     * Read back what GL ACTUALLY has on the bound texture and shout if it disagrees with what BBS believes.
+     * Everything BBS asks for now says NEAREST, so if a texture still samples blurred the disagreement has
+     * to be here — either something outside BBS changed the parameters, or a vanilla sampler object is
+     * overriding them.
+     */
+    public static void verifyBound(Texture texture)
+    {
+        if (!enabled || texture.id < 0)
+        {
+            return;
+        }
+
+        int min = GL11.glGetTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER);
+        int mag = GL11.glGetTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER);
+
+        if (min == texture.getFilter() && mag == texture.getFilter())
+        {
+            return;
+        }
+
+        String name = texture.debugName == null ? "<unnamed>" : texture.debugName;
+        String key = "mismatch|" + name + "|" + texture.id + "|" + min + "|" + mag;
+
+        if (!SEEN.add(key))
+        {
+            return;
+        }
+
+        LOGGER.warn("[BBS filter] MISMATCH {} (glId={}) BBS thinks {}, GL has min={} mag={}
+    via {}",
+            name, texture.id, describe(texture.getFilter()), describe(min), describe(mag), caller());
+    }
+
     private static String describe(int filter)
     {
         if (filter == GL11.GL_LINEAR) return "LINEAR";

@@ -137,6 +137,8 @@ public class Texture
     public void bind()
     {
         GlStateManager._bindTexture(this.id);
+
+        TextureFilterLog.verifyBound(this);
     }
 
     public void bind(int unit)
