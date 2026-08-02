@@ -1001,15 +1001,8 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
         if (h % 2 != 0) h++;
 
         boolean applied = w != BBSRendering.getVideoWidth() || h != BBSRendering.getVideoHeight();
-        /* The render target is sized in GUI UNITS. If the interface scale is not 1 the preview is displayed
-         * across that many more physical pixels and gets upscaled, which reads as softness no matter what
-         * the texture filter is. Log both so one run settles whether that is what is happening. */
-        float guiScale = mchorse.bbs_mod.BBSModClient.getGUIScale();
-
-        LOGGER.info("[BBS film] applyPreviewSizeToBBS mode={} cameraEditor={} -> w={} h={} applied={} | guiScale={} previewArea={}x{} (physical {}x{})",
-            previewMode, this.cameraEditor.isVisible(), w, h, applied, guiScale,
-            this.preview.area.w, this.preview.area.h,
-            Math.round(this.preview.area.w * guiScale), Math.round(this.preview.area.h * guiScale));
+        LOGGER.info("[BBS film] applyPreviewSizeToBBS mode={} cameraEditor={} -> w={} h={} applied={}",
+            previewMode, this.cameraEditor.isVisible(), w, h, applied);
 
         if (applied)
         {

@@ -167,7 +167,6 @@ public class TextureManager implements IWatchDogListener
         if (texture == null || texture == this.getError())
         {
             texture = new Texture();
-            texture.debugName = String.valueOf(link);
             texture.setFilter(filter);
 
             this.textures.put(link, texture);
