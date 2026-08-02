@@ -5,7 +5,12 @@ import mchorse.bbs_mod.graphics.InverseView;
 import mchorse.bbs_mod.graphics.ModelPreviewRenderer;
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.client.BBSRendering;
+import com.mojang.logging.LogUtils;
 import mchorse.bbs_mod.camera.Camera;
+import org.slf4j.Logger;
+
+import java.util.HashSet;
+import java.util.Set;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.forms.entities.StubEntity;
 import mchorse.bbs_mod.graphics.window.Window;
@@ -44,6 +49,8 @@ import java.nio.ByteBuffer;
  */
 public abstract class UIModelRenderer extends UIElement
 {
+    private static final Logger LOGGER = LogUtils.getLogger();
+
     private static Vector3d vec = new Vector3d();
     private static Matrix3d mat = new Matrix3d();
 
@@ -319,9 +326,13 @@ public abstract class UIModelRenderer extends UIElement
             }
             catch (Exception e)
             {
-                /* The MODEL geometry already drew into the FBO before any failure; only editor overlays
-                 * (renderAxes/gizmo) NPE in the world phase because they need GUI-flow state. Swallow so the
-                 * model still blits; overlays are handled separately. */
+                /* The MODEL geometry already drew into the FBO before any failure, so the preview still
+                 * blits — but everything queued AFTER the model in renderUserModel (the gizmo visual and
+                 * its pick stencil) is lost with it. Swallowing this blind made that indistinguishable
+                 * from "the gizmo does not render": the editor just silently loses its overlays every
+                 * frame. Report it once per distinct failure so the cause is visible without drowning
+                 * the log at 60 fps. */
+                reportPreviewFailure(e);
             }
             finally
             {
@@ -333,6 +344,27 @@ public abstract class UIModelRenderer extends UIElement
             this.previewGlId = this.preview.getColorGlId();
             this.previewVw = vw;
             this.previewVh = vh;
+        }
+    }
+
+    /** Distinct preview failures already reported, so a per-frame throw logs once instead of every frame. */
+    private static final Set<String> reportedPreviewFailures = new HashSet<>();
+
+    /**
+     * Log a swallowed preview-pass failure the first time each distinct one is seen. The editor keeps
+     * running (the model still blits), but the overlays that were queued behind the failure are gone,
+     * so this must not stay invisible.
+     */
+    private static void reportPreviewFailure(Exception e)
+    {
+        StackTraceElement[] trace = e.getStackTrace();
+        String key = e.getClass().getName() + ":" + e.getMessage()
+            + (trace.length > 0 ? "@" + trace[0] : "");
+
+        if (reportedPreviewFailures.add(key))
+        {
+            LOGGER.error("[BBS preview] model preview pass failed — the gizmo visual and its pick "
+                + "stencil were dropped for this frame", e);
         }
     }
 
