@@ -15,7 +15,9 @@ import mchorse.bbs_mod.client.renderer.ModelBlockEntityRenderer;
 import mchorse.bbs_mod.client.renderer.entity.ActorEntityRenderer;
 import mchorse.bbs_mod.client.renderer.entity.GunProjectileEntityRenderer;
 import mchorse.bbs_mod.client.renderer.item.GunItemRenderer;
+import mchorse.bbs_mod.client.renderer.item.GunSpecialRenderer;
 import mchorse.bbs_mod.client.renderer.item.ModelBlockItemRenderer;
+import mchorse.bbs_mod.client.renderer.item.ModelBlockSpecialRenderer;
 import mchorse.bbs_mod.cubic.model.ModelManager;
 import mchorse.bbs_mod.events.register.RegisterClientSettingsEvent;
 import mchorse.bbs_mod.events.register.RegisterL10nEvent;
@@ -73,6 +75,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.render.item.model.special.SpecialModelTypes;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.client.util.Window;
 import net.minecraft.entity.EquipmentSlot;
@@ -124,6 +127,16 @@ public class BBSModClient implements ClientModInitializer
     private static CameraController cameraController = new CameraController();
     private static ModelBlockItemRenderer modelBlockItemRenderer = new ModelBlockItemRenderer();
     private static GunItemRenderer gunItemRenderer = new GunItemRenderer();
+
+    public static ModelBlockItemRenderer getModelBlockItemRenderer()
+    {
+        return modelBlockItemRenderer;
+    }
+
+    public static GunItemRenderer getGunItemRenderer()
+    {
+        return gunItemRenderer;
+    }
     private static Films films;
     private static GunZoom gunZoom;
 
@@ -663,10 +676,12 @@ public class BBSModClient implements ClientModInitializer
          * BlockEntityRenderer<T, S extends BlockEntityRenderState> form (migrated separately). */
         BlockEntityRendererRegistry.register(BBSMod.MODEL_BLOCK_ENTITY, ModelBlockEntityRenderer::new);
 
-        /* TODO(1.21.11 render): BuiltinItemRendererRegistry/DynamicItemRenderer were removed in the 1.21.4 item-model
-         * rewrite. Custom dynamic item rendering (modelBlockItemRenderer / gunItemRenderer) must move to the
-         * SpecialModelRenderer / item-model system. Registrations dropped to keep the build green; items render
-         * vanilla/nothing until reimplemented. */
+        /* 1.21.11 item models: gun and model-block items render their BBS Form through a
+         * SpecialModelRenderer. The queue defers every draw, so the renderer captures the
+         * form's immediate pipeline (FormRenderCapture, hooked into RenderLayer#draw) and
+         * replays it into queue commands — one mechanism for hand, ground and GUI. */
+        SpecialModelTypes.ID_MAPPER.put(Identifier.of(BBSMod.MOD_ID, "gun"), GunSpecialRenderer.Unbaked.CODEC);
+        SpecialModelTypes.ID_MAPPER.put(Identifier.of(BBSMod.MOD_ID, "model_block"), ModelBlockSpecialRenderer.Unbaked.CODEC);
 
         /* Create folders */
         BBSMod.getAudioFolder().mkdirs();

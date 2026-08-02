@@ -1,9 +1,9 @@
 {
     "model": {
         "type": "minecraft:special",
-        "base": "bbs:item/model",
+        "base": "bbs:item/gun",
         "model": {
-            "type": "bbs:model_block"
+            "type": "bbs:gun"
         }
     }
 }
