@@ -40,7 +40,7 @@ public class ModelVAORenderer
 
         if (built != null)
         {
-            BBSShaders.getModelLayer().draw(built);
+            BBSShaders.getBoundModelLayer().draw(built);
         }
     }
 }

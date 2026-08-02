@@ -219,6 +219,48 @@ public class BBSShaders
      * RenderSystem.setShader(...) + manual buffer flow.
      * ---------------------------------------------------------------------------------------- */
 
+    /** Model layers keyed by the texture they sample, so each carries its own NEAREST-sampled binding. */
+    private static final java.util.Map<net.minecraft.util.Identifier, RenderLayer> texturedModelLayers = new java.util.HashMap<>();
+
+    /**
+     * The model layer bound to {@code texture}.
+     *
+     * <p>{@link #getModelLayer()} declares no texture at all, so Sampler0 was left to whatever the driver
+     * had — which is how models drew blurred even though their textures were NEAREST and GL agreed. The
+     * form editor never showed it because its preview path draws through a vanilla entity layer keyed on
+     * the adopted texture, which carries that texture's own (NEAREST) sampler. Binding the texture here
+     * gives the world/film path the same guarantee.
+     */
+    public static RenderLayer getModelLayer(net.minecraft.util.Identifier texture)
+    {
+        if (texture == null)
+        {
+            return getModelLayer();
+        }
+
+        return texturedModelLayers.computeIfAbsent(texture, (id) -> RenderLayer.of(
+            BBSMod.MOD_ID + "_model_" + id.getPath(),
+            RenderSetup.builder(MODEL)
+                .expectedBufferSize(RenderLayer.field_64008)
+                .translucent()
+                .useLightmap()
+                .useOverlay()
+                .texture("Sampler0", id)
+                .build()));
+    }
+
+    /**
+     * The model layer bound to whatever texture the renderers last bound through BBS's own texture manager
+     * — which is how the immediate model path has always chosen its texture. Resolving it into a real
+     * TextureSetup is what keeps Sampler0 on that texture's NEAREST sampler.
+     */
+    public static RenderLayer getBoundModelLayer()
+    {
+        mchorse.bbs_mod.graphics.texture.Texture bound = mchorse.bbs_mod.BBSModClient.getTextures().getLastBound();
+
+        return getModelLayer(bound == null ? null : mchorse.bbs_mod.graphics.texture.AdoptedTexture.identifier(bound));
+    }
+
     public static RenderLayer getModelLayer()
     {
         if (modelLayer == null)

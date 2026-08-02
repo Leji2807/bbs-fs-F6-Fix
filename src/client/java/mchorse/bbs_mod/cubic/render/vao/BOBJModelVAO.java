@@ -235,7 +235,7 @@ public class BOBJModelVAO
             }
             else
             {
-                BBSShaders.getModelLayer().draw(built);
+                BBSShaders.getBoundModelLayer().draw(built);
             }
         }
     }

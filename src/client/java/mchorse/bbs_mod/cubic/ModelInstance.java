@@ -543,7 +543,7 @@ public class ModelInstance implements IModelInstance
                     }
                     else
                     {
-                        BBSShaders.getModelLayer().draw(built);
+                        BBSShaders.getBoundModelLayer().draw(built);
                     }
                 }
             }
