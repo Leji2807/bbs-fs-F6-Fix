@@ -223,7 +223,13 @@ public class UIPickableFormRenderer extends UIFormRenderer implements GizmoViewp
             if (UIBaseMenu.renderAxes && !UIBaseMenu.isHideGizmoHeld())
             {
                 Matrix4f gizmoMatrix = this.formEditor.getOrigin(context.getTransition());
-                MatrixStack gizmoStack = new MatrixStack();
+
+                /* 1.21.11: the preview pass sets the perspective projection but leaves the GLOBAL model-view
+         * IDENTITY, so every draw has to bake `camera.view * translate(-camera.pos) * transform` into its
+         * own vertices — that is exactly what createCameraStack() returns, and what the ground grid and the
+         * model geometry already use. Starting from a bare `new MatrixStack()` left this geometry in raw
+         * model space: it landed at the camera origin, i.e. nowhere on screen. */
+                MatrixStack gizmoStack = this.createCameraStack();
 
                 gizmoStack.push();
 
@@ -261,9 +267,12 @@ public class UIPickableFormRenderer extends UIFormRenderer implements GizmoViewp
     private void renderAxes(UIContext context)
     {
         Matrix4f matrix = this.formEditor.getOrigin(context.getTransition());
-        /* TODO(1.21.11 render): getMatrices() is now 2D; axes/gizmo render in 3D, so build
-         * a MatrixStack from the origin instead (the depth state is encoded by the layer). */
-        MatrixStack stack = new MatrixStack();
+        /* 1.21.11: the preview pass sets the perspective projection but leaves the GLOBAL model-view
+         * IDENTITY, so every draw has to bake `camera.view * translate(-camera.pos) * transform` into its
+         * own vertices — that is exactly what createCameraStack() returns, and what the ground grid and the
+         * model geometry already use. Starting from a bare `new MatrixStack()` left this geometry in raw
+         * model space: it landed at the camera origin, i.e. nowhere on screen. */
+        MatrixStack stack = this.createCameraStack();
 
         stack.push();
 
@@ -298,9 +307,9 @@ public class UIPickableFormRenderer extends UIFormRenderer implements GizmoViewp
         float hitboxH = this.form.hitboxHeight.get();
         float eyeHeight = hitboxH * this.form.hitboxEyeHeight.get();
 
-        /* TODO(1.21.11 render): getMatrices() is now a 2D Matrix3x2fStack; hitbox boxes render
-         * in 3D world space, so draw against a fresh MatrixStack at the model origin. */
-        MatrixStack stack = new MatrixStack();
+        /* Same camera-baking requirement as the gizmo above: the hitbox boxes are world-space geometry
+         * drawn into the preview pass, so they start from the camera stack, not a bare one. */
+        MatrixStack stack = this.createCameraStack();
 
         /* Draw look vector */
         final float thickness = 0.01F;
