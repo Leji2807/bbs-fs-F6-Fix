@@ -361,12 +361,13 @@ public class UIModelBlockPanel extends UIDashboardPanel implements IFlightSuppor
          * drawn straight onto Minecraft's world stack, so feeding that same
          * view/projection/position back to the gizmo keeps rendering, picking
          * and dragging in one coordinate frame.
-         * TODO(1.21.11 render): RenderSystem.getProjectionMatrix() and
-         * WorldRenderContext.positionMatrix() are removed. The projection and the
-         * camera view rotation must come from the new render-pipeline foundation
-         * (BBSRendering still feeds the old WorldRenderContextImpl). Until that's
-         * ported the gizmo projection/view stay at their previous values, so
-         * picking/dragging won't be frame-accurate yet. */
+         *
+         * The view and projection come from GameRendererMixin, which records what the world is actually
+         * rendered with. Neither had a source before: gizmoCamera.view was never assigned at all (so
+         * Gizmo#reorientForSpace reoriented against an IDENTITY view while the stack carried the real
+         * camera), and gizmoProjection kept whatever it was last left with. */
+        this.gizmoProjection.set(BBSRendering.getWorldProjection());
+        this.gizmoCamera.view.set(BBSRendering.camera);
         this.gizmoCamera.projection.set(this.gizmoProjection);
         this.gizmoCamera.position.set(cameraPos.x, cameraPos.y, cameraPos.z);
 

@@ -1624,7 +1624,14 @@ public class UIFilmController extends UIElement implements GizmoViewport
     /** The film camera's world&rarr;camera rotation, for reorienting the gizmo into a space. */
     public Matrix4f getGizmoView()
     {
-        return this.panel.getCamera().view;
+        /* The matrix the world was actually drawn with — the same one renderPickingPreview multiplies onto
+         * the stack the gizmo is built on. Gizmo#reorientForSpace replaces that stack's BASIS with one
+         * expressed in this view (GizmoDrag#stackBasisForSpace returns a local->view frame), so the two must
+         * be the same matrix. This used to return panel.getCamera().view — a separately reconstructed BBS
+         * camera. The drags stayed right because they carry their own consistent camera, but the gizmo was
+         * DRAWN in a frame that disagreed with the one it was placed in, which is what made GLOBAL/WORLD/VIEW
+         * render wrong while behaving correctly. */
+        return BBSRendering.camera;
     }
 
     /** Whether the selected keyframe is the form's anchor track, so its transform gets a gizmo. */
