@@ -1,12 +1,10 @@
 package mchorse.bbs_mod.client.renderer;
 
-import mchorse.bbs_mod.BBSMod;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.blocks.entities.ModelBlockEntity;
 import mchorse.bbs_mod.blocks.entities.ModelProperties;
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.model.View;
-import mchorse.bbs_mod.entity.ActorEntity;
 import mchorse.bbs_mod.forms.FormUtilsClient;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.forms.forms.Form;
@@ -33,6 +31,7 @@ import net.minecraft.client.render.block.entity.BlockEntityRenderer;
 import net.minecraft.client.render.block.entity.BlockEntityRendererFactory;
 import net.minecraft.client.render.block.entity.state.BlockEntityRenderState;
 import net.minecraft.client.render.command.OrderedRenderCommandQueue;
+import net.minecraft.client.render.entity.state.EntityRenderState;
 import net.minecraft.client.render.state.CameraRenderState;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.world.ClientWorld;
@@ -41,10 +40,16 @@ import net.minecraft.util.math.Vec3d;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
+import java.util.List;
+
 public class ModelBlockEntityRenderer implements BlockEntityRenderer<ModelBlockEntity, ModelBlockEntityRenderer.ModelBlockRenderState>
 {
-    private static ActorEntity entity;
-
+    /**
+     * Immediate-context shadow (the film's AFTER_ENTITIES rendering): build the vanilla-style
+     * shadow pieces under (x, y, z) and draw them through the entity-shadow layer right away —
+     * see {@link FormShadows}. The provider parameter is a 1.21.1 leftover, kept for the call
+     * sites; the draw is immediate either way.
+     */
     public static void renderShadow(VertexConsumerProvider provider, MatrixStack matrices, float tickDelta, double x, double y, double z, float tx, float ty, float tz)
     {
         renderShadow(provider, matrices, tickDelta, x, y, z, tx, ty, tz, 0.5F, 1F);
@@ -54,28 +59,23 @@ public class ModelBlockEntityRenderer implements BlockEntityRenderer<ModelBlockE
     {
         ClientWorld world = MinecraftClient.getInstance().world;
 
-        if (entity == null || entity.getEntityWorld() != world)
+        if (world == null)
         {
-            entity = new ActorEntity(BBSMod.ACTOR_ENTITY, world);
+            return;
         }
 
-        entity.setPos(x, y, z);
-        entity.lastRenderX = x;
-        entity.lastRenderY = y;
-        entity.lastRenderZ = z;
-        entity.lastX = x;
-        entity.lastY = y;
-        entity.lastZ = z;
+        Vec3d cameraPos = MinecraftClient.getInstance().gameRenderer.getCamera().getCameraPos();
+        List<EntityRenderState.ShadowPiece> pieces = FormShadows.buildPieces(world, x, y, z, radius, opacity, cameraPos.squaredDistanceTo(x, y, z));
+
+        if (pieces.isEmpty())
+        {
+            return;
+        }
 
         matrices.push();
         matrices.translate(tx, ty, tz);
 
-        /* TODO(1.21.11 render): EntityRenderDispatcher#renderShadow was removed by the 1.21.2 entity
-         * render-state rewrite (EntityRendererDispatcherInvoker#bbs$renderShadow now targets a method
-         * that no longer exists and is not applied at runtime). The shadow draw — and the
-         * EntityRenderManager#getSquaredDistanceToCamera(x, y, z) distance fade it depended on (that
-         * overload was also removed) — are neutralized until the shadow path is re-ported onto the new
-         * OrderedRenderCommandQueue pipeline. */
+        FormShadows.drawImmediate(matrices, pieces, Math.min(radius, 32F));
 
         matrices.pop();
     }
@@ -207,10 +207,25 @@ public class ModelBlockEntityRenderer implements BlockEntityRenderer<ModelBlockE
             double y = pos.getY() + ty;
             double z = pos.getZ() + tz;
 
-            /* TODO(1.21.11 render): the shadow path no longer has a VertexConsumerProvider here (the new
-             * render signature exposes only an OrderedRenderCommandQueue). renderShadow itself is
-             * currently a neutralized stub, so pass null until the shadow draw is re-ported. */
-            renderShadow(null, matrices, tickDelta, x, y, z, tx, ty, tz);
+            /* Queue-context shadow: record the pieces for the entity-shadow pass. Same pieces
+             * the immediate overload draws (FormShadows), submitted the vanilla 1.21.5+ way. */
+            ClientWorld world = mc.world;
+
+            if (world != null)
+            {
+                Vec3d cameraPos = mc.gameRenderer.getCamera().getCameraPos();
+                List<EntityRenderState.ShadowPiece> pieces = FormShadows.buildPieces(world, x, y, z, 0.5F, 1F, cameraPos.squaredDistanceTo(x, y, z));
+
+                if (!pieces.isEmpty())
+                {
+                    matrices.push();
+                    matrices.translate(tx, ty, tz);
+
+                    queue.submitShadowPieces(matrices, 0.5F, pieces);
+
+                    matrices.pop();
+                }
+            }
         }
     }
 
