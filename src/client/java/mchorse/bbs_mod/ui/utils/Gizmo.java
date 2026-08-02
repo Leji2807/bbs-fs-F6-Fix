@@ -498,10 +498,14 @@ public class Gizmo
         MatrixStack stack = new MatrixStack();
         BufferBuilder builder = Tessellator.getInstance().begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR);
 
+        /* Drawn with the SAME matrix/radius pair that defines the pick disc: computeScreenRadius projects
+         * lastSphereLocalRadius through lastRenderMatrix. lastSphereMatrix would double-count the per-frame
+         * distanceScale, which is already folded into lastSphereLocalRadius — the glow then came out larger
+         * than the area that actually grabs, so the disc read as "too small for the sphere". */
         Draw.sphere(builder, stack, this.lastSphereLocalRadius, 24, 24,
             Colors.getR(color), Colors.getG(color), Colors.getB(color), Colors.getA(color));
 
-        if (BBSPickerRenderer.drawGeometryHighlight(builder.endNullable(), this.lastSphereMatrix, projection, w, h))
+        if (BBSPickerRenderer.drawGeometryHighlight(builder.endNullable(), this.lastRenderMatrix, projection, w, h))
         {
             int vw = BBSPickerRenderer.getHighlightWidth();
             int vh = BBSPickerRenderer.getHighlightHeight();
@@ -851,6 +855,11 @@ public class Gizmo
         float b = Colors.getB(color);
 
         /* Blend and no-cull are encoded by the gizmo pipeline the flush below submits to. */
+        /* The sweep direction is negated for the drawn pie. ViewRotateDrag already folds ROTATE_SIGN in
+         * so the value matches the APPLIED turn; on screen that winds the other way round, because the
+         * screen basis below is (right, down) — a y-down frame, where a positive angle runs clockwise. */
+        sweepRad = -sweepRad;
+
         int segments = Math.max(2, (int) (Math.abs(sweepRad) / (float) (2D * Math.PI) * 64F));
         float step = sweepRad / segments;
         Vector3f p1 = new Vector3f();
@@ -1648,6 +1657,22 @@ public class Gizmo
      * is picked by a screen-space disc test in {@link GizmoInteraction} rather than the stencil. The rotate pie is
      * a drag visualisation, not a handle, so it is excluded too.
      */
+    /** Picking twin of {@link #drawOccludedRing}: the same camera-facing arc, with the handle id in red. */
+    private void drawOccludedRingStencil(MatrixStack stack, Axis axis, float radius, float thickness, float id)
+    {
+        Vector2f arc = new Vector2f();
+
+        if (!this.visibleRingArc(stack, axis, radius, arc))
+        {
+            return;
+        }
+
+        BufferBuilder builder = begin();
+
+        Draw.arc3D(builder, stack, axis, radius, thickness, id, 0F, 0F, arc.x, arc.y);
+        flushPick(builder);
+    }
+
     private void drawRotateHandlesStencil(MatrixStack stack)
     {
         float scale = BBSSettings.axesScale.get();
@@ -1658,13 +1683,14 @@ public class Gizmo
 
         if (!BBSSettings.rotateHideRings.get())
         {
-            BufferBuilder builder = begin();
-
-            Draw.arc3D(builder, stack, Axis.Z, radius, thicknessRing, STENCIL_ROTATE_Z / 255F, 0F, 0F);
-            Draw.arc3D(builder, stack, Axis.X, radius, thicknessRing, STENCIL_ROTATE_X / 255F, 0F, 0F);
-            Draw.arc3D(builder, stack, Axis.Y, radius, thicknessRing, STENCIL_ROTATE_Y / 255F, 0F, 0F);
-
-            flushPick(builder);
+            /* Cut the far half of each ring away, exactly as the visual does (drawOccludedRing). Drawing
+             * FULL rings here made the pick disagree with what is on screen: the hidden half still claimed
+             * its pixels, and since those run across the middle of the gizmo they covered the trackball
+             * sphere's disc — so a click meant for the sphere was answered by a ring, and the sphere
+             * behaved as if it sat behind everything. */
+            this.drawOccludedRingStencil(stack, Axis.Z, radius, thicknessRing, STENCIL_ROTATE_Z / 255F);
+            this.drawOccludedRingStencil(stack, Axis.X, radius, thicknessRing, STENCIL_ROTATE_X / 255F);
+            this.drawOccludedRingStencil(stack, Axis.Y, radius, thicknessRing, STENCIL_ROTATE_Y / 255F);
         }
 
         /* The screen-space (billboard) view-rotation ring stays pickable even with "Hide rotation rings" on,

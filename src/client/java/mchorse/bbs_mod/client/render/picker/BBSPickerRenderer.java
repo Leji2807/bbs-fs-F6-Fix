@@ -181,6 +181,16 @@ public class BBSPickerRenderer
      */
     public static void setRenderTarget(GpuTextureView color, GpuTextureView depth)
     {
+        setRenderTarget(color, depth, 0, 0);
+    }
+
+    /**
+     * @param width,height the picking target's pixel size, so the hover-highlight pass can size its own
+     *                     target to match. The recolour maps the picking texture over the whole target with
+     *                     UV 0..1, so a differently-sized target stretches the result.
+     */
+    public static void setRenderTarget(GpuTextureView color, GpuTextureView depth, int width, int height)
+    {
         BBSPickerRenderer.targetColor = color;
         BBSPickerRenderer.targetDepth = depth;
 
@@ -189,6 +199,8 @@ public class BBSPickerRenderer
         if (color != null)
         {
             BBSPickerRenderer.lastPickColorView = color;
+            BBSPickerRenderer.lastPickWidth = width;
+            BBSPickerRenderer.lastPickHeight = height;
         }
     }
 
@@ -517,6 +529,18 @@ public class BBSPickerRenderer
             return false;
         }
 
+        /* The recolour maps the picking texture across the whole target with UV 0..1, so the target must
+         * match the SOURCE's size — not whatever the caller happens to pass. Callers disagreed (the form
+         * editor passed its viewport, the film its area, the model block the menu), and any difference in
+         * aspect stretched the highlight: it stayed close to the mark near the centre and drifted further
+         * out, so hovering a leg looked right while an arm painted somewhere else entirely. The caller's
+         * w/h are only a fallback for when the source size is unknown. */
+        if (lastPickWidth > 0 && lastPickHeight > 0)
+        {
+            w = lastPickWidth;
+            h = lastPickHeight;
+        }
+
         if (pickSampler == null)
         {
             /* NEAREST + clamp: the source carries the encoded index per texel; any filtering would blend
@@ -670,6 +694,10 @@ public class BBSPickerRenderer
             buffer.close();
         }
     }
+
+    /** Pixel size of the picking target last set, so the highlight pass can match it exactly. */
+    private static int lastPickWidth;
+    private static int lastPickHeight;
 
     /** Raw GL id of the off-screen highlight colour texture, for the recorded {@code texturedBox(int,...)} blit. */
     public static int getHighlightGlId()

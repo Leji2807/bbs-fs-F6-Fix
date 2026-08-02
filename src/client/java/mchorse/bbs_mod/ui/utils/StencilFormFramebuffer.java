@@ -165,7 +165,7 @@ public class StencilFormFramebuffer
         RenderSystem.getDevice().createCommandEncoder()
             .clearColorAndDepthTextures(this.colorTexture, 0x00000000, this.depthTexture, 1.0D);
 
-        BBSPickerRenderer.setRenderTarget(this.colorView, this.depthView);
+        BBSPickerRenderer.setRenderTarget(this.colorView, this.depthView, this.gpuWidth, this.gpuHeight);
     }
 
     public void pickGUI(UIContext context, Area area)
