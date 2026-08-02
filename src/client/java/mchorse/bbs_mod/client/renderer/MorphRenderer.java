@@ -101,6 +101,23 @@ public class MorphRenderer
 
     private static void queue(Form form, IEntity entity, int light, int overlay, float tickDelta)
     {
+        /* One entry per entity per drain: the collect hooks fire from the entity submission phase,
+         * which can run more than once before AFTER_ENTITIES drains the queue (an extra render pass —
+         * e.g. a shader mod's shadow pass — submits entities too). Without the dedup the same morph
+         * draws twice in one frame, which doubles every translucent alpha. */
+        for (Queued queued : QUEUE)
+        {
+            if (queued.entity == entity)
+            {
+                queued.form = form;
+                queued.light = light;
+                queued.overlay = overlay;
+                queued.tickDelta = tickDelta;
+
+                return;
+            }
+        }
+
         Queued queued = new Queued();
 
         queued.form = form;
@@ -132,21 +149,27 @@ public class MorphRenderer
         double cz = camera.getCameraPos().z;
         MatrixStack stack = context.matrices();
 
-        for (Queued queued : QUEUE)
+        try
         {
-            Matrix4f target = BaseFilmController.getMatrixForRenderWithRotation(queued.entity, cx, cy, cz, queued.tickDelta);
+            for (Queued queued : QUEUE)
+            {
+                Matrix4f target = BaseFilmController.getMatrixForRenderWithRotation(queued.entity, cx, cy, cz, queued.tickDelta);
 
-            stack.push();
-            MatrixStackUtils.multiply(stack, target);
+                stack.push();
+                MatrixStackUtils.multiply(stack, target);
 
-            FormUtilsClient.render(queued.form, new FormRenderingContext()
-                .set(FormRenderType.ENTITY, queued.entity, stack, queued.light, queued.overlay, queued.tickDelta)
-                .camera(camera));
+                FormUtilsClient.render(queued.form, new FormRenderingContext()
+                    .set(FormRenderType.ENTITY, queued.entity, stack, queued.light, queued.overlay, queued.tickDelta)
+                    .camera(camera));
 
-            stack.pop();
+                stack.pop();
+            }
         }
-
-        QUEUE.clear();
+        finally
+        {
+            /* Always drain: a throw mid-loop must not leave stale entries replaying next frame. */
+            QUEUE.clear();
+        }
     }
 
     private static boolean canRender()

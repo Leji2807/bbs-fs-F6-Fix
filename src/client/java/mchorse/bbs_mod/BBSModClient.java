@@ -72,7 +72,14 @@ import net.fabricmc.fabric.api.client.rendering.v1.BlockEntityRendererRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
+import mchorse.bbs_mod.graphics.Draw;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.render.BufferBuilder;
+import net.minecraft.client.render.Camera;
+import net.minecraft.client.render.Tessellator;
+import net.minecraft.client.render.VertexFormats;
+import net.minecraft.client.util.math.MatrixStack;
+import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.render.item.model.special.SpecialModelTypes;
@@ -509,13 +516,42 @@ public class BBSModClient implements ClientModInitializer
 
                 if (d > 0)
                 {
-                    /* TODO(1.21.11 render): chroma-sky billboard debug draw. The 1.21.5 GPU rewrite removed
-                     * RenderSystem.enableDepthTest/disableDepthTest/setShader, GameRenderer::getPositionColorProgram,
-                     * BufferRenderer.drawWithGlobalProgram, and net.minecraft.client.render.{VertexFormat,VertexFormats}
-                     * (now com.mojang.blaze3d.vertex.*). The relocated Fabric WorldRenderContext also dropped
-                     * matrixStack() in favour of matrices(). Re-implement this quad via Tessellator.begin(
-                     * VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR) -> BuiltBuffer -> RenderLayer.draw
-                     * using context.matrices() once the pipeline foundation lands. Stubbed to keep the build green. */
+                    /* Chroma-sky billboard: a screen-filling chroma quad d blocks in front of the camera.
+                     * This is the shader-proof half of the chroma sky: cancelling the vanilla sky pass keeps
+                     * the frame at the chroma CLEAR colour, but anything that repaints "empty" pixels later —
+                     * an Iris shaderpack's deferred/composite sky is the known case — paints over a clear
+                     * colour, while it never paints over real geometry. The billboard IS real geometry
+                     * (depth-tested, so everything nearer than d still shows), exactly as it worked on 1.21.1.
+                     *
+                     * Matrix note (1.21.11): the context stack is identity and the view rotation lives in the
+                     * global RenderSystem modelview, so the camera rotation is composed ONTO the stack to
+                     * cancel it (the BaseFilmController "relative" idiom) — the quad stays screen-fixed. */
+                    MatrixStack stack = context.matrices();
+                    Camera camera = MinecraftClient.getInstance().gameRenderer.getCamera();
+                    Integer fromCurve = BBSRendering.getChromaSkyColorArgb();
+                    Color color = Colors.COLOR.set(fromCurve != null ? fromCurve : BBSSettings.chromaSkyColor.get());
+
+                    stack.push();
+                    stack.peek().getPositionMatrix().rotate(camera.getRotation());
+                    stack.peek().getNormalMatrix().rotate(camera.getRotation());
+                    stack.translate(0F, 0F, -d);
+
+                    BufferBuilder builder = Tessellator.getInstance().begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR);
+
+                    float fov = MinecraftClient.getInstance().options.getFov().getValue();
+                    float dd = d * (float) Math.pow(fov / 40F, 2F);
+
+                    Draw.fillQuad(builder, stack,
+                        -dd, -dd, 0,
+                        dd, -dd, 0,
+                        dd, dd, 0,
+                        -dd, dd, 0,
+                        color.r, color.g, color.b, 1F
+                    );
+
+                    Draw.flushTriangles(builder);
+
+                    stack.pop();
                 }
             }
         });
