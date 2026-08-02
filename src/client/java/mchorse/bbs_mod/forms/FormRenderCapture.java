@@ -19,6 +19,7 @@ import org.joml.Vector3f;
 import org.joml.Vector3fc;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,11 +43,16 @@ import java.util.function.Consumer;
  * transformed (item display transform + the form's own bone transforms) at capture time, so the
  * raw re-emit needs no matrix of its own.
  *
- * <p>Not re-entrant: one session at a time, render thread only.
+ * <p>Render thread only. Sessions nest by merging: a form that itself contains a special-model
+ * item (gun in a form's hand) re-enters {@code submitForm}, and the inner session folds into the
+ * outer one — vertices are fully transformed at capture time, so the outer submit carries them
+ * correctly. The depth counter also keeps an unbalanced {@code end()} from leaving the hook armed
+ * process-wide (an armed leak silently swallows EVERY RenderLayer draw).
  */
 public class FormRenderCapture
 {
     private static Map<RenderLayer, List<Captured>> active;
+    private static int depth;
 
     public record Captured(BuiltBuffer.DrawParameters params, ByteBuffer data)
     {}
@@ -58,16 +64,30 @@ public class FormRenderCapture
 
     public static void begin()
     {
-        active = new LinkedHashMap<>();
+        if (depth++ == 0)
+        {
+            active = new LinkedHashMap<>();
+        }
     }
 
+    /** Returns the captured layers when this call closes the outermost session, null otherwise. */
     public static Map<RenderLayer, List<Captured>> end()
     {
-        Map<RenderLayer, List<Captured>> result = active;
+        if (depth == 0)
+        {
+            return null;
+        }
 
-        active = null;
+        if (--depth == 0)
+        {
+            Map<RenderLayer, List<Captured>> result = active;
 
-        return result;
+            active = null;
+
+            return result;
+        }
+
+        return null;
     }
 
     /**
@@ -84,11 +104,15 @@ public class FormRenderCapture
         }
 
         BuiltBuffer.DrawParameters params = buffer.getDrawParameters();
-        ByteBuffer source = buffer.getBuffer().duplicate();
+        /* ByteBuffer.duplicate() does NOT inherit byte order — the duplicate is always BIG_ENDIAN,
+         * while BufferBuilder wrote the vertex data in native (little-endian) order. Reading floats
+         * through a big-endian view turns 1.0f into 4.6e-41: every position collapses to ~0 and the
+         * whole capture rasterises to nothing. Restore native order explicitly on every view. */
+        ByteBuffer source = buffer.getBuffer().duplicate().order(ByteOrder.nativeOrder());
 
         source.limit(Math.min(source.limit(), params.vertexCount() * params.format().getVertexSize()));
 
-        ByteBuffer copy = ByteBuffer.allocate(source.remaining()).order(source.order());
+        ByteBuffer copy = ByteBuffer.allocate(source.remaining()).order(ByteOrder.nativeOrder());
 
         copy.put(source);
         copy.flip();
@@ -116,6 +140,8 @@ public class FormRenderCapture
 
         begin();
 
+        Map<RenderLayer, List<Captured>> captured;
+
         try
         {
             FormUtilsClient.render(form, new FormRenderingContext()
@@ -125,9 +151,17 @@ public class FormRenderCapture
         finally
         {
             matrices.pop();
+
+            /* end() must run even when the form render throws an Error past FormUtilsClient's
+             * catch — a session left armed swallows every RenderLayer draw in the process. */
+            captured = end();
         }
 
-        Map<RenderLayer, List<Captured>> captured = end();
+        if (captured == null)
+        {
+            /* Nested session: the enclosing submitForm owns the capture and will submit it. */
+            return;
+        }
 
         for (Map.Entry<RenderLayer, List<Captured>> entry : captured.entrySet())
         {
@@ -148,7 +182,8 @@ public class FormRenderCapture
         BuiltBuffer.DrawParameters params = captured.params();
         VertexFormat format = params.format();
         int stride = format.getVertexSize();
-        ByteBuffer data = captured.data().duplicate();
+        /* duplicate() resets byte order to BIG_ENDIAN — see the matching note in capture(). */
+        ByteBuffer data = captured.data().duplicate().order(ByteOrder.nativeOrder());
 
         for (int v = 0; v < params.vertexCount(); v++)
         {

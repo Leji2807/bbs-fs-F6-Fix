@@ -1,7 +1,9 @@
 package mchorse.bbs_mod.forms;
 
+import com.mojang.logging.LogUtils;
 import it.unimi.dsi.fastutil.objects.Object2ObjectLinkedOpenHashMap;
 import mchorse.bbs_mod.forms.forms.AnchorForm;
+import org.slf4j.Logger;
 import mchorse.bbs_mod.forms.forms.BillboardForm;
 import mchorse.bbs_mod.forms.forms.BlockForm;
 import mchorse.bbs_mod.forms.forms.ExtrudedForm;
@@ -45,9 +47,12 @@ import java.util.Stack;
 
 public class FormUtilsClient
 {
+    private static final Logger LOGGER = LogUtils.getLogger();
+
     private static Map<Class, IFormRendererFactory> map = new HashMap<>();
     private static CustomVertexConsumerProvider customVertexConsumerProvider;
     private static Stack<Form> currentForm = new Stack<>();
+    private static long lastRenderErrorLog;
 
     static
     {
@@ -172,7 +177,19 @@ public class FormUtilsClient
                 renderer.render(context);
             }
             catch (Exception e)
-            {}
+            {
+                /* Containment stays (one broken form must not kill the frame), but silence would
+                 * turn every render failure into an invisible form with a clean log — rate-limit
+                 * instead of muting. */
+                long now = System.currentTimeMillis();
+
+                if (now - lastRenderErrorLog > 1000L)
+                {
+                    lastRenderErrorLog = now;
+
+                    LOGGER.error("Form '{}' failed to render", form.getFormId(), e);
+                }
+            }
 
             currentForm.pop();
         }
