@@ -44,6 +44,15 @@ loom {
 	}
 
 	accessWidenerPath.set(getRootProject().file("src/main/resources/bbs.accesswidener"))
+
+	runs {
+		client {
+			// An exception thrown every frame (e.g. from a render path) gets recompiled by HotSpot
+			// into a pre-allocated throw with NO stack trace, so the log shows a bare
+			// "java.lang.NullPointerException" and the cause is unfindable. Keep traces in dev.
+			vmArg "-XX:-OmitStackTraceInFastThrow"
+		}
+	}
 }
 
 dependencies {
