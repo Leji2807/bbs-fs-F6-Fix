@@ -200,8 +200,20 @@ public class Texture
         this.setParameter(GL11.GL_TEXTURE_WRAP_T, mode);
     }
 
+    /**
+     * Set a texture parameter on THIS texture.
+     *
+     * <p>{@code glTexParameteri} addresses whatever is currently bound to the target, not the object it is
+     * called on, so this has to bind first. Without that every {@code setFilter}/{@code setFilterMipmap}
+     * landed on whichever texture happened to be bound at the time: a billboard asking for linear filtering
+     * could turn a model or block texture blurry instead, and the matching reset went to the wrong texture
+     * too, so it never came back. That is what made model and block textures go linear "sometimes" and stay
+     * that way.
+     */
     public void setParameter(int param, int value)
     {
+        this.bind();
+
         GL11.glTexParameteri(this.target, param, value);
     }
 
