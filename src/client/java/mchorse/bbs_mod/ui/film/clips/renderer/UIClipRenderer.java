@@ -1,5 +1,7 @@
 package mchorse.bbs_mod.ui.film.clips.renderer;
 
+import net.minecraft.client.render.VertexConsumer;
+import mchorse.bbs_mod.graphics.GuiQuadMesh;
 import mchorse.bbs_mod.camera.clips.ClipFactoryData;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.ui.UIKeys;
@@ -129,7 +131,9 @@ public class UIClipRenderer <T extends Clip> implements IUIClipRenderer<T>
     {
         Matrix3x2fc matrix = context.batcher.getContext().getMatrices();
 
-        BufferBuilder builder = Tessellator.getInstance().begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR);
+        /* Recorded into the deferred GUI (see UIColorPicker#renderAlphaPreviewQuad for the why): an
+         * immediate RenderLayer.draw here is overpainted by the two-phase GUI composite. */
+        GuiQuadMesh builder = new GuiQuadMesh();
 
         if (envelope.keyframes.get())
         {
@@ -143,18 +147,16 @@ public class UIClipRenderer <T extends Clip> implements IUIClipRenderer<T>
             this.renderSimpleEnvelope(builder, matrix, envelope, duration, x1, y1, x2, y2);
         }
 
-        BuiltBuffer built = builder.endNullable();
-
-        if (built != null)
+        if (!builder.isEmpty())
         {
-            getTrianglesLayer().draw(built);
+            context.batcher.drawQuadMesh(builder);
         }
     }
 
     /**
      * Render keyframe based envelope.
      */
-    private void renderEnvelopesKeyframes(BufferBuilder builder, Matrix3x2fc matrix, KeyframeChannel<Double> channel, int duration, int x1, int y1, int x2, int y2)
+    private void renderEnvelopesKeyframes(VertexConsumer builder, Matrix3x2fc matrix, KeyframeChannel<Double> channel, int duration, int x1, int y1, int x2, int y2)
     {
         Keyframe<Double> prevKeyframe = null;
         int c = ENVELOPE_COLOR.getARGBColor();
@@ -166,13 +168,12 @@ public class UIClipRenderer <T extends Clip> implements IUIClipRenderer<T>
                 Vector2f point = this.calculateEnvelopePoint(vector, (int) keyframe.getTick(), keyframe.getValue().floatValue(), duration, x1, y1, x2, y2);
                 Vector2f prevPoint = this.calculateEnvelopePoint(previous, (int) prevKeyframe.getTick(), prevKeyframe.getValue().floatValue(), duration, x1, y1, x2, y2);
 
-                builder.vertex(matrix, prevPoint.x, y2).color(c);
-                builder.vertex(matrix, point.x, point.y).color(c);
+                /* One quad per segment: the two triangles shared an edge and covered exactly this
+                 * quadrilateral (QUADS is what the deferred GUI can composite). */
                 builder.vertex(matrix, prevPoint.x, prevPoint.y).color(c);
-
+                builder.vertex(matrix, prevPoint.x, y2).color(c);
                 builder.vertex(matrix, point.x, y2).color(c);
                 builder.vertex(matrix, point.x, point.y).color(c);
-                builder.vertex(matrix, prevPoint.x, y2).color(c);
             }
 
             prevKeyframe = keyframe;
@@ -183,13 +184,10 @@ public class UIClipRenderer <T extends Clip> implements IUIClipRenderer<T>
         {
             Vector2f point = this.calculateEnvelopePoint(vector, (int) prevKeyframe.getTick(), prevKeyframe.getValue().floatValue(), duration, x1, y1, x2, y2);
 
-            builder.vertex(matrix, point.x, y2).color(c);
-            builder.vertex(matrix, x2, point.y).color(c);
             builder.vertex(matrix, point.x, point.y).color(c);
-
+            builder.vertex(matrix, point.x, y2).color(c);
             builder.vertex(matrix, x2, y2).color(c);
             builder.vertex(matrix, x2, point.y).color(c);
-            builder.vertex(matrix, point.x, y2).color(c);
         }
     }
 
@@ -197,7 +195,7 @@ public class UIClipRenderer <T extends Clip> implements IUIClipRenderer<T>
      * Render simple envelope by sampling its actual shape, so the fade in/out edges
      * follow the chosen {@code pre}/{@code post} interpolation instead of straight lines.
      */
-    protected void renderSimpleEnvelope(BufferBuilder builder, Matrix3x2fc matrix, Envelope envelope, int duration, int x1, int y1, int x2, int y2)
+    protected void renderSimpleEnvelope(VertexConsumer builder, Matrix3x2fc matrix, Envelope envelope, int duration, int x1, int y1, int x2, int y2)
     {
         int width = x2 - x1;
         int height = y2 - y1;
@@ -219,11 +217,9 @@ public class UIClipRenderer <T extends Clip> implements IUIClipRenderer<T>
             float x = x1 + width * f;
             float y = y1 + height * (1 - MathUtils.clamp(envelope.factor(duration, duration * f), 0F, 1F));
 
+            /* The two triangles of each step share an edge and form one quad exactly. */
             builder.vertex(matrix, prevX, prevY).color(c);
             builder.vertex(matrix, prevX, y2).color(c);
-            builder.vertex(matrix, x, y2).color(c);
-
-            builder.vertex(matrix, prevX, prevY).color(c);
             builder.vertex(matrix, x, y2).color(c);
             builder.vertex(matrix, x, y).color(c);
 

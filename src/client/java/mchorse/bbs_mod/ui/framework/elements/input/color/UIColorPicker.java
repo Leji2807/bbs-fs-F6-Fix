@@ -1,5 +1,6 @@
 package mchorse.bbs_mod.ui.framework.elements.input.color;
 
+import mchorse.bbs_mod.graphics.GuiQuadMesh;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.DepthTestFunction;
 import com.mojang.blaze3d.vertex.VertexFormat;
@@ -106,24 +107,34 @@ public class UIColorPicker extends UIElement
         return alphaTrianglesLayer;
     }
 
+    /**
+     * The swatch: the colour at full opacity in one diagonal half and at its real alpha in the other, over
+     * the checkerboard, so the alpha is readable at a glance.
+     *
+     * <p>1.21.11: submitted as a recorded {@link GuiQuadMesh}, not an immediate {@code RenderLayer.draw}.
+     * The 1.21.6+ GUI is two-phase — vanilla records draws into a {@code GuiRenderState} and composites them
+     * afterwards — so an immediate mid-frame draw is overpainted by that composite and never appears. The
+     * deferred path also fixes QUADS-only geometry, which is what {@code GuiRenderer} can composite.
+     * Each of the two triangles rides as a quad with its last corner doubled, keeping the exact geometry.</p>
+     */
     public static void renderAlphaPreviewQuad(Batcher2D batcher, int x1, int y1, int x2, int y2, Color color)
     {
         Matrix3x2fc matrix4f = batcher.getContext().getMatrices();
-
-        BufferBuilder builder = Tessellator.getInstance().begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR);
+        GuiQuadMesh builder = new GuiQuadMesh();
 
         builder.vertex(matrix4f, x1, y1).color(color.r, color.g, color.b, 1);
         builder.vertex(matrix4f, x1, y2).color(color.r, color.g, color.b, 1);
         builder.vertex(matrix4f, x2, y1).color(color.r, color.g, color.b, 1);
+        builder.vertex(matrix4f, x2, y1).color(color.r, color.g, color.b, 1);
+
         builder.vertex(matrix4f, x2, y1).color(color.r, color.g, color.b, color.a);
         builder.vertex(matrix4f, x1, y2).color(color.r, color.g, color.b, color.a);
         builder.vertex(matrix4f, x2, y2).color(color.r, color.g, color.b, color.a);
+        builder.vertex(matrix4f, x2, y2).color(color.r, color.g, color.b, color.a);
 
-        BuiltBuffer built = builder.endNullable();
-
-        if (built != null)
+        if (!builder.isEmpty())
         {
-            getAlphaTrianglesLayer().draw(built);
+            batcher.drawQuadMesh(builder);
         }
     }
 
