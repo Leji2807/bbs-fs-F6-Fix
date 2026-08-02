@@ -2019,10 +2019,17 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
 
         if (!BBSRendering.isIrisShadowPass())
         {
-            /* TODO(1.21.11 render): projection matrix is GPU-owned now (RenderSystem.getProjectionMatrix(Matrix4f) removed)
-             * and WorldRenderContext no longer exposes positionMatrix(). Capture lastProjection/lastView (used by
-             * UIFilmController picking raycasts) via the new pipeline foundation once it provides the camera view +
-             * projection. Leaving the cached matrices as-is keeps picking compiling but not yet accurate. */
+            /* Capture the matrices the world was actually rendered with. 1.21.1 read them straight off
+             * RenderSystem/WorldRenderContext; both accessors are gone in 1.21.11, so they are recorded from
+             * GameRenderer.renderWorld's own arguments instead (GameRendererMixin#onRenderView /
+             * #onRenderProjection) and simply copied here.
+             *
+             * These two fields had NO writer on this branch and stayed identity, which quietly broke every
+             * screen-space calculation that reads them: the gizmo's drag readouts and its trackball disc test
+             * (through UIFilmController#getGizmoProjection) and the orbit navigation ball, which is drawn from
+             * lastView and therefore never turned with the orbit. */
+            this.lastProjection.set(BBSRendering.getWorldProjection());
+            this.lastView.set(BBSRendering.camera);
         }
 
         this.controller.renderFrame(context);
