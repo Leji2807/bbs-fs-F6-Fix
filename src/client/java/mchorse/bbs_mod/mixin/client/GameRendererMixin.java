@@ -3,17 +3,20 @@ package mchorse.bbs_mod.mixin.client;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.systems.VertexSorter;
 import mchorse.bbs_mod.BBSModClient;
+import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.camera.controller.CameraController;
 import mchorse.bbs_mod.camera.controller.ICameraController;
 import mchorse.bbs_mod.camera.controller.PlayCameraController;
 import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.items.GunZoom;
+import mchorse.bbs_mod.utils.colors.Color;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.RotationAxis;
 import org.joml.Matrix4f;
+import org.joml.Vector4f;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -173,6 +176,36 @@ public class GameRendererMixin
          * the renderer actually uses, so the push was belt-and-braces; verify nothing downstream read the
          * RenderSystem copy. */
         return ortho;
+    }
+
+    /**
+     * Chroma sky: feed the world's recorded "clear" pass the chroma colour instead of the fog
+     * colour. This {@code Vector4f} argument is consumed by exactly one thing inside
+     * {@code WorldRenderer.render} — the lambda of the "clear" pass (verified against the
+     * 1.21.11 bytecode) — so substituting it recolours the background and nothing else. The
+     * sky pass that would paint over it is cancelled in {@code WorldRendererMixin#onRenderSky},
+     * and the fog UBO (a separate argument) is left untouched.
+     */
+    @ModifyArg(
+        method = "renderWorld",
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/client/render/WorldRenderer;render(Lnet/minecraft/client/util/memory/ObjectAllocator;Lnet/minecraft/client/render/RenderTickCounter;ZLnet/minecraft/client/render/Camera;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;Lcom/mojang/blaze3d/buffers/GpuBufferSlice;Lorg/joml/Vector4f;Z)V"
+        ),
+        index = 8
+    )
+    private Vector4f onRenderSkyColor(Vector4f skyColor)
+    {
+        if (BBSSettings.chromaSkyEnabled.get())
+        {
+            Integer fromCurve = BBSRendering.getChromaSkyColorArgb();
+            int argb = fromCurve != null ? fromCurve : BBSSettings.chromaSkyColor.get();
+            Color color = Color.rgba(argb);
+
+            return new Vector4f(color.r, color.g, color.b, 1F);
+        }
+
+        return skyColor;
     }
 
     @Inject(at = @At("RETURN"), method = "renderWorld")

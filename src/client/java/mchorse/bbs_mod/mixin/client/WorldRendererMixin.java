@@ -1,33 +1,31 @@
 package mchorse.bbs_mod.mixin.client;
 
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.forms.FormTranslucentQueue;
-import mchorse.bbs_mod.utils.colors.Color;
 import net.minecraft.client.gl.Framebuffer;
-import net.minecraft.client.render.RenderLayer;
+import net.minecraft.client.render.Camera;
+import net.minecraft.client.render.FrameGraphBuilder;
 import net.minecraft.client.render.WorldRenderer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.util.math.Vec3d;
-import org.joml.Matrix4f;
-import org.lwjgl.opengl.GL11;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-// TODO(1.21.11 render): re-add when render path ported
 @Mixin(WorldRenderer.class)
 public class WorldRendererMixin
 {
+    /* 1.21.11 renamed and privatized the outlines framebuffer field. */
     @Shadow
-    public Framebuffer entityOutlinesFramebuffer;
+    private Framebuffer entityOutlineFramebuffer;
 
     /* Deferred form translucency spans the frame: forms enqueue their translucent pass while
      * entities render, and the queue flushes right before the translucent terrain layer so the
      * blending sits under water/glass the way vanilla entities do. The RETURN hook is a safety
-     * net for frames where the translucent layer never draws (e.g. a replaced terrain pipeline). */
+     * net for frames where the translucent layer never draws (e.g. a replaced terrain pipeline).
+     * Both are no-ops while FormTranslucentQueue is an inert facade on this branch. */
     @Inject(method = "render", at = @At("HEAD"))
     public void onRenderWorldStart(CallbackInfo info)
     {
@@ -40,47 +38,28 @@ public class WorldRendererMixin
         FormTranslucentQueue.flush();
     }
 
-    @Inject(method = "renderSky(Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;FLnet/minecraft/client/render/Camera;ZLjava/lang/Runnable;)V", at = @At("HEAD"), cancellable = true)
-    public void onRenderSky(CallbackInfo info)
+    /**
+     * Chroma sky: skip the vanilla sky pass so the frame keeps the flat chroma colour that the
+     * recorded "clear" pass was fed with (GameRendererMixin substitutes the fog/clear colour
+     * argument of {@code WorldRenderer.render} when chroma is enabled).
+     *
+     * <p>On 1.21.1 this hook cleared the colour buffer by hand at {@code renderSky} HEAD; in the
+     * frame-graph world the clear is a recorded pass of its own, so the hook shrinks to cancelling
+     * the sky geometry. Terrain hiding moved to {@code SectionRenderStateMixin} (the old
+     * {@code renderLayer} chunk hook is gone with the chunk {@code RenderLayer} pipeline), and the
+     * fog UBO is intentionally left alone — terrain, when shown, still fades toward the real fog
+     * colour rather than the chroma colour.
+     */
+    @Inject(
+        method = "renderSky(Lnet/minecraft/client/render/FrameGraphBuilder;Lnet/minecraft/client/render/Camera;Lcom/mojang/blaze3d/buffers/GpuBufferSlice;)V",
+        at = @At("HEAD"),
+        cancellable = true
+    )
+    private void onRenderSky(FrameGraphBuilder frameGraphBuilder, Camera camera, GpuBufferSlice fog, CallbackInfo info)
     {
         if (BBSSettings.chromaSkyEnabled.get())
         {
-            Integer fromCurve = BBSRendering.getChromaSkyColorArgb();
-            int argb = fromCurve != null ? fromCurve : BBSSettings.chromaSkyColor.get();
-            Color color = Color.rgba(argb);
-
-            GL11.glClearColor(color.r, color.g, color.b, 1F);
-            GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
-            // TODO(1.21.11 render): RenderSystem.setShaderFogColor removed; fog is now a
-            // GpuBufferSlice via RenderSystem.setShaderFog(...). Neutralized (mixin disabled).
-
             info.cancel();
-        }
-    }
-
-    @Inject(method = "renderLayer", at = @At("HEAD"), cancellable = true)
-    public void onRenderLayer(RenderLayer renderLayer, double cameraX, double cameraY, double cameraZ, Matrix4f positionMatrix, Matrix4f projectionMatrix, CallbackInfo info)
-    {
-        /* TODO(1.21.11 render): this fired the deferred translucent flush on the vanilla translucent
-         * chunk layer. RenderLayer.getTranslucent() went with the state-based chunk pipeline, and the
-         * queue is disabled on this branch (see FormTranslucentQueue), so there is nothing to flush. */
-
-        if (BBSSettings.chromaSkyEnabled.get() && !BBSSettings.chromaSkyTerrain.get())
-        {
-            BBSRendering.onRenderChunkLayer(positionMatrix);
-
-            info.cancel();
-        }
-    }
-
-    @Inject(method = "renderLayer", at = @At("TAIL"))
-    public void onRenderChunkLayer(RenderLayer layer, double x, double y, double z, Matrix4f positionMatrix, Matrix4f projectionMatrix, CallbackInfo info)
-    {
-        // TODO(1.21.11 render): RenderLayer.getSolid() removed; chunk layers are now driven
-        // by the state-based pipeline. Neutralized (mixin disabled) — was: layer == getSolid().
-        if (false)
-        {
-            BBSRendering.onRenderChunkLayer(positionMatrix);
         }
     }
 
@@ -93,17 +72,11 @@ public class WorldRendererMixin
     @Inject(at = @At("RETURN"), method = "onResized")
     private void onResized(CallbackInfo info)
     {
-        if (this.entityOutlinesFramebuffer == null)
+        if (this.entityOutlineFramebuffer == null)
         {
             return;
         }
 
         BBSRendering.resizeExtraFramebuffers();
-    }
-
-    @Inject(method = "setupFrustum", at = @At("HEAD"))
-    private void onSetupFrustum(Vec3d pos, Matrix4f positionMatrix, Matrix4f projectionMatrix, CallbackInfo info)
-    {
-        BBSRendering.camera.set(positionMatrix);
     }
 }
