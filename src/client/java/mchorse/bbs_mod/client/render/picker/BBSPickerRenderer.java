@@ -88,12 +88,24 @@ public class BBSPickerRenderer
         projectionOverride = projection == null ? null : new Matrix4f(projection);
     }
 
-    /** Bind the override after the engine defaults, so it wins for this pass. No-op when unset. */
-    private static void applyProjectionOverride(RenderPass pass, CommandEncoder encoder)
+    /**
+     * Write the override into its UBO, or null when unset. MUST be called BEFORE the render pass is
+     * opened: {@link #writeProjection} rotates a {@link MappableRingBuffer}, which issues a GPU fence, and
+     * the encoder rejects any command while a pass is open ("Close the existing render pass before
+     * performing additional commands"). The resulting slice is then bound inside the pass. This is the same
+     * order the screen-space highlight overlay below already uses.
+     */
+    private static GpuBufferSlice projectionOverrideSlice(CommandEncoder encoder)
     {
-        if (projectionOverride != null)
+        return projectionOverride == null ? null : writeProjection(encoder, projectionOverride);
+    }
+
+    /** Bind the pre-written override after the engine defaults, so it wins for this pass. */
+    private static void applyProjectionOverride(RenderPass pass, GpuBufferSlice slice)
+    {
+        if (slice != null)
         {
-            pass.setUniform("Projection", writeProjection(encoder, projectionOverride));
+            pass.setUniform("Projection", slice);
         }
     }
 
@@ -221,14 +233,19 @@ public class BBSPickerRenderer
     }
 
     /**
-     * Bind the BBSPicker UBO (with the current {@link #target}/{@link #highlightColor}) on an
-     * already-open render pass. Use when driving a custom picker pass by hand; {@link #draw} calls it.
+     * Write the BBSPicker UBO (with the current {@link #target}/{@link #highlightColor}) and return the buffer
+     * to bind. Use when driving a custom picker pass by hand.
+     *
+     * <p>Call this BEFORE opening the pass and bind the result inside it. It cannot write from within an open
+     * pass: {@link #writeUniform} rotates a {@link MappableRingBuffer}, which issues a GPU fence, and the
+     * encoder rejects commands while a pass is open. The previous signature took the open {@code RenderPass}
+     * and wrote from inside it, so any caller would have thrown — it had none, which is why that never showed.
      */
-    public static void bind(RenderPass pass)
+    public static GpuBuffer prepareUniform()
     {
         GpuDevice device = RenderSystem.getDevice();
 
-        pass.setUniform(BBSShaders.PICKER_UNIFORM, writeUniform(device, device.createCommandEncoder()));
+        return writeUniform(device, device.createCommandEncoder());
     }
 
     /**
@@ -293,11 +310,13 @@ public class BBSPickerRenderer
             depth = framebuffer.useDepthAttachment ? framebuffer.getDepthAttachmentView() : null;
         }
 
+        GpuBufferSlice projectionUniform = projectionOverrideSlice(encoder);
+
         try (RenderPass pass = encoder.createRenderPass(() -> "bbs:picker_draw", color, OptionalInt.empty(), depth, OptionalDouble.empty()))
         {
             pass.setPipeline(pipeline);
             RenderSystem.bindDefaultUniforms(pass);
-            applyProjectionOverride(pass, encoder);
+            applyProjectionOverride(pass, projectionUniform);
             pass.setUniform("DynamicTransforms", dynamicTransforms);
             pass.setUniform(BBSShaders.PICKER_UNIFORM, pickerUniform);
             pass.setVertexBuffer(0, vertexBuffer);
@@ -366,11 +385,13 @@ public class BBSPickerRenderer
             indexType = buffer.getDrawParameters().indexType();
         }
 
+        GpuBufferSlice projectionUniform = projectionOverrideSlice(encoder);
+
         try (RenderPass pass = encoder.createRenderPass(() -> "bbs:gizmo_pick", targetColor, OptionalInt.empty()))
         {
             pass.setPipeline(pipeline);
             RenderSystem.bindDefaultUniforms(pass);
-            applyProjectionOverride(pass, encoder);
+            applyProjectionOverride(pass, projectionUniform);
             pass.setUniform("DynamicTransforms", dynamicTransforms);
             pass.setVertexBuffer(0, vertexBuffer);
             pass.setIndexBuffer(indexBuffer, indexType);
