@@ -99,6 +99,10 @@ public class TextureFilterLog
     {
         if (filter == GL11.GL_LINEAR) return "LINEAR";
         if (filter == GL11.GL_NEAREST) return "NEAREST";
+        if (filter == GL11.GL_NEAREST_MIPMAP_NEAREST) return "NEAREST_MIPMAP_NEAREST";
+        if (filter == GL11.GL_NEAREST_MIPMAP_LINEAR) return "NEAREST_MIPMAP_LINEAR";
+        if (filter == GL11.GL_LINEAR_MIPMAP_NEAREST) return "LINEAR_MIPMAP_NEAREST";
+        if (filter == GL11.GL_LINEAR_MIPMAP_LINEAR) return "LINEAR_MIPMAP_LINEAR";
 
         return "0x" + Integer.toHexString(filter);
     }

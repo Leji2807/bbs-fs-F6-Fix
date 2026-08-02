@@ -137,8 +137,6 @@ public class Texture
     public void bind()
     {
         GlStateManager._bindTexture(this.id);
-
-        TextureFilterLog.verifyBound(this);
     }
 
     public void bind(int unit)
@@ -200,6 +198,8 @@ public class Texture
 
         this.setParameter(GL11.GL_TEXTURE_MAG_FILTER, filter);
         this.setParameter(GL11.GL_TEXTURE_MIN_FILTER, filter);
+
+        TextureFilterLog.verifyBound(this);
     }
 
     public void setWrap(int mode)
