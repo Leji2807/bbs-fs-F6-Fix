@@ -590,7 +590,7 @@ public class Batcher2D
      *
      * <p>FBO color textures are bottom-up (V-flipped); callers already pass {@code v1=height, v2=0} to
      * flip, which yields a negative {@code (v2 - v1)} region span (vanilla flips the V axis). We do NOT
-     * add a flip here - the u/v are plumbed through faithfully. Previews use LINEAR sampling.</p>
+     * add a flip here - the u/v are plumbed through faithfully. Sampling is NEAREST.</p>
      */
     public void texturedBox(int texture, int color, float x, float y, float w, float h, float u1, float v1, float u2, float v2, int textureW, int textureH)
     {
@@ -640,7 +640,14 @@ public class Batcher2D
 
     private void drawAdoptedGlTexture(RenderPipeline pipeline, int glId, int color, float x, float y, float w, float h, float u1, float v1, float u2, float v2, int textureW, int textureH)
     {
-        Identifier id = AdoptedTexture.identifier(glId, textureW, textureH, true);
+        /* NEAREST, not LINEAR. Everything reaching this path is a BBS off-screen target — the film's world
+         * preview, the in-panel model preview, the picking highlights — and all of it is pixel art or an
+         * index mask that must not be interpolated. The hardcoded `true` here is what actually made the
+         * film preview (and the models in it) blurry: the source textures set themselves NEAREST, but the
+         * adoption baked LINEAR into the sampler and the cached wrapper kept it. A caller that genuinely
+         * wants smoothing should adopt through the Texture overload, which follows the texture's own
+         * filter. */
+        Identifier id = AdoptedTexture.identifier(glId, textureW, textureH, false);
 
         if (id == null)
         {
