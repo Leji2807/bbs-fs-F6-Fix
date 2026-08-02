@@ -266,8 +266,13 @@ public class BBSRendering
          * distance — the fog paints them sky coloured, which reads as geometry vanishing at the
          * edges. Push every fog bound out of reach for the ortho frame (the 1.21.1 port did the
          * same via BackgroundRenderer + RenderSystem.setShaderFogStart/End; both are gone, fog is
-         * a UBO now, and FogModifier is the remaining override point). */
-        FogRendererAccessor.bbs$getFogModifiers().add(new FogModifier()
+         * a UBO now, and FogModifier is the remaining override point).
+         *
+         * Registered at index 0: FogRenderer#applyFog takes the FIRST modifier whose shouldApply
+         * passes and stops (verified against the bytecode) — appending would put us behind
+         * AtmosphericFogModifier, which matches every normal above-water frame, and we would
+         * never run. */
+        FogRendererAccessor.bbs$getFogModifiers().add(0, new FogModifier()
         {
             @Override
             public boolean shouldApply(CameraSubmersionType submersionType, Entity entity)
@@ -409,19 +414,11 @@ public class BBSRendering
 
     public static void onWorldRenderBegin()
     {
-        if (orthoDistance > 0F)
-        {
-            /* Give back the culling disabled for the previous ortho frame
-             * (see setOrthoDistance); re-armed by the orbit if still on. */
-            MinecraftClient.getInstance().chunkCullingEnabled = true;
-
-            /* TODO(1.21.11 render): Sodium's point-camera culling was relaxed for the ortho frame
-             * through SodiumUtils, which the port dropped along with the rest of the shader-mod
-             * coupling (BBSRendering keeps iris/sodium = false). Re-add when re-coupling. */
-        }
-
-        orthoDistance = -1F;
-
+        /* NOTE(ortho lifetime): the ortho flag must NOT be reset here. On 1.21.1 the orbit camera armed
+         * it from Camera#update, which ran INSIDE renderWorld — after this HEAD hook — so a HEAD reset
+         * was safe. On 1.21.11 Camera#update moved to GameRenderer.render's updateCamera, BEFORE
+         * renderWorld: a HEAD reset would wipe the freshly armed flag before anything reads it (that
+         * exact inversion made the whole ortho toggle a no-op). The reset lives in onWorldRenderEnd. */
         MinecraftClient mc = MinecraftClient.getInstance();
         BBSModClient.getFilms().startRenderFrame(mc.getRenderTickCounter().getTickProgress(false));
 
@@ -444,6 +441,19 @@ public class BBSRendering
 
     public static void onWorldRenderEnd()
     {
+        if (orthoDistance > 0F)
+        {
+            /* Give back the culling disabled for this ortho frame (see setOrthoDistance);
+             * the orbit re-arms the flag next frame from Camera#update if ortho is still on.
+             *
+             * TODO(1.21.11 render): Sodium's point-camera culling was relaxed for the ortho frame
+             * through SodiumUtils, which the port dropped along with the rest of the shader-mod
+             * coupling (BBSRendering keeps sodium = false). Re-add when re-coupling. */
+            MinecraftClient.getInstance().chunkCullingEnabled = true;
+        }
+
+        orthoDistance = -1F;
+
         MinecraftClient mc = MinecraftClient.getInstance();
 
         if (BBSModClient.getCameraController().getCurrent() instanceof PlayCameraController controller)

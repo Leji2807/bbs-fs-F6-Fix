@@ -1,5 +1,6 @@
 package mchorse.bbs_mod.mixin.client;
 
+import com.mojang.blaze3d.systems.ProjectionType;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.systems.VertexSorter;
 import mchorse.bbs_mod.BBSModClient;
@@ -128,29 +129,51 @@ public class GameRendererMixin
         return view;
     }
 
-    /* The render call kept its projection in the same argument slot (index 6); only its descriptor
-     * changed with the 1.21.5+ render-state rewrite (ObjectAllocator + fog UBO slice + sky colour). */
+    /**
+     * Ortho projection, render half. On 1.21.11 the projection the world is actually drawn with does
+     * NOT travel through WorldRenderer.render's Matrix4f arguments: index 6 feeds only setupFrustum
+     * (culling) and index 5 is never even loaded (verified against the bytecode). The GPU reads the
+     * matrix uploaded here — renderWorld's single {@code RawProjectionMatrix.set} call, whose slice
+     * goes to {@code RenderSystem.setProjectionMatrix}. Substituting THIS argument is what makes the
+     * ortho frame real; the culling matrix gets its own (loose) substitution in
+     * {@code WorldRendererMixin#onSetupFrustumProjection}.
+     */
     @ModifyArg(
         method = "renderWorld",
         at = @At(
             value = "INVOKE",
-            target = "Lnet/minecraft/client/render/WorldRenderer;render(Lnet/minecraft/client/util/memory/ObjectAllocator;Lnet/minecraft/client/render/RenderTickCounter;ZLnet/minecraft/client/render/Camera;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;Lcom/mojang/blaze3d/buffers/GpuBufferSlice;Lorg/joml/Vector4f;Z)V"
-        ),
-        index = 6
+            target = "Lnet/minecraft/client/render/RawProjectionMatrix;set(Lorg/joml/Matrix4f;)Lcom/mojang/blaze3d/buffers/GpuBufferSlice;"
+        )
     )
-    private Matrix4f onRenderProjection(Matrix4f projection)
+    private Matrix4f onSetWorldProjection(Matrix4f projection)
     {
-        Matrix4f ortho = BBSRendering.getOrthoProjection((GameRenderer) (Object) this, projection, 0F);
+        Matrix4f result = BBSRendering.getOrthoProjection((GameRenderer) (Object) this, projection, 0F);
 
         /* Cache what the world is actually drawn with, so the GUI-phase picking passes can bind the same
          * projection instead of the interface ortho that happens to be current there. */
-        BBSRendering.setWorldProjection(ortho);
+        BBSRendering.setWorldProjection(result);
 
-        /* TODO(1.21.11 render): 1.21.1 also pushed the ortho matrix straight into RenderSystem, which now
-         * takes a GpuBufferSlice (the projection rides a UBO). The ModifyArg return value below is the one
-         * the renderer actually uses, so the push was belt-and-braces; verify nothing downstream read the
-         * RenderSystem copy. */
-        return ortho;
+        return result;
+    }
+
+    /**
+     * Ortho projection, sorter half: the world upload pairs the UBO slice with a ProjectionType whose
+     * VertexSorter orders translucent geometry — keep it consistent with the substituted matrix.
+     * Ordinal 0 is the world upload; the later setProjectionMatrix in renderWorld (hand/HUD, built
+     * from ProjectionMatrix3) stays untouched.
+     */
+    @ModifyArg(
+        method = "renderWorld",
+        at = @At(
+            value = "INVOKE",
+            target = "Lcom/mojang/blaze3d/systems/RenderSystem;setProjectionMatrix(Lcom/mojang/blaze3d/buffers/GpuBufferSlice;Lcom/mojang/blaze3d/systems/ProjectionType;)V",
+            ordinal = 0
+        ),
+        index = 1
+    )
+    private ProjectionType onSetWorldProjectionType(ProjectionType type)
+    {
+        return BBSRendering.isOrthoActive() ? ProjectionType.ORTHOGRAPHIC : type;
     }
 
     /**
