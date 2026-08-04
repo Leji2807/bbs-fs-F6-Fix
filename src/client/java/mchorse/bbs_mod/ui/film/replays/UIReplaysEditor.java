@@ -156,7 +156,12 @@ public class UIReplaysEditor extends UIElement
         putColors(Colors.YELLOW, "yaw", "lighting");
         putColors(Colors.CYAN, "pitch");
         putColors(Colors.MAGENTA, "bodyYaw", "actions", "settings");
-        putColors(Colors.ORANGE, "pose_overlay", "item_main_hand", "item_off_hand", "item_head", "item_chest", "item_legs", "item_feet", "user2", "user6");
+        putColors(Colors.ORANGE, "pose_overlay", "item_off_hand", "item_head", "item_chest", "item_legs", "item_feet", "user2", "user6");
+
+        for (int i = 0; i < ReplayKeyframes.HOTBAR_SIZE; i++)
+        {
+            COLORS.put(ReplayKeyframes.hotbarChannelId(i), Colors.ORANGE);
+        }
 
         COLORS.put("visible", Colors.WHITE & Colors.RGB);
         COLORS.put("pose", Colors.RED);
@@ -192,7 +197,11 @@ public class UIReplaysEditor extends UIElement
         ICONS.put("trigger_l", Icons.TRIGGER);
         ICONS.put("extra1_x", Icons.CURVES);
         ICONS.put("extra2_x", Icons.CURVES);
-        ICONS.put("item_main_hand", Icons.LIMB);
+        for (int i = 0; i < ReplayKeyframes.HOTBAR_SIZE; i++)
+        {
+            ICONS.put(ReplayKeyframes.hotbarChannelId(i), Icons.LIMB);
+        }
+
         ICONS.put("user1", Icons.PARTICLE);
         ICONS.put("paused", Icons.TIME);
         ICONS.put("frequency", Icons.STOPWATCH);
