@@ -84,7 +84,7 @@ public class ActionPlayer
 
         if (this.type == PlayerType.NORMAL && this.serverPlayer != null && fpReplay != null)
         {
-            this.borrowEquipment();
+            this.borrowEquipment(fpReplay.keyframes);
 
             Morph morph = Morph.getMorph(this.serverPlayer);
 
@@ -107,7 +107,7 @@ public class ActionPlayer
     /** Equipment slots the film drives directly; the hotbar is driven by slot index instead. */
     private static final EquipmentSlot[] BORROWED_SLOTS = {EquipmentSlot.OFFHAND, EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
 
-    private void borrowEquipment()
+    private void borrowEquipment(ReplayKeyframes keyframes)
     {
         PlayerInventory inventory = this.serverPlayer.getInventory();
 
@@ -118,11 +118,24 @@ public class ActionPlayer
         for (int i = 0; i < ReplayKeyframes.HOTBAR_SIZE; i++)
         {
             this.cachedHotbar.add(inventory.getStack(i).copy());
+
+            /* Cells the replay says nothing about are left to the world during playback (see
+             * ReplayKeyframes#applyEquipment), but they're still emptied once - otherwise the
+             * player's own things would wander into frame. */
+            if (!keyframes.drivesHotbarSlot(i))
+            {
+                inventory.setStack(i, ItemStack.EMPTY);
+            }
         }
 
         for (EquipmentSlot slot : BORROWED_SLOTS)
         {
             this.cachedEquipment.put(slot, this.serverPlayer.getEquippedStack(slot).copy());
+
+            if (keyframes.getEquipmentChannel(slot).isEmpty())
+            {
+                this.serverPlayer.equipStack(slot, ItemStack.EMPTY);
+            }
         }
     }
 

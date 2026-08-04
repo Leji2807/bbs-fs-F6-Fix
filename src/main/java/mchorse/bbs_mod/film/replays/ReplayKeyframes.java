@@ -182,6 +182,12 @@ public class ReplayKeyframes extends ValueGroup
     /**
      * Dress the entity for given tick: nine hotbar cells, the armour and the off hand.
      *
+     * A channel with no keys says nothing, so its cell is left alone rather than emptied. That
+     * matters for films migrated from the old format, where only the cells the hand passed
+     * through were ever written down: the rest stay open, and whatever the world puts there
+     * during playback - an item picked up off the ground, say - stays visible, the way those
+     * films used to show it.
+     *
      * The main hand is only handed over to those who keep it in a slot of its own - an actor,
      * a mob, a preview stub. Where it's a view of the hotbar it has already been laid out, and
      * writing it again would put the frame's item into whatever cell is selected at that
@@ -191,7 +197,12 @@ public class ReplayKeyframes extends ValueGroup
     {
         for (int i = 0; i < HOTBAR_SIZE; i++)
         {
-            entity.setHotbarStack(i, this.hotbar.get(i).interpolate(tick, ItemStack.EMPTY));
+            KeyframeChannel<ItemStack> slot = this.hotbar.get(i);
+
+            if (!slot.isEmpty())
+            {
+                entity.setHotbarStack(i, slot.interpolate(tick, ItemStack.EMPTY));
+            }
         }
 
         if (!entity.isMainHandInHotbar())
@@ -201,8 +212,19 @@ public class ReplayKeyframes extends ValueGroup
 
         for (EquipmentSlot slot : DRESS_SLOTS)
         {
-            entity.setEquipmentStack(slot, this.getEquipmentChannel(slot).interpolate(tick, ItemStack.EMPTY));
+            KeyframeChannel<ItemStack> channel = this.getEquipmentChannel(slot);
+
+            if (!channel.isEmpty())
+            {
+                entity.setEquipmentStack(slot, channel.interpolate(tick, ItemStack.EMPTY));
+            }
         }
+    }
+
+    /** Whether the replay has anything to say about given hotbar cell. */
+    public boolean drivesHotbarSlot(int slot)
+    {
+        return !this.hotbar.get(slot).isEmpty();
     }
 
     /**

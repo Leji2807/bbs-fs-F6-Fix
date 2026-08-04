@@ -8,6 +8,8 @@ import mchorse.bbs_mod.film.replays.ReplayKeyframes;
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 import mchorse.bbs_mod.utils.keyframes.factories.KeyframeFactories;
+import net.minecraft.entity.EquipmentSlot;
+import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 
 import java.util.ArrayList;
@@ -69,6 +71,7 @@ public class FilmLegacy
             }
 
             migrate(replay.keyframes, hand, start);
+            migrateWorn(replay.keyframes, start);
         }
     }
 
@@ -108,6 +111,38 @@ public class FilmLegacy
                 keyframes.hotbar.get(slot).insert(tick, stack.copy());
 
                 hotbar[slot] = stack;
+            }
+        }
+    }
+
+    /**
+     * The old film inventory covered the whole of the player's, so armour and the off hand
+     * came out of it too - and a replay assembled by hand could have them there and nowhere
+     * else. Where the replay's own channel has nothing to say, the inventory's is taken as its
+     * starting key.
+     */
+    private static void migrateWorn(ReplayKeyframes keyframes, List<ItemStack> inventory)
+    {
+        if (inventory == null)
+        {
+            return;
+        }
+
+        for (EquipmentSlot slot : ReplayKeyframes.DRESS_SLOTS)
+        {
+            KeyframeChannel<ItemStack> channel = keyframes.getEquipmentChannel(slot);
+
+            if (!channel.isEmpty())
+            {
+                continue;
+            }
+
+            int index = slot == EquipmentSlot.OFFHAND ? PlayerInventory.OFF_HAND_SLOT : PlayerInventory.MAIN_SIZE + slot.getEntitySlotId();
+            ItemStack stack = index < inventory.size() ? inventory.get(index) : ItemStack.EMPTY;
+
+            if (!stack.isEmpty())
+            {
+                channel.insert(0, stack.copy());
             }
         }
     }
