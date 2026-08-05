@@ -509,7 +509,7 @@ public class BBSSettings {
 		enableTrackpadScrolling = builder.getBoolean("trackpad_scrolling", false);
 		userIntefaceScale = builder.getFloat("ui_scale", 2F, 0F, 4F).slider(0.25D);
 		pixelArtSmoothing = builder.getBoolean("pixel_art_smoothing", true);
-		fov = builder.getFloat("fov", 40, 0, 180).slider();
+		fov = builder.getFloat("fov", 40, 0, 180);
 		hsvColorPicker = builder.getBoolean("hsv_color_picker", true);
 		forceQwerty = builder.getBoolean("force_qwerty", false);
 		freezeModels = builder.getBoolean("freeze_models", false);
