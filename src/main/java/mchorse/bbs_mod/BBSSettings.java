@@ -175,6 +175,9 @@ public class BBSSettings {
 
 	public static ValueFloat backgroundBrightness;
 	public static ValueBoolean interfaceShadows;
+	public static ValueBoolean interfaceHighlights;
+	public static ValueFloat overlayBackgroundOpacity;
+	public static ValueBoolean overlayGradientBorder;
 
 	public static ValueBoolean shaderCurvesEnabled;
 
@@ -199,6 +202,7 @@ public class BBSSettings {
 	private static final float IDENTITY_BRIGHTNESS = 1F;
 	private static final float BRIGHTNESS_EPSILON = 0.001F;
 	private static final int DEFAULT_PRIMARY_COLOR = 0xff3242;
+	private static final float DEFAULT_OVERLAY_BACKGROUND_OPACITY = 0.5F;
 	/**
 	 * Tonal map of the interface's surfaces, four levels deep: deep sits under
 	 * the content (fields, timeline wells), chrome frames everything, base is
@@ -352,6 +356,22 @@ public class BBSSettings {
 	public static int panelShadowTransparentColor()
 	{
 		return Colors.setA(primaryColor.get(), 0F);
+	}
+
+	/**
+	 * Dimming behind an overlay panel. Zero opacity leaves whatever is behind
+	 * the panel fully visible.
+	 */
+	public static int overlayBackground()
+	{
+		float opacity = overlayBackgroundOpacity == null ? DEFAULT_OVERLAY_BACKGROUND_OPACITY : overlayBackgroundOpacity.get();
+
+		return Colors.a(MathUtils.clamp(opacity, 0F, 1F));
+	}
+
+	public static boolean hasOverlayGradientBorder()
+	{
+		return overlayGradientBorder == null || overlayGradientBorder.get();
 	}
 
 	public static int getDefaultDuration()
@@ -511,6 +531,9 @@ public class BBSSettings {
 		builder.category("personalization", Icons.COLOR);
 		backgroundBrightness = builder.getFloat("background_brightness", DEFAULT_BACKGROUND_BRIGHTNESS, MIN_BACKGROUND_BRIGHTNESS, MAX_BACKGROUND_BRIGHTNESS).slider();
 		interfaceShadows = builder.getBoolean("interface_shadows", true);
+		interfaceHighlights = builder.getBoolean("interface_highlights", false);
+		overlayBackgroundOpacity = builder.getFloat("overlay_background_opacity", DEFAULT_OVERLAY_BACKGROUND_OPACITY, 0F, 1F).slider();
+		overlayGradientBorder = builder.getBoolean("overlay_gradient_border", true);
 		primaryColor = builder.getInt("primary_color", DEFAULT_PRIMARY_COLOR).color();
 		stencilHighlightColor = builder.getInt("stencil_highlight_color", 0x2EFFFFFF).colorAlpha();
 		theme = builder.getInt("theme", DEFAULT_THEME);

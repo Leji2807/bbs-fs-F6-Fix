@@ -104,14 +104,14 @@ public class UIToggle extends UIClickable<UIToggle> implements ITextColoring
         int trackFill = this.value ? Colors.A100 | BBSSettings.primaryColor.get() : 0xff3a3d41;
 
         /* Track background: beveled fill with a 1px inner black border, no bottom shadow */
-        context.batcher.bevelBox(trackLeft, trackTop, trackRight, trackBottom, trackFill, false, true);
+        context.batcher.surfaceBox(trackLeft, trackTop, trackRight, trackBottom, trackFill, false, true);
 
         /* Knob: 12x12, taller than the track so it pokes out the top, 1px inner black border */
         int knobLeft = trackLeft + (this.value ? TRACK_W - KNOB : 0);
         int knobTop = my - KNOB / 2;
         int knobColor = this.hover ? Colors.lerp(0xffc9cdd2, Colors.WHITE, 0.2F) : 0xffc9cdd2;
 
-        context.batcher.bevelBox(knobLeft, knobTop, knobLeft + KNOB, knobTop + KNOB, knobColor, true, true);
+        context.batcher.surfaceBox(knobLeft, knobTop, knobLeft + KNOB, knobTop + KNOB, knobColor, true, true);
 
         if (!this.isEnabled())
         {

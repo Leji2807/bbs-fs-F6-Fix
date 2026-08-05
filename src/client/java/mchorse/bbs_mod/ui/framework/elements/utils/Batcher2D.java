@@ -27,6 +27,9 @@ import java.util.function.Supplier;
 
 public class Batcher2D
 {
+    /** How far a lit edge is pulled towards white, see {@link #surfaceBox}. */
+    private static final float HIGHLIGHT_STRENGTH = 0.15F;
+
     private static FontRenderer fontRenderer = new FontRenderer();
 
     private DrawContext context;
@@ -175,7 +178,7 @@ public class Batcher2D
         builder.vertex(matrix4f, x + w, y, 0).color(color2).next();
     }
 
-    public void bevelBox(int x1, int y1, int x2, int y2, int fill, boolean shadow, boolean border)
+    public void surfaceBox(int x1, int y1, int x2, int y2, int fill, boolean shadow, boolean border)
     {
         if (border)
         {
@@ -189,17 +192,18 @@ public class Batcher2D
 
         this.box(x1, y1, x2, y2, fill);
 
-        if (!BBSSettings.interfaceShadows.get())
+        /* Highlight and shadow are separate settings: the lit edges are the loud
+         * half of the old bevel, so they're off by default and weaker than they
+         * were — about six steps of the surface ramp instead of thirteen. */
+        if (BBSSettings.interfaceHighlights.get())
         {
-            return;
+            int light = Colors.lerp(fill, Colors.WHITE, HIGHLIGHT_STRENGTH);
+
+            this.box(x1, y1, x2, y1 + 1, light);
+            this.box(x1, y1, x1 + 1, y2, light);
         }
 
-        int light = Colors.lerp(fill, Colors.WHITE, 0.35F);
-
-        this.box(x1, y1, x2, y1 + 1, light);
-        this.box(x1, y1, x1 + 1, y2, light);
-
-        if (shadow)
+        if (shadow && BBSSettings.interfaceShadows.get())
         {
             this.box(x1, y2 - 2, x2, y2, Colors.lerp(fill, Colors.A100, 0.4F));
         }
