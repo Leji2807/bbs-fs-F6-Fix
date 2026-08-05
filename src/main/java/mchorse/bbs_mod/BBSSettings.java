@@ -40,6 +40,7 @@ public class BBSSettings {
 	public static ValueBoolean enableTrackpadIncrements;
 	public static ValueBoolean enableTrackpadScrolling;
 	public static ValueFloat userIntefaceScale;
+	public static ValueBoolean pixelArtSmoothing;
 	public static ValueInt theme;
 	public static ValueFloat fov;
 	public static ValueBoolean hsvColorPicker;
@@ -469,6 +470,7 @@ public class BBSSettings {
 		enableTrackpadIncrements = builder.getBoolean("trackpad_increments", false);
 		enableTrackpadScrolling = builder.getBoolean("trackpad_scrolling", false);
 		userIntefaceScale = builder.getFloat("ui_scale", 2F, 0F, 4F).slider();
+		pixelArtSmoothing = builder.getBoolean("pixel_art_smoothing", true);
 		fov = builder.getFloat("fov", 40, 0, 180).slider();
 		hsvColorPicker = builder.getBoolean("hsv_color_picker", true);
 		forceQwerty = builder.getBoolean("force_qwerty", false);

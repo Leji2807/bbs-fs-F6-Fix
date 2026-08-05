@@ -3,6 +3,8 @@ package mchorse.bbs_mod.ui.framework.elements.utils;
 import com.mojang.blaze3d.systems.RenderSystem;
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.BBSSettings;
+import mchorse.bbs_mod.client.BBSShaders;
+import mchorse.bbs_mod.client.PixelArt;
 import mchorse.bbs_mod.graphics.texture.Texture;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.utils.Area;
@@ -35,6 +37,37 @@ public class Batcher2D
         fontRenderer.setRenderer(MinecraftClient.getInstance().textRenderer);
 
         return fontRenderer;
+    }
+
+    /**
+     * Program for textured UI quads. The pixel art one keeps the seam between
+     * texels even when the interface is drawn at a fractional scale, and falls
+     * back to vanilla's when it's turned off or failed to compile.
+     */
+    private static Supplier<ShaderProgram> texturedProgram()
+    {
+        if (PixelArt.isEnabled() && BBSShaders.getPixelArtProgram() != null)
+        {
+            return BBSShaders::getPixelArtProgram;
+        }
+
+        return GameRenderer::getPositionTexColorProgram;
+    }
+
+    /**
+     * Same, but a texture the user asked to be filtered linearly or mipmapped
+     * (the toggles in the texture picker) keeps GL's own filtering — the pixel
+     * art shader reads texels of level 0 directly, which would both render
+     * those toggles meaningless and lean on a complete mipmap pyramid.
+     */
+    private static Supplier<ShaderProgram> texturedProgram(Texture texture)
+    {
+        if (texture != null && (texture.isLinear() || texture.isMipmap()))
+        {
+            return GameRenderer::getPositionTexColorProgram;
+        }
+
+        return texturedProgram();
     }
 
     public Batcher2D(DrawContext context)
@@ -425,7 +458,7 @@ public class Batcher2D
         Matrix4f matrix = this.context.getMatrices().peek().getPositionMatrix();
         BufferBuilder builder = Tessellator.getInstance().getBuffer();
 
-        RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
+        RenderSystem.setShader(texturedProgram(texture));
 
         builder.begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_TEXTURE_COLOR);
         this.fillTexturedBox(builder, matrix, color, x, y, w, h, u1, v1, u2, v2, textureW, textureH);
@@ -435,7 +468,7 @@ public class Batcher2D
 
     public void texturedBox(int texture, int color, float x, float y, float w, float h, float u1, float v1, float u2, float v2, int textureW, int textureH)
     {
-        this.texturedBox(GameRenderer::getPositionTexColorProgram, texture, color, x, y, w, h, u1, v1, u2, v2, textureW, textureH);
+        this.texturedBox(texturedProgram(), texture, color, x, y, w, h, u1, v1, u2, v2, textureW, textureH);
     }
 
     public void texturedBox(Supplier<ShaderProgram> shader, int texture, int color, float x, float y, float w, float h, float u1, float v1, float u2, float v2, int textureW, int textureH)
@@ -475,7 +508,7 @@ public class Batcher2D
         Matrix4f matrix = this.context.getMatrices().peek().getPositionMatrix();
         BufferBuilder builder = Tessellator.getInstance().getBuffer();
 
-        RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
+        RenderSystem.setShader(texturedProgram(texture));
         RenderSystem.setShaderTexture(0, texture.id);
 
         builder.begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_TEXTURE_COLOR);
