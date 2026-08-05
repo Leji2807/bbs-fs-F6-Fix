@@ -199,16 +199,34 @@ public class BBSSettings {
 	private static final float IDENTITY_BRIGHTNESS = 1F;
 	private static final float BRIGHTNESS_EPSILON = 0.001F;
 	private static final int DEFAULT_PRIMARY_COLOR = 0xff3242;
-	private static final int LIGHT_CHROME_SURFACE = 0xffe6e9ef;
-	private static final int DARK_CHROME_SURFACE = 0xff111316;
-	private static final int LIGHT_BASE_SURFACE = 0xfff1f4f8;
-	private static final int DARK_BASE_SURFACE = 0xff171a1f;
-	private static final int LIGHT_RAISED_SURFACE = 0xfff8fafd;
-	private static final int DARK_RAISED_SURFACE = 0xff1d2127;
-	private static final int LIGHT_DEEP_SURFACE = 0xffdee4ed;
-	private static final int DARK_DEEP_SURFACE = 0xff0f1217;
-	private static final int LIGHT_DIVIDER_COLOR = 0xffc2cbd8;
-	private static final int DARK_DIVIDER_COLOR = 0xff30353d;
+	/**
+	 * Tonal map of the interface's surfaces, four levels deep: deep sits under
+	 * the content (fields, timeline wells), chrome frames everything, base is
+	 * the working area, raised floats above it (panels, popups, buttons).
+	 *
+	 * The levels are a neutral ladder — no tint at all, lightness stepping
+	 * evenly by 0.022 in OKLab (the perceptual scale, so the steps read as
+	 * equal rather than merely measure as equal). Both themes use the same
+	 * step, which makes them mirror images of each other.
+	 *
+	 * Both where the dark ramp sits and how soft it is come off a screenshot
+	 * of Essential's interface. Their dominant grey (#181818, three quarters
+	 * of their window) and the greys they layer over it (#1d1d1d cards,
+	 * #222222 frame) are these very values, and the step matches the distance
+	 * they keep between a card and its background. A small step is the whole
+	 * point: depth should be felt rather than announced, and a dark interface
+	 * that stays dark is easier to sit in front of for hours.
+	 */
+	private static final int LIGHT_DEEP_SURFACE = 0xffe4e4e4;
+	private static final int DARK_DEEP_SURFACE = 0xff131313;
+	private static final int LIGHT_CHROME_SURFACE = 0xffebebeb;
+	private static final int DARK_CHROME_SURFACE = 0xff181818;
+	private static final int LIGHT_BASE_SURFACE = 0xfff3f3f3;
+	private static final int DARK_BASE_SURFACE = 0xff1d1d1d;
+	private static final int LIGHT_RAISED_SURFACE = 0xfffafafa;
+	private static final int DARK_RAISED_SURFACE = 0xff222222;
+	private static final int LIGHT_DIVIDER_COLOR = 0xffd9d9d9;
+	private static final int DARK_DIVIDER_COLOR = 0xff2a2a2a;
 
 	public static int primaryColor()
 	{
