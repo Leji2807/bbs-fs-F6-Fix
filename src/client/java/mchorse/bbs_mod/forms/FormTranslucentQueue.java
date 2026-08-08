@@ -464,9 +464,14 @@ public class FormTranslucentQueue
         private final VertexBuffer buffer;
         private final Matrix4f modelView;
 
-        public RenderLayerCommand(net.minecraft.client.render.RenderLayer layer, VertexBuffer buffer, Matrix4f modelView, Vector3f cameraSpaceOrigin, boolean depthWrite)
+        public RenderLayerCommand(net.minecraft.client.render.RenderLayer layer, VertexBuffer buffer, Matrix4f modelView, Vector3f cameraSpaceOrigin)
         {
-            super(cameraSpaceOrigin, true, depthWrite);
+            /* Depth writes stay on, matching what these vanilla entity layers do when they draw
+             * themselves (ALL_MASK): a block or an item model is solid geometry — an item's
+             * extruded sprite is a stack of layers — so its faces must occlude each other, or
+             * the back ones pile over the front. Forms behind it stay visible through the
+             * far-to-near sort, not through a disabled depth mask. */
+            super(cameraSpaceOrigin, true, true);
 
             this.layer = layer;
             this.buffer = buffer;
