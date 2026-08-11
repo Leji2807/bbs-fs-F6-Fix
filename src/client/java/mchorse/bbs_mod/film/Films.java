@@ -17,6 +17,7 @@ import mchorse.bbs_mod.ui.UIKeys;
 import mchorse.bbs_mod.ui.framework.elements.utils.Batcher2D;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.utils.CollectionUtils;
+import mchorse.bbs_mod.utils.PlayerUtils;
 import mchorse.bbs_mod.utils.clips.Clip;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
@@ -153,6 +154,15 @@ public class Films
         if (replay != null)
         {
             ClientNetwork.sendPlayerForm(replay.form.get());
+
+            /* Stand on the mark. Recording in the world used to start wherever the
+             * player happened to be, so every take over an existing replay began
+             * with a manual teleport (the film editor's teleport key) to the spot
+             * the replay itself holds at that tick - now the take can just begin */
+            if (BBSSettings.recordingTeleport.get())
+            {
+                PlayerUtils.teleportToReplay(replay, tick);
+            }
         }
     }
 
