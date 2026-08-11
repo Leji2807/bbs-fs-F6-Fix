@@ -241,7 +241,7 @@
 	"bbs.config.recording.swipe_damage": "Swipe damage",
 	"bbs.config.recording.swipe_damage-comment": "When swipe action clip gets recorded, insert also an automatic attack action clip",
 	"bbs.config.recording.teleport": "Teleport to replay",
-	"bbs.config.recording.teleport-comment": "When recording in the world starts, teleport the player to where the replay stands at that tick (replays without any position keyframes are left alone)",
+	"bbs.config.recording.teleport-comment": "When recording is started with the \"Outside\" button in the film editor, teleport the player to where the replay stands at that tick. The record key doesn't teleport: it starts the take where you're standing (replays without any position keyframes are left alone either way)",
 	"bbs.config.recording.title": "Recording",
 	"bbs.config.recording.tooltip": "Here is everything related to player recording system",
 	"bbs.config.scrollbars.sensitivity": "Scrolling sensitivity",

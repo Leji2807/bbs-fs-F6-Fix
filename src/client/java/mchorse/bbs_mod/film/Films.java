@@ -148,17 +148,29 @@ public class Films
 
     public void startRecording(Film film, int replayId, int tick)
     {
+        this.startRecording(film, replayId, tick, false);
+    }
+
+    /**
+     * @param onMark whether the player should be put where the replay stands at
+     *               {@code tick} first, if {@link BBSSettings#recordingTeleport} allows
+     *               it. Only the film editor's "outside" button asks for this: recording
+     *               straight from the world (the record key) is meant to start where the
+     *               player is standing, the way it always has
+     */
+    public void startRecording(Film film, int replayId, int tick, boolean onMark)
+    {
         Morph morph = Morph.getMorph(MinecraftClient.getInstance().player);
         Replay replay = CollectionUtils.getSafe(film.replays.getList(), replayId);
 
         this.recorder = new Recorder(film, morph == null ? null : morph.getForm(), replayId, tick);
 
-        /* Stand on the mark. Recording in the world used to start wherever the player
-         * happened to be, so every take over an existing replay began with a manual
-         * teleport (the film editor's teleport key) to the spot the replay itself
-         * holds at that tick - now the take just begins there. Sent first, because
-         * the teleport goes through the server and takes a couple of ticks to land */
-        Vector3d mark = replay != null && BBSSettings.recordingTeleport.get()
+        /* Stand on the mark. Recording started from the editor used to begin wherever
+         * the player happened to be, so every take over an existing replay began with a
+         * manual teleport (the film editor's teleport key) to the spot the replay itself
+         * holds at that tick - now the take just begins there. Sent first, because the
+         * teleport goes through the server and takes a couple of ticks to land */
+        Vector3d mark = onMark && replay != null && BBSSettings.recordingTeleport.get()
             ? PlayerUtils.teleportToReplay(replay, tick)
             : null;
 
