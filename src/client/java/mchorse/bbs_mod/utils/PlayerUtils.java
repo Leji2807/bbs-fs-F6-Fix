@@ -10,6 +10,7 @@ import net.minecraft.entity.data.TrackedData;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
+import org.joml.Vector3d;
 
 public class PlayerUtils
 {
@@ -49,16 +50,18 @@ public class PlayerUtils
      * read {@code 0} everywhere, and teleporting would drop the player at the world
      * origin instead of doing nothing.</p>
      *
-     * @return whether the player was actually moved
+     * @return the spot the player was sent to, or {@code null} if nothing was done.
+     *         The teleport itself is a round trip through the server, so the player
+     *         is <em>not</em> there yet when this returns
      */
-    public static boolean teleportToReplay(Replay replay, int tick)
+    public static Vector3d teleportToReplay(Replay replay, int tick)
     {
         ClientPlayerEntity player = MinecraftClient.getInstance().player;
         ReplayKeyframes keyframes = replay == null ? null : replay.keyframes;
 
         if (player == null || keyframes == null || (keyframes.x.isEmpty() && keyframes.y.isEmpty() && keyframes.z.isEmpty()))
         {
-            return false;
+            return null;
         }
 
         /* Through the replay's own clock, so a looping replay hands over the
@@ -79,7 +82,7 @@ public class PlayerUtils
         player.setBodyYaw(bodyYaw);
         player.setPitch(pitch);
 
-        return true;
+        return new Vector3d(x, y, z);
     }
 
     public static void teleport(double x, double y, double z)

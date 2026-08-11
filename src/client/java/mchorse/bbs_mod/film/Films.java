@@ -23,6 +23,7 @@ import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.MinecraftClient;
+import org.joml.Vector3d;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -32,6 +33,13 @@ import java.util.Map;
 
 public class Films
 {
+    /**
+     * The shortest countdown a take that teleports the player onto the replay's mark
+     * may have, in ticks. The teleport is a round trip through the server, and the
+     * recorder must not sample the player before it lands.
+     */
+    private static final int TELEPORT_GRACE = 6;
+
     private List<BaseFilmController> controllers = new ArrayList<BaseFilmController>();
     private Recorder recorder;
 
@@ -141,28 +149,36 @@ public class Films
     public void startRecording(Film film, int replayId, int tick)
     {
         Morph morph = Morph.getMorph(MinecraftClient.getInstance().player);
+        Replay replay = CollectionUtils.getSafe(film.replays.getList(), replayId);
 
         this.recorder = new Recorder(film, morph == null ? null : morph.getForm(), replayId, tick);
+
+        /* Stand on the mark. Recording in the world used to start wherever the player
+         * happened to be, so every take over an existing replay began with a manual
+         * teleport (the film editor's teleport key) to the spot the replay itself
+         * holds at that tick - now the take just begins there. Sent first, because
+         * the teleport goes through the server and takes a couple of ticks to land */
+        Vector3d mark = replay != null && BBSSettings.recordingTeleport.get()
+            ? PlayerUtils.teleportToReplay(replay, tick)
+            : null;
+
+        if (mark != null)
+        {
+            /* Both clocks get the same countdown, so the server's action recorder
+             * keeps starting alongside this one - the grace window is only there to
+             * give the teleport its round trip even when the countdown is set to 0 */
+            this.recorder.countdown = Math.max(this.recorder.countdown, TELEPORT_GRACE);
+            this.recorder.awaitMark(mark);
+        }
 
         if (ClientNetwork.isIsBBSModOnServer())
         {
             ClientNetwork.sendActionRecording(film.getId(), replayId, this.recorder.getTick(), this.recorder.countdown, true);
         }
 
-        Replay replay = CollectionUtils.getSafe(film.replays.getList(), replayId);
-
         if (replay != null)
         {
             ClientNetwork.sendPlayerForm(replay.form.get());
-
-            /* Stand on the mark. Recording in the world used to start wherever the
-             * player happened to be, so every take over an existing replay began
-             * with a manual teleport (the film editor's teleport key) to the spot
-             * the replay itself holds at that tick - now the take can just begin */
-            if (BBSSettings.recordingTeleport.get())
-            {
-                PlayerUtils.teleportToReplay(replay, tick);
-            }
         }
     }
 
