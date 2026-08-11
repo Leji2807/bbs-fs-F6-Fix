@@ -30,6 +30,7 @@ public class ActorEntityRenderer extends EntityRenderer<ActorEntity>
         armorRenderer = new ArmorRenderer(
             new ArmorEntityModel(ctx.getPart(EntityModelLayers.PLAYER_INNER_ARMOR)),
             new ArmorEntityModel(ctx.getPart(EntityModelLayers.PLAYER_OUTER_ARMOR)),
+            ctx.getPart(EntityModelLayers.ELYTRA),
             ctx.getModelManager()
         );
 
