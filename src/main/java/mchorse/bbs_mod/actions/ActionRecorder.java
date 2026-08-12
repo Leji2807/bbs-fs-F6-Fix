@@ -5,6 +5,7 @@ import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.actions.types.ActionClip;
 import mchorse.bbs_mod.actions.types.AttackActionClip;
 import mchorse.bbs_mod.actions.types.SwipeActionClip;
+import mchorse.bbs_mod.actions.types.blocks.InteractBlockActionClip;
 import mchorse.bbs_mod.film.Film;
 import mchorse.bbs_mod.utils.clips.Clips;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -19,6 +20,9 @@ public class ActionRecorder
     private int tick;
     private int countdown;
     private int initialTick;
+
+    /** The last block interaction, until it's known whether it opened a container. */
+    private InteractBlockActionClip interactClip;
 
     public ActionRecorder(Film film, ServerPlayerEntity entity, int tick, int countdown)
     {
@@ -73,6 +77,11 @@ public class ActionRecorder
         clip.duration.set(1);
 
         this.clips.addClip(clip);
+
+        if (clip instanceof InteractBlockActionClip interactClip)
+        {
+            this.interactClip = interactClip;
+        }
     }
 
     public void tick(ServerPlayerEntity player)
@@ -83,6 +92,8 @@ public class ActionRecorder
 
             return;
         }
+
+        this.trackContainer(player);
 
         if (player.handSwingTicks == -1)
         {
@@ -98,5 +109,30 @@ public class ActionRecorder
         }
 
         this.tick += 1;
+    }
+
+    /**
+     * Grows the last block interaction for as long as the container it opened
+     * stays open (LUCKYWAY). The clip is born inside the interaction itself,
+     * before the screen it leads to is up, so the first tick after it is the
+     * one that knows whether there was a container at all - and from then on
+     * the clip is exactly as long as the player kept the chest open. Playback
+     * holds the lid up for precisely this stretch.
+     */
+    private void trackContainer(ServerPlayerEntity player)
+    {
+        if (this.interactClip == null)
+        {
+            return;
+        }
+
+        if (player.currentScreenHandler != player.playerScreenHandler)
+        {
+            this.interactClip.duration.set(Math.max(1, this.tick - this.interactClip.tick.get() + 1));
+        }
+        else
+        {
+            this.interactClip = null;
+        }
     }
 }

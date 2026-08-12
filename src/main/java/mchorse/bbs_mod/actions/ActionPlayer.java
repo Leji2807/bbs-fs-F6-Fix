@@ -369,6 +369,10 @@ public class ActionPlayer
 
             replay.applyActions(actor, fakePlayer, this.film, this.tick);
         }
+
+        /* Chests the clips of this tick still hold open go up, the rest come
+         * down - including when the film was scrubbed rather than played */
+        fakePlayer.flushLids();
     }
 
     public void syncData(DataPath key, BaseType data)
@@ -430,6 +434,14 @@ public class ActionPlayer
 
     public void stop()
     {
+        SuperFakePlayer fakePlayer = SuperFakePlayer.getIfPresent(this.world);
+
+        /* Nothing asks for a lid any more, so every one the film opened closes */
+        if (fakePlayer != null)
+        {
+            fakePlayer.flushLids();
+        }
+
         for (LivingEntity value : this.actors.values())
         {
             if (!value.isPlayer())
