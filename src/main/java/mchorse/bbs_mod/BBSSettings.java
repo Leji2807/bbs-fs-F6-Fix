@@ -150,6 +150,7 @@ public class BBSSettings {
 	public static ValueBoolean editorClipPreview;
 	public static ValueBoolean editorRewind;
 	public static ValueBoolean editorStopPlaybackOnScrub;
+	public static ValueBoolean editorRestartOnSeek;
 	public static ValueBoolean editorHorizontalClipEditor;
 	public static ValueBoolean editorMinutesBackup;
 	public static ValueBoolean editorResizablePanels;
@@ -694,6 +695,7 @@ public class BBSSettings {
 		editorSnapToMarkers = builder.getBoolean("snap_to_markers", false);
 		editorRewind = builder.getBoolean("rewind", true);
 		editorStopPlaybackOnScrub = builder.getBoolean("stop_playback_on_scrub", false);
+		editorRestartOnSeek = builder.getBoolean("restart_on_seek", false);
 		editorHorizontalClipEditor = builder.getBoolean("horizontal_clip_editor", true);
 
 		builder.category("workspace", Icons.EDITOR);

@@ -212,6 +212,8 @@
 	"bbs.config.timeline.snap_to_markers-comment": "Когда включено, клипы будут также привязываться к маркерам тиков",
 	"bbs.config.timeline.stop_playback_on_scrub": "Останавливать при перемотке",
 	"bbs.config.timeline.stop_playback_on_scrub-comment": "Когда включено, перетаскивание курсора по таймлайну останавливает воспроизведение фильма",
+	"bbs.config.timeline.restart_on_seek": "Перезапуск при перемотке",
+	"bbs.config.timeline.restart_on_seek-comment": "Когда включено, перезапуск действий (по умолчанию Alt + R) происходит автоматически каждый раз, когда вы перематываете курсор на таймлайне. Пропускается во время воспроизведения, записи, управления персонажем и экспорта видео",
 	"bbs.config.timeline.title": "Таймлайн",
 	"bbs.config.timeline.tooltip": "Проигрывание, вид таймлайна и значения кейфреймов по умолчанию",
 	"bbs.config.camera.speed": "Скорость",

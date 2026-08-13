@@ -216,6 +216,8 @@
 	"bbs.config.timeline.snap_to_markers-comment": "When enabled, clip snapping will snap to tick markers",
 	"bbs.config.timeline.stop_playback_on_scrub": "Stop playback on scrubbing",
 	"bbs.config.timeline.stop_playback_on_scrub-comment": "When enabled, dragging the cursor on a timeline stops the playback of the film",
+	"bbs.config.timeline.restart_on_seek": "Restart on seek",
+	"bbs.config.timeline.restart_on_seek-comment": "When enabled, restarting the actions (Alt + R by default) happens automatically every time you scrub the cursor on the timeline. It is skipped during playback, recording, character control and video export",
 	"bbs.config.timeline.title": "Timeline",
 	"bbs.config.timeline.tooltip": "Playback, keyframe defaults and the look of the timeline",
 	"bbs.config.camera.speed": "Speed",

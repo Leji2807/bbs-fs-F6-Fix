@@ -23,7 +23,6 @@ import io.netty.util.collection.IntObjectMap;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.BBSSettings;
-import mchorse.bbs_mod.actions.ActionState;
 import mchorse.bbs_mod.camera.Camera;
 import mchorse.bbs_mod.camera.utils.TimeUtils;
 import mchorse.bbs_mod.camera.controller.RunnerCameraController;
@@ -193,11 +192,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
                 this.panel.replayEditor.moveReplay(result.getPos().x, result.getPos().y, result.getPos().z);
             }
         }).active(hasActor).category(category);
-        this.keys().register(Keys.FILM_CONTROLLER_RESTART_ACTIONS, () ->
-        {
-            this.panel.notifyServer(ActionState.RESTART);
-            this.createEntities();
-        }).category(category);
+        this.keys().register(Keys.FILM_CONTROLLER_RESTART_ACTIONS, this.panel::restartActions).category(category);
         this.keys().register(Keys.FILM_CONTROLLER_TOGGLE_ONION_SKIN, () ->
         {
             this.getOnionSkin().enabled.toggle();
