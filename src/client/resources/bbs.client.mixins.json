@@ -41,7 +41,10 @@
         "BlockEntityRenderDispatcherMixin",
         "WorldMixin",
         "LivingEntityRendererInvoker",
-        "EntityRenderDispatcherMixin"
+        "EntityRenderDispatcherMixin",
+        "CameraInvoker",
+        "ParticleManagerInvoker",
+        "ParticleMixin"
     ],
     "injectors": {
         "defaultRequire": 1
