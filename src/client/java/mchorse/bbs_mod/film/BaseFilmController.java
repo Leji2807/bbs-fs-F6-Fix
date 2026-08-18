@@ -7,12 +7,17 @@ import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.camera.data.Point;
+import mchorse.bbs_mod.client.renderer.ItemUseEffects;
+import mchorse.bbs_mod.client.renderer.LivePlayerItemUse;
 import mchorse.bbs_mod.client.renderer.ModelBlockEntityRenderer;
+import mchorse.bbs_mod.client.renderer.ThirdPersonItemUse;
+import mchorse.bbs_mod.cubic.animation.ItemUsePose;
 import mchorse.bbs_mod.cubic.physics.ModelPhysicsRuntime;
 import mchorse.bbs_mod.entity.ActorEntity;
 import mchorse.bbs_mod.film.replays.FormControlKeys;
 import mchorse.bbs_mod.film.replays.PerLimbService;
 import mchorse.bbs_mod.film.replays.Replay;
+import mchorse.bbs_mod.film.replays.ReplayItemUse;
 import mchorse.bbs_mod.film.replays.ReplayKeyframes;
 import mchorse.bbs_mod.forms.FormUtils;
 import mchorse.bbs_mod.forms.FormUtilsClient;
@@ -892,6 +897,13 @@ public abstract class BaseFilmController
                 this.updateEntityAndForm(entity, replayTicks);
                 this.applyReplay(replay, replayTicks, entity);
 
+                /* Vanilla's eating and drinking effects: the actor never ticks
+                 * an item use, so the crumbs and chewing come from the clip.
+                 * The take the real player acts is no exception - the film's use
+                 * is only answered while drawing, so vanilla's own tick spits
+                 * nothing for them either (see LivePlayerItemUse). */
+                ItemUseEffects.tick(replay, entity, replayTicks);
+
                 Map<String, Integer> actors = this.getActors();
 
                 if (actors != null)
@@ -1050,6 +1062,15 @@ public abstract class BaseFilmController
             replay.properties.applyProperties(form1, tick + delta);
             this.applyTargetOverrides(replay, form1, tick + delta, delta);
 
+            /* The item use of this take, published for everything that draws
+             * its body: the procedural animator poses the arms with it, and the
+             * model form renderer makes the vanilla item predicates fire on the
+             * held items (a drawn bow bends and shows its arrow) */
+            ItemUsePose.Use use = ReplayItemUse.compute(replay, tick + delta, true);
+            ItemUsePose.Use offUse = ReplayItemUse.compute(replay, tick + delta, false);
+
+            ThirdPersonItemUse.set(ThirdPersonItemUse.keyOf(entity), use, offUse);
+
             Map<String, Integer> actors = this.getActors();
 
             if (actors != null)
@@ -1060,6 +1081,8 @@ public abstract class BaseFilmController
                 {
                     Entity anEntity = MinecraftClient.getInstance().world.getEntityById(entityId);
 
+                    ThirdPersonItemUse.set(anEntity, use, offUse);
+
                     if (anEntity instanceof ActorEntity actor)
                     {
                         Form form = actor.getForm();
@@ -1068,6 +1091,10 @@ public abstract class BaseFilmController
                     }
                     else if (anEntity instanceof PlayerEntity player)
                     {
+                        /* The first person hand is vanilla's, and it asks the
+                         * live player what it is using - the film has to say */
+                        LivePlayerItemUse.apply(player, use, offUse);
+
                         Morph morph = Morph.getMorph(player);
 
                         if (morph != null)
@@ -1468,7 +1495,13 @@ public abstract class BaseFilmController
     }
 
     public void shutdown()
-    {}
+    {
+        /* A live morphed player outlives the film - without this its bow would
+         * stay drawn forever after the playback stops */
+        ThirdPersonItemUse.clear();
+        ItemUseEffects.clear();
+        LivePlayerItemUse.clear();
+    }
 
     public static enum UpdateMode
     {

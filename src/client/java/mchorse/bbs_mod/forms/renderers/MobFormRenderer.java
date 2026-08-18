@@ -270,6 +270,14 @@ public class MobFormRenderer extends FormRenderer<MobForm> implements ITickable
 
         if (this.entity != null)
         {
+            /* The vanilla entity pipeline below leaves its own value in the
+             * global model-view matrix, so the non-UI cleanup used to wipe it
+             * to identity. That identity leaked out of any render that is NOT
+             * the film viewport: a placed model block with a mob form nuked
+             * the matrix every world frame and the whole UI over it fell
+             * apart. Snapshot and restore instead - the film viewport enters
+             * here with identity anyway, so its old contract holds. */
+            Matrix4f modelView = new Matrix4f(RenderSystem.getModelViewMatrix());
             CustomVertexConsumerProvider consumers = FormUtilsClient.getProvider();
             int light = context.light;
             BooleanHolder first = new BooleanHolder();
@@ -374,7 +382,7 @@ public class MobFormRenderer extends FormRenderer<MobForm> implements ITickable
             else
             {
                 RenderSystem.enableDepthTest();
-                RenderSystem.getModelViewMatrix().identity();
+                RenderSystem.getModelViewMatrix().set(modelView);
             }
         }
     }
