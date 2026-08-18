@@ -1075,7 +1075,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
         if (category == UIReplaysEditor.ReplayCategory.POSE)
         {
-            UIReplaysEditorUtils.insertPoseKeyframesAtTick(replay, this.getTick());
+            UIReplaysEditorUtils.insertPoseKeyframesAtTick(replay, this.getTick(), this.panel.replayEditor.getExpandedPoseTabIds());
             return;
         }
 
