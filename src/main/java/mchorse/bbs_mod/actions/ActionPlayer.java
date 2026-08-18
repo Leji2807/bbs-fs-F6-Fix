@@ -39,7 +39,6 @@ public class ActionPlayer
     public PlayerType type;
 
     public boolean syncing;
-    public boolean stopDamage = true;
     private boolean pendingResync;
 
     private ServerPlayerEntity serverPlayer;
@@ -438,6 +437,12 @@ public class ActionPlayer
                 value.discard();
             }
         }
+
+        /* Every way a playback ends comes through here - the film reaching its end, the editor
+         * stopping it, the player disconnecting, the server shutting down - so this is the one
+         * place that has to let damage control go. Releasing a hold that was already released
+         * does nothing, which is what makes stopping twice harmless. */
+        BBSMod.getActions().stopDamage(this.world, this);
 
         /* Whether the equipment was borrowed, not whether it would be borrowed now: the film's
          * first person replay can be toggled off mid-playback, and then there would be nothing

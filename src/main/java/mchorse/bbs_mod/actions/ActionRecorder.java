@@ -8,11 +8,13 @@ import mchorse.bbs_mod.actions.types.SwipeActionClip;
 import mchorse.bbs_mod.film.Film;
 import mchorse.bbs_mod.utils.clips.Clips;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 
 public class ActionRecorder
 {
     private Film film;
     private ServerPlayerEntity entity;
+    private ServerWorld world;
     private Clips clips = new Clips("...", BBSMod.getFactoryActionClips());
     private int tick;
     private int countdown;
@@ -22,6 +24,10 @@ public class ActionRecorder
     {
         this.film = film;
         this.entity = entity;
+        /* Remembered rather than asked for later: the take is held against the world it started
+         * in, and a player who walks through a portal mid-recording must not leave that hold
+         * behind in a world nobody will release. */
+        this.world = entity.getServerWorld();
         this.tick = tick;
         this.countdown = countdown;
         this.initialTick = tick;
@@ -30,6 +36,11 @@ public class ActionRecorder
     public Film getFilm()
     {
         return this.film;
+    }
+
+    public ServerWorld getWorld()
+    {
+        return this.world;
     }
 
     public Clips getClips()
