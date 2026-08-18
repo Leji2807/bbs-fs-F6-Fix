@@ -1321,6 +1321,12 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
         return data;
     }
 
+    /**
+     * Runs for every panel the dashboard owns, not just the one being looked at - so nothing here may
+     * touch the world. Playback is started from {@link #appear()} instead: a film left open in this
+     * panel used to be replayed into the world the moment any BBS screen was opened, damage control
+     * and all, while the user was in the model editor.
+     */
     @Override
     public void open()
     {
@@ -1328,14 +1334,10 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
 
         Recorder recorder = BBSModClient.getFilms().stopRecording();
 
-        if (recorder == null || recorder.hasNotStarted())
+        if (recorder != null && !recorder.hasNotStarted())
         {
-            this.notifyServer(ActionState.RESTART);
-
-            return;
+            this.applyRecordedKeyframes(recorder, this.data);
         }
-
-        this.applyRecordedKeyframes(recorder, this.data);
     }
 
     public void receiveActions(String filmId, int replayId, int tick, BaseType clips)
@@ -1458,6 +1460,10 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
         cameraController.add(this.runner);
 
         this.getContext().menu.getRoot().add(this.secretPlay);
+
+        /* The server drives the film - actors, actions, damage control - only while the editor is the
+         * panel on screen, so this is where playback is picked up and disappear() is where it is let go. */
+        this.notifyServer(ActionState.RESTART);
     }
 
     @Override
@@ -1530,6 +1536,8 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
 
         this.disableContext();
         this.secretPlay.removeFromParent();
+
+        this.notifyServer(ActionState.STOP);
     }
 
     private void disableContext()
