@@ -30,8 +30,11 @@ public class UIKeys
     public static final IKey ACTIONS_CHAT_MESSAGE = L10n.lang("bbs.ui.actions.chat.message");
     public static final IKey ACTIONS_COMMAND_COMMAND = L10n.lang("bbs.ui.actions.command.command");
     public static final IKey ACTIONS_FREQUENCY = L10n.lang("bbs.ui.actions.frequency");
+    public static final IKey ACTIONS_ITEM_CHARGE = L10n.lang("bbs.ui.actions.item.charge");
     public static final IKey ACTIONS_ITEM_MAIN_HAND = L10n.lang("bbs.ui.actions.item.main_hand");
     public static final IKey ACTIONS_ITEM_POSITION = L10n.lang("bbs.ui.actions.item.position");
+    public static final IKey ACTIONS_ITEM_PROJECTILE = L10n.lang("bbs.ui.actions.item.projectile");
+    public static final IKey ACTIONS_ITEM_RIPTIDE = L10n.lang("bbs.ui.actions.item.riptide");
     public static final IKey ACTIONS_ITEM_STACK = L10n.lang("bbs.ui.actions.item.stack");
     public static final IKey ACTIONS_ITEM_VELOCITY = L10n.lang("bbs.ui.actions.item.velocity");
     public static final IKey AUDIO_CONTEXT_ADD = L10n.lang("bbs.ui.audio_editor.context.add");
