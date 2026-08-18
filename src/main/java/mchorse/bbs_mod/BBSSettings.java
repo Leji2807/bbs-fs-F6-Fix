@@ -147,6 +147,7 @@ public class BBSSettings {
 	public static ValueBoolean editorSnapToMarkers;
 	public static ValueBoolean editorClipPreview;
 	public static ValueBoolean editorRewind;
+	public static ValueBoolean editorStopPlaybackOnScrub;
 	public static ValueBoolean editorHorizontalClipEditor;
 	public static ValueBoolean editorMinutesBackup;
 	public static ValueBoolean editorResizablePanels;
@@ -158,6 +159,7 @@ public class BBSSettings {
 	public static ValueInt editorPreviewCustomHeight;
 	public static ValueFloat editorPreviewResolutionScale;
 	public static ValueBoolean editorClipAutoName;
+	public static ValueBoolean editorPreviewIconsAutoHide;
 	public static ValueBoolean editorKeepFrameOnExit;
 
 	public static ValueFloat recordingCountdown;
@@ -657,6 +659,7 @@ public class BBSSettings {
 		editorPreviewCustomHeight = builder.getInt("preview_custom_height", 720, 2, 16384);
 		editorPreviewResolutionScale = builder.getFloat("preview_resolution_scale", 2F, 1F, 3F).slider();
 		editorClipPreview = builder.getBoolean("clip_preview", true);
+		editorPreviewIconsAutoHide = builder.getBoolean("preview_icons_auto_hide", false);
 		builder.register(editorOnionSkin = new ValueOnionSkin("onion_skin"));
 		builder.register(editorMotionPath = new ValueMotionPath("motion_path"));
 		/* Overlays drawn over the preview which are edited through the gear in the
@@ -686,6 +689,7 @@ public class BBSSettings {
 		editorTrackWidth = builder.getInt("track_width", 2, 1, 10).slider();
 		editorSnapToMarkers = builder.getBoolean("snap_to_markers", false);
 		editorRewind = builder.getBoolean("rewind", true);
+		editorStopPlaybackOnScrub = builder.getBoolean("stop_playback_on_scrub", false);
 		editorHorizontalClipEditor = builder.getBoolean("horizontal_clip_editor", true);
 
 		builder.category("workspace", Icons.EDITOR);
