@@ -44,6 +44,7 @@ public class UISettingsLayout
         register(new UIResolutionRow(BBSSettings.videoWidth, BBSSettings.videoHeight, true));
         register(new UIResolutionRow(BBSSettings.editorPreviewCustomWidth, BBSSettings.editorPreviewCustomHeight, false));
         register(new UIExportPathRow(BBSSettings.videoExportPath));
+        register(new UIEncoderPathRow(BBSSettings.videoEncoderPath));
     }
 
     private static void register(IValueRow row)

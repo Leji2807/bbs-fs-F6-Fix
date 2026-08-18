@@ -199,6 +199,7 @@ public class UIKeys
     public static final IKey CAMERA_TIMELINE_KEYS_ENABLED = L10n.lang("bbs.ui.camera.timeline.keys.enabled");
     public static final IKey CAMERA_TOOLTIPS_OPEN_VIDEOS = L10n.lang("bbs.ui.camera.tooltips.open_videos");
     public static final IKey CAMERA_TOOLTIPS_OPEN_VIDEO_SETTINGS = L10n.lang("bbs.ui.camera.tooltips.open_video_settings");
+    public static final IKey CAMERA_TOOLTIPS_PICK_EXPORT_FOLDER = L10n.lang("bbs.ui.camera.tooltips.pick_export_folder");
     public static final IKey CAMERA_TOOLTIPS_RECORD = L10n.lang("bbs.ui.camera.tooltips.record");
     public static final IKey CDN_DOWNLOADING_TITLE = L10n.lang("bbs.ui.cdn.downloading-title");
     public static final IKey CDN_STATUS_DELETED = L10n.lang("bbs.ui.cdn.status.deleted");
@@ -627,10 +628,13 @@ public class UIKeys
     public static final IKey FORMS_LIST_SEARCH = L10n.lang("bbs.ui.forms.list.search");
     public static final IKey FORMS_SHARED_NOTIFICATION = L10n.lang("bbs.ui.forms.categories.shared-notification");
     public static final IKey GENERAL_ADD = L10n.lang("bbs.ui.add");
+    public static final IKey GENERAL_BROWSE = L10n.lang("bbs.ui.browse");
     public static final IKey GENERAL_CLOSE = L10n.lang("bbs.ui.close");
     public static final IKey GENERAL_CONFIRM = L10n.lang("bbs.ui.confirm");
     public static final IKey GENERAL_COPY = L10n.lang("bbs.ui.copy");
     public static final IKey GENERAL_CUT = L10n.lang("bbs.ui.cut");
+    public static final IKey GENERAL_DIALOG_ENCODER = L10n.lang("bbs.ui.dialogs.encoder");
+    public static final IKey GENERAL_DIALOG_EXPORT_FOLDER = L10n.lang("bbs.ui.dialogs.export_folder");
     public static final IKey GENERAL_DOWNLOAD = L10n.lang("bbs.ui.download");
     public static final IKey GENERAL_DUPE = L10n.lang("bbs.ui.dupe");
     public static final IKey GENERAL_EDIT = L10n.lang("bbs.ui.edit");
@@ -640,6 +644,8 @@ public class UIKeys
     public static final IKey GENERAL_FFMPEG_ERROR_GUIDE = L10n.lang("bbs.ui.ffmpeg.error-guide");
     public static final IKey GENERAL_FFMPEG_ERROR_GUIDE_LINK = L10n.lang("bbs.ui.ffmpeg.error-guide_link");
     public static final IKey GENERAL_FFMPEG_FIND = L10n.lang("bbs.ui.ffmpeg.find");
+    public static final IKey GENERAL_FFMPEG_OPEN_FOLDER = L10n.lang("bbs.ui.ffmpeg.open_folder");
+    public static final IKey GENERAL_FFMPEG_PICK = L10n.lang("bbs.ui.ffmpeg.pick");
     public static final IKey GENERAL_NONE = L10n.lang("bbs.ui.none");
     public static final IKey GENERAL_OK = L10n.lang("bbs.ui.ok");
     public static final IKey GENERAL_PASTE = L10n.lang("bbs.ui.paste");
