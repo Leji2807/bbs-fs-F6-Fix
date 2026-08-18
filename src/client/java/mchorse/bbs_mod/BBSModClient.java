@@ -10,6 +10,7 @@ import mchorse.bbs_mod.camera.clips.misc.CurveClientClip;
 import mchorse.bbs_mod.camera.clips.misc.TrackerClientClip;
 import mchorse.bbs_mod.camera.controller.CameraController;
 import mchorse.bbs_mod.client.BBSRendering;
+import mchorse.bbs_mod.client.renderer.LivePlayerItemUse;
 import mchorse.bbs_mod.client.renderer.ModelBlockEntityRenderer;
 import mchorse.bbs_mod.client.renderer.ThirdPersonItemUse;
 import mchorse.bbs_mod.cubic.animation.ItemUsePose;
@@ -584,6 +585,10 @@ public class BBSModClient implements ClientModInitializer
 
         ClientTickEvents.START_CLIENT_TICK.register((client) ->
         {
+            /* The frame is over: outside of drawing, the player is themselves
+             * again and nothing of the film's use answers for them */
+            LivePlayerItemUse.endFrame();
+
             BBSRendering.startTick();
         });
 
