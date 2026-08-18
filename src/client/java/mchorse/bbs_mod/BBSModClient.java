@@ -11,6 +11,8 @@ import mchorse.bbs_mod.camera.clips.misc.TrackerClientClip;
 import mchorse.bbs_mod.camera.controller.CameraController;
 import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.client.renderer.ModelBlockEntityRenderer;
+import mchorse.bbs_mod.client.renderer.ThirdPersonItemUse;
+import mchorse.bbs_mod.cubic.animation.ItemUsePose;
 import mchorse.bbs_mod.client.renderer.entity.ActorEntityRenderer;
 import mchorse.bbs_mod.client.renderer.entity.GunProjectileEntityRenderer;
 import mchorse.bbs_mod.client.renderer.item.GunItemRenderer;
@@ -549,6 +551,11 @@ public class BBSModClient implements ClientModInitializer
                 }
             }
         });
+
+        /* The procedural animator poses actor arms from the film's use state
+         * (a drawn bow, a raised shield), and that state is computed here on
+         * the client - hand it the lookup. */
+        ItemUsePose.setSource(ThirdPersonItemUse::get);
 
         WorldRenderEvents.LAST.register((context) ->
         {
