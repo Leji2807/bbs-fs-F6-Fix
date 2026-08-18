@@ -6,9 +6,11 @@ import mchorse.bbs_mod.actions.types.ActionClip;
 import mchorse.bbs_mod.actions.types.AttackActionClip;
 import mchorse.bbs_mod.actions.types.SwipeActionClip;
 import mchorse.bbs_mod.actions.types.blocks.InteractBlockActionClip;
+import mchorse.bbs_mod.actions.types.item.UseItemActionClip;
 import mchorse.bbs_mod.film.Film;
 import mchorse.bbs_mod.utils.clips.Clips;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.util.Hand;
 import net.minecraft.server.world.ServerWorld;
 
 public class ActionRecorder
@@ -20,6 +22,9 @@ public class ActionRecorder
     private int tick;
     private int countdown;
     private int initialTick;
+
+    /** The use clip still being held down, so its duration can keep growing. */
+    private UseItemActionClip useClip;
 
     /** The last block interaction, until it's known whether it opened a container. */
     private InteractBlockActionClip interactClip;
@@ -78,7 +83,11 @@ public class ActionRecorder
 
         this.clips.addClip(clip);
 
-        if (clip instanceof InteractBlockActionClip interactClip)
+        if (clip instanceof UseItemActionClip useClip)
+        {
+            this.useClip = useClip;
+        }
+        else if (clip instanceof InteractBlockActionClip interactClip)
         {
             this.interactClip = interactClip;
         }
@@ -93,6 +102,7 @@ public class ActionRecorder
             return;
         }
 
+        this.trackItemUse(player);
         this.trackContainer(player);
 
         if (player.handSwingTicks == -1)
@@ -109,6 +119,32 @@ public class ActionRecorder
         }
 
         this.tick += 1;
+    }
+
+    /**
+     * Grows the last "use item" clip for as long as the player keeps holding the
+     * item up: the clip is born when {@code ItemStack.use} fires and would
+     * otherwise stay one tick long, so a shield held for three seconds or a bow
+     * drawn and held would play back as a blink. Everything that reads the use
+     * out of a take reads exactly this duration.
+     */
+    private void trackItemUse(ServerPlayerEntity player)
+    {
+        if (this.useClip == null)
+        {
+            return;
+        }
+
+        boolean sameHand = player.getActiveHand() == (this.useClip.hand.get() ? Hand.MAIN_HAND : Hand.OFF_HAND);
+
+        if (player.isUsingItem() && sameHand)
+        {
+            this.useClip.duration.set(Math.max(1, this.tick - this.useClip.tick.get() + 1));
+        }
+        else
+        {
+            this.useClip = null;
+        }
     }
 
     /**
