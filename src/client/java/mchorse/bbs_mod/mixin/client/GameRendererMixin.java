@@ -26,14 +26,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(GameRenderer.class)
 public class GameRendererMixin
 {
-    @Inject(method = "renderWorld", at = @At("HEAD"))
-    public void onRenderWorld(float tickDelta, long limitTime, MatrixStack matrices, CallbackInfo info)
-    {
-        CameraController controller = BBSModClient.getCameraController();
-
-        controller.setup(controller.camera, tickDelta);
-    }
-
     /**
      * This injection cancels bobbing when camera controller takes over
      */
@@ -96,10 +88,27 @@ public class GameRendererMixin
         }
     }
 
+    /**
+     * Everything BBS does at the start of a world render lives in this single
+     * injection, because its two halves are ordered: the render frame begins
+     * by clearing the state kept per frame (the orthographic projection among
+     * it), and only then may the camera controller be set up, which is what
+     * arms that state again for this frame. Split across two @At("HEAD")
+     * handlers the order would be decided by the order they are declared in
+     * this class, and the wrong way round silently wipes ortho every frame.
+     *
+     * The controller is set up here rather than from Camera#update, the way
+     * the other versions do it, because this one reads the FOV before it
+     * updates the camera.
+     */
     @Inject(at = @At("HEAD"), method = "renderWorld")
-    private void onWorldRenderBegin(CallbackInfo callbackInfo)
+    private void onWorldRenderBegin(float tickDelta, long limitTime, MatrixStack matrices, CallbackInfo callbackInfo)
     {
         BBSRendering.onWorldRenderBegin();
+
+        CameraController controller = BBSModClient.getCameraController();
+
+        controller.setup(controller.camera, tickDelta);
     }
 
     /**

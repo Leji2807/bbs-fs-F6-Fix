@@ -76,9 +76,10 @@ public class BBSRendering
     private static int height;
 
     /* Orbit distance for the orthographic projection; negative = perspective.
-     * Re-armed every frame by the film editor's orbit camera (which is set up
-     * from Camera#update, between renderWorld's HEAD and its projection use),
-     * so it can never go stale when another controller takes over. */
+     * Cleared as the world render begins and re-armed by the film editor's
+     * orbit camera, which the same render sets up after that reset and before
+     * it builds its projection matrices, so the value can never go stale when
+     * another controller takes over. */
     private static float orthoDistance = -1F;
 
     private static boolean toggleFramebuffer;
