@@ -229,39 +229,80 @@ public class UIReplaysEditor extends UIElement
         for (String key : keys) COLORS.put(key, color);
     }
 
+    private static void putIcons(Icon icon, String... keys)
+    {
+        for (String key : keys) ICONS.put(key, icon);
+    }
+
+    /**
+     * Every track carries an icon: an empty slot in the icon column reads as "this row is a lesser
+     * kind of thing" when it only ever meant "nobody got around to it". Rows that belong together
+     * wear the same icon on purpose - the nine hotbar slots, the six particle user values, the label's
+     * shadow - so the column groups the timeline at a glance instead of naming each row twice.
+     */
     private static void setupIcons()
     {
-        ICONS.put("x", Icons.X);
-        ICONS.put("y", Icons.Y);
-        ICONS.put("z", Icons.Z);
-        ICONS.put("pitch", Icons.VERTICAL);
-        ICONS.put("headYaw", Icons.HORIZONTAL);
+        /* Axes. Anything that is one component of a vector wears its axis' letter. */
+        putIcons(Icons.X, "x", "vX", "offsetX", "offset_x", "anchorX");
+        putIcons(Icons.Y, "y", "vY", "offsetY", "offset_y", "anchorY");
+        putIcons(Icons.Z, "z", "vZ", "offset_z");
+
+        /* Rotations, by the plane they turn in */
+        /* Two pairs, each pair alike: the actor's own yaw and pitch, then the head's and the body's. */
+        putIcons(Icons.VERTICAL, "yaw", "pitch", "scattering_pitch");
+        putIcons(Icons.HORIZONTAL, "headYaw", "bodyYaw", "scattering_yaw", "max");
+        ICONS.put("rotation", Icons.ORBIT);
+
+        /* Movement and state of the actor */
+        ICONS.put("sneaking", Icons.ARROW_DOWN);
+        ICONS.put("grounded", Icons.SLAB);
+        ICONS.put("damage", Icons.SKULL);
+        putIcons(Icons.ARROW_RIGHT, "sprinting", "velocity");
+
+        /* The form itself */
         ICONS.put("visible", Icons.VISIBLE);
         ICONS.put("texture", Icons.MATERIAL);
-        ICONS.put("pose", Icons.POSE);
         ICONS.put("model", Icons.POSE);
-        ICONS.put("transform", Icons.ALL_DIRECTIONS);
         ICONS.put("color", Icons.BUCKET);
         ICONS.put("lighting", Icons.LIGHT);
         ICONS.put("actions", Icons.CONVERT);
         ICONS.put("shape_keys", Icons.HEART_ALT);
+        ICONS.put("anchor", Icons.LINK);
+        ICONS.put("billboard", Icons.CAMERA);
+        ICONS.put("shading", Icons.SUN);
+        ICONS.put("crop", Icons.FULLSCREEN);
+        ICONS.put("block_state", Icons.BLOCK);
+        ICONS.put("item_stack", Icons.SHARD);
+        ICONS.put("modelTransform", Icons.SPACE_LOCAL);
+        ICONS.put("scale", Icons.SCALE);
+        ICONS.put("mobId", Icons.CHICKEN);
+        ICONS.put("mobNbt", Icons.CODE);
+        ICONS.put("length", Icons.LINE);
+        ICONS.put("loop", Icons.REFRESH);
+
+        /* Pose and transform, and their overlays - see getIcon(), which folds the numbered
+         * overlays onto the thing they overlay: an overlay is that thing, layered. */
+        ICONS.put("pose", Icons.POSE);
+        ICONS.put("transform", Icons.ALL_DIRECTIONS);
+
+        /* The label */
         ICONS.put("text", Icons.FONT);
-        ICONS.put("stick_lx", Icons.LEFT_STICK);
-        ICONS.put("stick_rx", Icons.RIGHT_STICK);
-        ICONS.put("trigger_l", Icons.TRIGGER);
-        ICONS.put("extra1_x", Icons.CURVES);
-        ICONS.put("extra2_x", Icons.CURVES);
-        /* Only the first hotbar row is marked: the icon says "the hotbar starts here", and the
-         * eight rows under it are read as its continuation rather than eight repetitions. */
-        ICONS.put(ReplayKeyframes.hotbarChannelId(0), Icons.HOTBAR);
+        ICONS.put("anchorLines", Icons.LIST);
+        putIcons(Icons.FADING, "shadowX", "shadowY");
+        ICONS.put("shadowColor", Icons.COLOR);
+        ICONS.put("background", Icons.SQUARE);
+        ICONS.put("offset", Icons.OUTLINE);
 
-        ICONS.put("item_off_hand", Icons.LIMB);
-        ICONS.put("item_head", Icons.ARMOR_HELMET);
-        ICONS.put("item_chest", Icons.ARMOR_CHESTPLATE);
-        ICONS.put("item_legs", Icons.ARMOR_LEGGINGS);
-        ICONS.put("item_feet", Icons.ARMOR_BOOTS);
+        /* The controller. Both axes of a stick, and both triggers, share their side's icon. */
+        putIcons(Icons.LEFT_STICK, "stick_lx", "stick_ly");
+        putIcons(Icons.RIGHT_STICK, "stick_rx", "stick_ry");
+        putIcons(Icons.TRIGGER, "trigger_l", "trigger_r");
+        putIcons(Icons.CURVES, "extra1_x", "extra1_y", "extra2_x", "extra2_y");
 
-        ICONS.put("user1", Icons.PARTICLE);
+        setupItemIcons();
+
+        /* Particles */
+        putIcons(Icons.PARTICLE, "user1", "user2", "user3", "user4", "user5", "user6");
         ICONS.put("paused", Icons.TIME);
         ICONS.put("frequency", Icons.STOPWATCH);
         ICONS.put("count", Icons.BUCKET);
@@ -269,9 +310,31 @@ public class UIReplaysEditor extends UIElement
         ICONS.put("physics_targets", Icons.PHYSICS);
     }
 
+    private static void setupItemIcons()
+    {
+        /* The whole hotbar wears one icon: nine rows of the same thing, which is what they are.
+         * The row's number is in its name, and its shade already walks down the run. */
+        for (int i = 0; i < ReplayKeyframes.HOTBAR_SIZE; i++)
+        {
+            ICONS.put(ReplayKeyframes.hotbarChannelId(i), Icons.HOTBAR);
+        }
+
+        ICONS.put("item_off_hand", Icons.LIMB);
+        ICONS.put("item_head", Icons.ARMOR_HELMET);
+        ICONS.put("item_chest", Icons.ARMOR_CHESTPLATE);
+        ICONS.put("item_legs", Icons.ARMOR_LEGGINGS);
+        ICONS.put("item_feet", Icons.ARMOR_BOOTS);
+
+        /* Not an item but the pointer at one */
+        ICONS.put("selected_slot", Icons.POINTER);
+    }
+
     public static Icon getIcon(String key)
     {
         String topLevel = StringUtils.fileName(key);
+
+        if (topLevel.startsWith("pose_overlay")) return ICONS.get("pose");
+        if (topLevel.startsWith("transform_overlay")) return ICONS.get("transform");
 
         return ICONS.getOrDefault(topLevel, Icons.NONE);
     }
@@ -870,7 +933,7 @@ public class UIReplaysEditor extends UIElement
             BaseValue value = this.replay.keyframes.get(key);
             KeyframeChannel channel = (KeyframeChannel) value;
 
-            sheets.add(new UIKeyframeSheet(getColor(key), false, channel, null).icon(ICONS.get(key)));
+            sheets.add(new UIKeyframeSheet(getColor(key), false, channel, null).icon(getIcon(key)));
         }
     }
 
