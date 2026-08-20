@@ -90,6 +90,12 @@ public class UIReplaysEditor extends UIElement
     private static final Map<String, Integer> COLORS = new HashMap<>();
     private static final Map<String, Icon> ICONS = new HashMap<>();
 
+    /**
+     * The model track swaps out the whole thing being animated, so it doesn't belong to any of the
+     * families below - it gets a violet of its own, clear of the axes, the items and the armour.
+     */
+    private static final int MODEL_TRACK = 0x9d6cff;
+
     /* Item channel families - see setupItemColors() */
     private static final int HOTBAR_FIRST = Colors.ORANGE;
     private static final int HOTBAR_LAST = 0xe0245e;
@@ -184,6 +190,7 @@ public class UIReplaysEditor extends UIElement
         COLORS.put("transform_overlay", 0xaaff00);
         COLORS.put("color", Colors.INACTIVE);
         COLORS.put("shape_keys", Colors.PINK);
+        COLORS.put("model", MODEL_TRACK);
     }
 
     /**
@@ -232,6 +239,7 @@ public class UIReplaysEditor extends UIElement
         ICONS.put("visible", Icons.VISIBLE);
         ICONS.put("texture", Icons.MATERIAL);
         ICONS.put("pose", Icons.POSE);
+        ICONS.put("model", Icons.POSE);
         ICONS.put("transform", Icons.ALL_DIRECTIONS);
         ICONS.put("color", Icons.BUCKET);
         ICONS.put("lighting", Icons.LIGHT);
