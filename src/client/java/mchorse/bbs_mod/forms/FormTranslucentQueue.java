@@ -2,6 +2,7 @@ package mchorse.bbs_mod.forms;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import mchorse.bbs_mod.BBSModClient;
+import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.client.BBSShaders;
 import mchorse.bbs_mod.cubic.render.vao.BOBJModelVAO;
@@ -170,7 +171,11 @@ public class FormTranslucentQueue
     {
         release();
 
-        active = true;
+        /* Switched off, the queue never opens a scope: isActive() stays false, so no draw splits or
+         * defers and add() falls through to drawing right away. That is the same single-pass path
+         * forms already take under a shaderpack — every pixel is drawn, just in entity order with
+         * depth writes, the way it was before this mechanism existed. */
+        active = BBSSettings.translucencyQueue.get();
     }
 
     /**
