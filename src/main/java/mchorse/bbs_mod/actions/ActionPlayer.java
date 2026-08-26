@@ -7,22 +7,24 @@ import mchorse.bbs_mod.film.Film;
 import mchorse.bbs_mod.film.replays.Replay;
 import mchorse.bbs_mod.film.replays.ReplayKeyframes;
 import mchorse.bbs_mod.forms.FormUtils;
+import mchorse.bbs_mod.forms.entities.IEntity;
+import mchorse.bbs_mod.forms.entities.MCEntity;
 import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.morphing.Morph;
 import mchorse.bbs_mod.network.ServerNetwork;
 import mchorse.bbs_mod.settings.values.base.BaseValue;
-import mchorse.bbs_mod.utils.CollectionUtils;
 import mchorse.bbs_mod.utils.DataPath;
-import mchorse.bbs_mod.utils.MathUtils;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.MovementType;
+import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,7 +39,6 @@ public class ActionPlayer
     public PlayerType type;
 
     public boolean syncing;
-    public boolean stopDamage = true;
     private boolean pendingResync;
 
     private ServerPlayerEntity serverPlayer;
@@ -46,8 +47,18 @@ public class ActionPlayer
 
     private Map<String, LivingEntity> actors = new HashMap<>();
 
-    private List<ItemStack> cachedInventory = new ArrayList<>();
     private Form cachedForm;
+
+    /**
+     * The film dresses the first person player for the duration of the playback, so what it
+     * takes over has to be given back. It borrows exactly what it drives - the hotbar, the
+     * armour and the off hand - and never the rest of the inventory, which no camera can see.
+     */
+    private boolean borrowedEquipment;
+    private List<ItemStack> cachedHotbar = new ArrayList<>();
+    private Map<EquipmentSlot, ItemStack> cachedEquipment = new EnumMap<>(EquipmentSlot.class);
+    private int cacheSelectedSlot;
+    private IEntity fpEntity;
 
     private float cacheHp;
     private int cacheHunger;
@@ -72,11 +83,7 @@ public class ActionPlayer
 
         if (this.type == PlayerType.NORMAL && this.serverPlayer != null && fpReplay != null)
         {
-            for (int i = 0; i < this.serverPlayer.getInventory().size(); i++)
-            {
-                this.cachedInventory.add(serverPlayer.getInventory().getStack(i).copy());
-                this.serverPlayer.getInventory().setStack(i, CollectionUtils.getSafe(this.film.inventory.getStacks(), i, ItemStack.EMPTY));
-            }
+            this.borrowEquipment(fpReplay.keyframes);
 
             Morph morph = Morph.getMorph(this.serverPlayer);
 
@@ -94,6 +101,61 @@ public class ActionPlayer
 
             applyFilmPlayerSettingsTo(this.serverPlayer, this.film.hp.get(), this.film.hunger.get(), this.film.xpLevel.get(), this.film.xpProgress.get());
         }
+    }
+
+    /** Equipment slots the film drives directly; the hotbar is driven by slot index instead. */
+    private static final EquipmentSlot[] BORROWED_SLOTS = {EquipmentSlot.OFFHAND, EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
+
+    private void borrowEquipment(ReplayKeyframes keyframes)
+    {
+        PlayerInventory inventory = this.serverPlayer.getInventory();
+
+        this.borrowedEquipment = true;
+        this.cacheSelectedSlot = inventory.selectedSlot;
+        this.fpEntity = new MCEntity(this.serverPlayer);
+
+        for (int i = 0; i < ReplayKeyframes.HOTBAR_SIZE; i++)
+        {
+            this.cachedHotbar.add(inventory.getStack(i).copy());
+
+            /* Cells the replay says nothing about are left to the world during playback (see
+             * ReplayKeyframes#applyEquipment), but they're still emptied once - otherwise the
+             * player's own things would wander into frame. */
+            if (!keyframes.drivesHotbarSlot(i))
+            {
+                inventory.setStack(i, ItemStack.EMPTY);
+            }
+        }
+
+        for (EquipmentSlot slot : BORROWED_SLOTS)
+        {
+            this.cachedEquipment.put(slot, this.serverPlayer.getEquippedStack(slot).copy());
+
+            if (keyframes.getEquipmentChannel(slot).isEmpty())
+            {
+                this.serverPlayer.equipStack(slot, ItemStack.EMPTY);
+            }
+        }
+    }
+
+    private void returnEquipment()
+    {
+        PlayerInventory inventory = this.serverPlayer.getInventory();
+
+        /* Playback can be stopped more than once (the film ends, then the manager stops it) */
+        this.borrowedEquipment = false;
+
+        for (int i = 0; i < this.cachedHotbar.size(); i++)
+        {
+            inventory.setStack(i, this.cachedHotbar.get(i));
+        }
+
+        for (Map.Entry<EquipmentSlot, ItemStack> entry : this.cachedEquipment.entrySet())
+        {
+            this.serverPlayer.equipStack(entry.getKey(), entry.getValue());
+        }
+
+        ServerNetwork.sendSelectedSlot(this.serverPlayer, this.cacheSelectedSlot);
     }
 
     public static void applyFilmPlayerSettingsTo(ServerPlayerEntity player, float hp, float hunger, int xpLevel, float xpProgress)
@@ -158,6 +220,11 @@ public class ActionPlayer
         return this.world;
     }
 
+    public boolean isPlayedBy(ServerPlayerEntity player)
+    {
+        return this.serverPlayer == player;
+    }
+
     public void apply(LivingEntity actor, Replay replay, float tick, boolean ticking)
     {
         double x = replay.keyframes.x.interpolate(tick);
@@ -190,27 +257,26 @@ public class ActionPlayer
         /* The sprinting flag is tracked data, so setting it here is what makes the
          * client spawn vanilla's sprinting particles for this actor */
         actor.setSprinting(replay.keyframes.sprinting.interpolate(tick) > 0);
-        actor.equipStack(EquipmentSlot.OFFHAND, replay.keyframes.offHand.interpolate(tick, ItemStack.EMPTY));
-        actor.equipStack(EquipmentSlot.HEAD, replay.keyframes.armorHead.interpolate(tick, ItemStack.EMPTY));
-        actor.equipStack(EquipmentSlot.CHEST, replay.keyframes.armorChest.interpolate(tick, ItemStack.EMPTY));
-        actor.equipStack(EquipmentSlot.LEGS, replay.keyframes.armorLegs.interpolate(tick, ItemStack.EMPTY));
-        actor.equipStack(EquipmentSlot.FEET, replay.keyframes.armorFeet.interpolate(tick, ItemStack.EMPTY));
 
         if (actor instanceof ServerPlayerEntity player)
         {
-            int selectedSlot = player.getInventory().selectedSlot;
-            int slot = MathUtils.clamp(replay.keyframes.selectedSlot.interpolate(this.tick), 0, 8);
-
-            if (selectedSlot != slot)
+            /* On a player equipStack() is a write into the real inventory, so the replay may
+             * only dress one whose equipment the film borrowed at startup and gives back on
+             * stop. A replay turned first person mid-playback borrowed nothing and dresses
+             * nobody. */
+            if (this.borrowedEquipment)
             {
-                ServerNetwork.sendSelectedSlot(player, slot);
+                this.dressPlayer(player, replay.keyframes, tick);
             }
-
-            actor.equipStack(EquipmentSlot.MAINHAND, replay.keyframes.mainHand.interpolate(tick, ItemStack.EMPTY));
         }
         else
         {
-            actor.equipStack(EquipmentSlot.MAINHAND, replay.keyframes.mainHand.interpolate(tick, ItemStack.EMPTY));
+            actor.equipStack(EquipmentSlot.MAINHAND, replay.keyframes.getMainHandStack(tick));
+            actor.equipStack(EquipmentSlot.OFFHAND, replay.keyframes.offHand.interpolate(tick, ItemStack.EMPTY));
+            actor.equipStack(EquipmentSlot.HEAD, replay.keyframes.armorHead.interpolate(tick, ItemStack.EMPTY));
+            actor.equipStack(EquipmentSlot.CHEST, replay.keyframes.armorChest.interpolate(tick, ItemStack.EMPTY));
+            actor.equipStack(EquipmentSlot.LEGS, replay.keyframes.armorLegs.interpolate(tick, ItemStack.EMPTY));
+            actor.equipStack(EquipmentSlot.FEET, replay.keyframes.armorFeet.interpolate(tick, ItemStack.EMPTY));
         }
 
         double vx = x - replay.keyframes.x.interpolate(tick - 1);
@@ -225,6 +291,25 @@ public class ActionPlayer
         actor.setVelocity(vx, vy, vz);
 
         actor.fallDistance = replay.keyframes.fall.interpolate(tick).floatValue();
+    }
+
+    /**
+     * Lay the replay's frame out onto the first person player: nine hotbar cells, the armour,
+     * the off hand and the selection. Nothing is put into the main hand - that's the selected
+     * cell, and it's already there.
+     */
+    private void dressPlayer(ServerPlayerEntity player, ReplayKeyframes keyframes, float tick)
+    {
+        /* Selection first, so anything reading "the hand" during this frame reads the cell the
+         * frame means rather than the one it just left. */
+        int slot = keyframes.getSelectedSlot(tick);
+
+        if (player.getInventory().selectedSlot != slot)
+        {
+            ServerNetwork.sendSelectedSlot(player, slot);
+        }
+
+        keyframes.applyEquipment(tick, this.fpEntity);
     }
 
     public boolean tick()
@@ -284,6 +369,10 @@ public class ActionPlayer
 
             replay.applyActions(actor, fakePlayer, this.film, this.tick);
         }
+
+        /* Chests the clips of this tick still hold open go up, the rest come
+         * down - including when the film was scrubbed rather than played */
+        fakePlayer.flushLids();
     }
 
     public void syncData(DataPath key, BaseType data)
@@ -345,6 +434,14 @@ public class ActionPlayer
 
     public void stop()
     {
+        SuperFakePlayer fakePlayer = SuperFakePlayer.getIfPresent(this.world);
+
+        /* Nothing asks for a lid any more, so every one the film opened closes */
+        if (fakePlayer != null)
+        {
+            fakePlayer.flushLids();
+        }
+
         for (LivingEntity value : this.actors.values())
         {
             if (!value.isPlayer())
@@ -353,12 +450,18 @@ public class ActionPlayer
             }
         }
 
-        if (this.type == PlayerType.NORMAL && this.serverPlayer != null && this.film.getFirstPersonReplay() != null)
+        /* Every way a playback ends comes through here - the film reaching its end, the editor
+         * stopping it, the player disconnecting, the server shutting down - so this is the one
+         * place that has to let damage control go. Releasing a hold that was already released
+         * does nothing, which is what makes stopping twice harmless. */
+        BBSMod.getActions().stopDamage(this.world, this);
+
+        /* Whether the equipment was borrowed, not whether it would be borrowed now: the film's
+         * first person replay can be toggled off mid-playback, and then there would be nothing
+         * to give back. */
+        if (this.borrowedEquipment)
         {
-            for (int i = 0; i < this.serverPlayer.getInventory().size(); i++)
-            {
-                this.serverPlayer.getInventory().setStack(i, this.cachedInventory.get(i));
-            }
+            this.returnEquipment();
 
             ServerNetwork.sendMorphToTracked(this.serverPlayer, this.cachedForm);
 

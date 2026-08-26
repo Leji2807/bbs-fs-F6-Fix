@@ -23,7 +23,6 @@ import io.netty.util.collection.IntObjectMap;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.BBSSettings;
-import mchorse.bbs_mod.actions.ActionState;
 import mchorse.bbs_mod.camera.Camera;
 import mchorse.bbs_mod.camera.utils.TimeUtils;
 import mchorse.bbs_mod.camera.controller.RunnerCameraController;
@@ -193,11 +192,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
                 this.panel.replayEditor.moveReplay(result.getPos().x, result.getPos().y, result.getPos().z);
             }
         }).active(hasActor).category(category);
-        this.keys().register(Keys.FILM_CONTROLLER_RESTART_ACTIONS, () ->
-        {
-            this.panel.notifyServer(ActionState.RESTART);
-            this.createEntities();
-        }).category(category);
+        this.keys().register(Keys.FILM_CONTROLLER_RESTART_ACTIONS, this.panel::restartActions).category(category);
         this.keys().register(Keys.FILM_CONTROLLER_TOGGLE_ONION_SKIN, () ->
         {
             this.getOnionSkin().enabled.toggle();
@@ -566,7 +561,9 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
             if (index >= 0)
             {
-                BBSModClient.getFilms().startRecording(this.panel.getData(), index, this.panel.getCursor());
+                /* On the mark: started from the editor, at a cursor the editor chose,
+                 * so the take begins where the replay itself stands at that tick */
+                BBSModClient.getFilms().startRecording(this.panel.getData(), index, this.panel.getCursor(), true);
             }
 
             return;
@@ -623,6 +620,24 @@ public class UIFilmController extends UIElement implements GizmoViewport
         }
 
         this.toggleMousePointer(!transformRecording && this.controlled != null);
+
+        /* No countdown means the take starts now. Without this nothing ever started it: the countdown
+         * branch below is what calls togglePlayback, and it only runs while the counter is still above
+         * zero — with the setting at 0 the very first tick fell straight through to "the film is not
+         * running, so the take is over" and stopped the recording before a single frame was written. */
+        this.startPlayback();
+    }
+
+    /**
+     * Begin playback for a take, unless the film is already running (the editor can be playing when a
+     * recording starts). Never a blind {@code togglePlayback} — that would stop it instead.
+     */
+    private void startPlayback()
+    {
+        if (this.recordingCountdown <= 0 && !this.panel.getRunner().isRunning())
+        {
+            this.panel.togglePlayback();
+        }
     }
 
     public void stopRecording()
@@ -1073,7 +1088,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
         if (category == UIReplaysEditor.ReplayCategory.POSE)
         {
-            UIReplaysEditorUtils.insertPoseKeyframesAtTick(replay, this.getTick());
+            UIReplaysEditorUtils.insertPoseKeyframesAtTick(replay, this.getTick(), this.panel.replayEditor.getExpandedPoseTabIds());
             return;
         }
 
@@ -1192,10 +1207,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
             {
                 this.recordingCountdown -= 1;
 
-                if (this.recordingCountdown <= 0)
-                {
-                    this.panel.togglePlayback();
-                }
+                this.startPlayback();
             }
 
             if (this.recordingCountdown <= 0)

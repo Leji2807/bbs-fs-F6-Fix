@@ -81,25 +81,97 @@ public class UIReplaysEditorUtils
 {
     private static final int BONE_TRACK_HUE_COUNT = 12;
 
-    public static void insertPoseKeyframesAtTick(Replay replay, float tick)
+    /**
+     * Key the pose at the tick, following what the timeline is showing: a pose track with its limbs
+     * unfolded is keyed limb by limb, a folded one is keyed as a whole pose. The per-limb tracks are
+     * where the pose actually lives once it has been split, but keying every bone of a form the user
+     * has folded away (or never split at all) buries the timeline in keyframes nobody asked for.
+     *
+     * @param expandedPoseIds ids of the pose tracks currently unfolded, from {@link UIReplaysEditor#getExpandedPoseTabIds()}.
+     */
+    public static void insertPoseKeyframesAtTick(Replay replay, float tick, Set<String> expandedPoseIds)
     {
         if (replay == null)
         {
             return;
         }
 
+        Set<String> expanded = expandedPoseIds == null ? Collections.emptySet() : expandedPoseIds;
+        Form form = replay.form.get();
+
         BaseValue.edit(replay.properties, (props) ->
         {
             for (KeyframeChannel<?> channel : props.properties.values())
             {
-                if (!PerLimbService.isPoseBoneChannel(channel.getId()))
-                {
-                    continue;
-                }
+                String id = channel.getId();
 
-                insertPoseTransformKeyframe((KeyframeChannel<PoseTransform>) channel, tick, null);
+                if (PerLimbService.isPoseBoneChannel(id))
+                {
+                    if (expanded.contains(poseTrackIdOfBoneChannel(id)))
+                    {
+                        insertPoseTransformKeyframe((KeyframeChannel<PoseTransform>) channel, tick, null);
+                    }
+                }
+                else if (isWholePoseChannel(channel) && !expanded.contains(id))
+                {
+                    insertWholePoseKeyframe(form, (KeyframeChannel<Pose>) channel, tick);
+                }
             }
         });
+    }
+
+    /** The pose track a per-limb track hangs under - the same id {@code flushForm} groups them by. */
+    private static String poseTrackIdOfBoneChannel(String id)
+    {
+        PerLimbService.PoseBonePath path = PerLimbService.parsePoseBonePath(id);
+
+        if (path == null || path.formPath().isEmpty())
+        {
+            return "pose";
+        }
+
+        return path.formPath() + FormUtils.PATH_SEPARATOR + "pose";
+    }
+
+    /** The form's own pose track, as opposed to a per-limb one or a pose overlay. */
+    private static boolean isWholePoseChannel(KeyframeChannel<?> channel)
+    {
+        String id = channel.getId();
+
+        return channel.getFactory() == KeyframeFactories.POSE
+            && (id.equals("pose") || id.endsWith(FormUtils.PATH_SEPARATOR + "pose"))
+            && !id.contains("pose_overlay");
+    }
+
+    private static void insertWholePoseKeyframe(Form form, KeyframeChannel<Pose> channel, float tick)
+    {
+        KeyframeSegment<Pose> segment = channel.find(tick);
+        Pose pose;
+
+        if (segment != null)
+        {
+            pose = segment.createInterpolated();
+        }
+        else
+        {
+            /* Nothing on the track yet, so the pose the form is standing in is the one to keep -
+             * an empty keyframe would snap every bone to the factory defaults instead. */
+            BaseValue property = form == null ? null : FormUtils.getProperty(form, channel.getId());
+            Object value = property instanceof BaseValueBasic basic ? basic.get() : null;
+
+            pose = value instanceof Pose formPose
+                ? channel.getFactory().copy(formPose)
+                : channel.getFactory().createEmpty();
+        }
+
+        int index = channel.insert(tick, pose);
+        Keyframe<Pose> keyframe = channel.get(index);
+        Keyframe<Pose> template = segment != null ? segment.a : null;
+
+        if (template != null && template != keyframe)
+        {
+            keyframe.copyOverExtra(template);
+        }
     }
 
     public static <T> Keyframe<T> ensureKeyframe(UIKeyframeSheet sheet, float tick)
@@ -254,7 +326,7 @@ public class UIReplaysEditorUtils
             KeyframeChannel channel = properties.registerChannel(boneKey, KeyframeFactories.POSE_TRANSFORM);
             ValueTransform transform = new ValueTransform(boneKey, new PoseTransform());
 
-            out.add(new UIKeyframeSheet(boneKey, IKey.constant(title), color, false, channel, transform, true).form(modelForm));
+            out.add(new UIKeyframeSheet(boneKey, IKey.constant(title), color, false, channel, transform, true).icon(Icons.LIMB).form(modelForm));
 
             if (depthBySheetId != null)
             {
@@ -291,7 +363,7 @@ public class UIReplaysEditorUtils
             String id = PerLimbService.toIKTargetKey(path, controller);
             String title = path.isEmpty() ? "ik/" + controller : path + "/ik/" + controller;
 
-            addTargetSheet(out, properties, modelForm, id, title, Colors.CYAN, null);
+            addTargetSheet(out, properties, modelForm, id, title, Colors.CYAN, Icons.IK);
         }
     }
 
@@ -325,7 +397,7 @@ public class UIReplaysEditorUtils
         KeyframeChannel channel = properties.registerChannel(id, KeyframeFactories.IK);
 
         out.add(new UIKeyframeSheet(id, IKey.constant(title), Colors.YELLOW, false, channel, null)
-            .icon(Icons.LIMB).form(modelForm).seed(() -> buildIKControls(modelForm)));
+            .icon(Icons.IK).form(modelForm).seed(() -> buildIKControls(modelForm)));
     }
 
     /** A fully populated IK-controls value seeded from the form's IK config (one entry per enabled chain), so a fresh keyframe matches what the editor shows instead of an empty container that drifts to defaults. */
@@ -383,7 +455,7 @@ public class UIReplaysEditorUtils
             String id = PerLimbService.toPoleTargetKey(path, controller);
             String title = path.isEmpty() ? "pole/" + controller : path + "/pole/" + controller;
 
-            addTargetSheet(out, properties, modelForm, id, title, Colors.ORANGE, null);
+            addTargetSheet(out, properties, modelForm, id, title, Colors.ORANGE, Icons.IK);
         }
     }
 
@@ -415,7 +487,7 @@ public class UIReplaysEditorUtils
         KeyframeChannel channel = properties.registerChannel(id, KeyframeFactories.PHYSICS);
 
         out.add(new UIKeyframeSheet(id, IKey.constant(title), Colors.GREEN, false, channel, null)
-            .icon(Icons.DROP).form(modelForm).seed(() -> buildPhysicsControls(modelForm)));
+            .icon(Icons.PHYSICS).form(modelForm).seed(() -> buildPhysicsControls(modelForm)));
     }
 
     /** A fully populated physics-controls value seeded from the form's physics config (one entry per chain root), mirroring {@link #buildIKControls}. */
@@ -536,7 +608,7 @@ public class UIReplaysEditorUtils
             String id = PerLimbService.toPhysicsTargetKey(path, rootBone);
             String title = path.isEmpty() ? "physics/" + rootBone : path + "/physics/" + rootBone;
 
-            addTargetSheet(out, properties, modelForm, id, title, Colors.MAGENTA, Icons.TIME);
+            addTargetSheet(out, properties, modelForm, id, title, Colors.MAGENTA, Icons.PHYSICS);
         }
     }
 

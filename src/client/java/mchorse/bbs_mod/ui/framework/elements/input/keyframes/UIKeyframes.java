@@ -29,6 +29,8 @@ import mchorse.bbs_mod.ui.framework.elements.input.keyframes.graphs.KeyframeType
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.graphs.UIKeyframeDopeSheet;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.graphs.UIKeyframeGraph;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.graphs.UIVector3KeyframeGraph;
+import mchorse.bbs_mod.ui.framework.elements.input.keyframes.overlays.UITrackStyleOverlayPanel;
+import mchorse.bbs_mod.ui.framework.elements.overlay.UIOverlay;
 import mchorse.bbs_mod.ui.framework.elements.utils.UIDraggable;
 import mchorse.bbs_mod.ui.utils.Area;
 import mchorse.bbs_mod.ui.utils.Scale;
@@ -138,21 +140,27 @@ public class UIKeyframes extends UIElement
             menu.custom(new UIPresetContextMenu(this.copyPasteController, mouseX, mouseY)
                 .labels(UIKeys.KEYFRAMES_CONTEXT_COPY, UIKeys.KEYFRAMES_CONTEXT_PASTE));
 
+            UIKeyframeSheet hovered = this.currentGraph.getSheet(mouseY);
+
             if (!this.single)
             {
                 if (this.isEditing())
                 {
                     menu.action(Icons.CLOSE, UIKeys.KEYFRAMES_CONTEXT_EXIT_TRACK, () -> this.editSheet(null));
                 }
-                else
+                else if (hovered != null && KeyframeFactories.isNumeric(hovered.channel.getFactory()))
                 {
-                    UIKeyframeSheet sheet = this.dopeSheet.getSheet(this.getContext().mouseY);
-
-                    if (sheet != null && KeyframeFactories.isNumeric(sheet.channel.getFactory()))
-                    {
-                        menu.action(Icons.EDIT, UIKeys.KEYFRAMES_CONTEXT_EDIT_TRACK.format(sheet.id), () -> this.editSheet(sheet));
-                    }
+                    menu.action(Icons.EDIT, UIKeys.KEYFRAMES_CONTEXT_EDIT_TRACK.format(hovered.id), () -> this.editSheet(hovered));
                 }
+            }
+
+            if (hovered != null)
+            {
+                menu.action(Icons.BUCKET, UIKeys.KEYFRAMES_CONTEXT_TRACK_STYLE, () -> UIOverlay.addOverlay(
+                    this.getContext(),
+                    new UITrackStyleOverlayPanel(hovered, this::refreshTrackStyles),
+                    220, 160
+                ));
             }
 
             menu.action(Icons.SEARCH, UIKeys.KEYFRAMES_CONTEXT_ADJUST_VALUES, () -> this.adjustValues());
@@ -210,6 +218,10 @@ public class UIKeyframes extends UIElement
 
             if (this.copyPasteController.paste(context.mouseX, context.mouseY)) UIUtils.playClick();
         }).inside().category(category).active(canModify);
+        /* .inside() is load-bearing: the action opens the presets popup AT the mouse, so it only
+         * makes sense over this timeline. Without it the bind fired anywhere and, since this
+         * subtree is walked before the parameters dock, it swallowed Ctrl+Shift+V from the
+         * transform panel, where that combo is the flipped paste (see UITransform#getVector). */
         this.keys().register(Keys.PRESETS, () ->
         {
             UIContext context = this.getContext();
@@ -219,7 +231,7 @@ public class UIKeyframes extends UIElement
                 this.copyPasteController.openPresets(context, context.mouseX, context.mouseY);
                 UIUtils.playClick();
             }
-        }).category(category).active(canModify);
+        }).inside().category(category).active(canModify);
         this.keys().register(Keys.DELETE, () -> this.currentGraph.removeSelected()).inside().category(category).active(canModify);
         this.keys().register(Keys.KEYFRAMES_SELECT_LEFT, () ->
         {
@@ -417,7 +429,16 @@ public class UIKeyframes extends UIElement
         }
         else
         {
-            this.currentGraph.getSheet(mouseY).selection.after(tick, direction);
+            UIKeyframeSheet sheet = this.currentGraph.getSheet(mouseY);
+
+            /* There is no track under the cursor when it sits below the last one, and asking that
+             * empty strip to select something used to throw. */
+            if (sheet == null)
+            {
+                return;
+            }
+
+            sheet.selection.after(tick, direction);
             this.currentGraph.pickSelected();
         }
     }
@@ -953,6 +974,19 @@ public class UIKeyframes extends UIElement
     public void addSheet(UIKeyframeSheet sheet)
     {
         this.dopeSheet.addSheet(sheet);
+    }
+
+    /**
+     * Re-read the user's track name and colour overrides into the tracks already on screen. The overrides
+     * are global, so a single track's edit can move a whole family of rows (every {@code x}, every
+     * {@code head} bone) - all of them get refreshed rather than only the one that was edited.
+     */
+    public void refreshTrackStyles()
+    {
+        for (UIKeyframeSheet sheet : this.dopeSheet.getSheets())
+        {
+            sheet.applyStyle();
+        }
     }
 
     public void addElement(UIKeyframeElement element)

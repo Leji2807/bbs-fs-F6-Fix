@@ -1,6 +1,7 @@
 package mchorse.bbs_mod.forms;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.forms.renderers.utils.RecolorVertexConsumer;
 import net.minecraft.client.gl.VertexBuffer;
 import net.minecraft.client.render.BufferBuilder;
@@ -91,8 +92,8 @@ public class CustomVertexConsumerProvider extends VertexConsumerProvider.Immedia
     {
         Vector3f origin = FormTranslucentQueue.getSortOrigin();
 
-        /* Text layers defer only inside a recorded group (labels): the group preserves the
-         * text-over-background order, and text keeps its depth writes there. */
+        /* Text layers defer only inside a recorded group (labels), where the group preserves
+         * the text-over-background order. */
         boolean textLayer = FormTranslucentQueue.isGroupOpen() && layer.getVertexFormat() == VertexFormats.POSITION_COLOR_TEXTURE_LIGHT;
 
         if (origin == null || !FormTranslucentQueue.isActive() || !(textLayer || isDeferrableTranslucent(layer)))
@@ -117,13 +118,23 @@ public class CustomVertexConsumerProvider extends VertexConsumerProvider.Immedia
 
         if (builder.isBuilding())
         {
+            /* Ending and uploading the layer's buffer here is what the immediate provider's own
+             * draw would have done — including the vertex layout Iris pins around it. */
+            boolean extended = BBSRendering.beginIrisBufferUpload(builder);
             VertexBuffer buffer = new VertexBuffer(VertexBuffer.Usage.STATIC);
 
-            buffer.bind();
-            buffer.upload(builder.end());
-            VertexBuffer.unbind();
+            try
+            {
+                buffer.bind();
+                buffer.upload(builder.end());
+                VertexBuffer.unbind();
+            }
+            finally
+            {
+                BBSRendering.endIrisBufferUpload(extended);
+            }
 
-            FormTranslucentQueue.add(new FormTranslucentQueue.RenderLayerCommand(layer, buffer, new Matrix4f(RenderSystem.getModelViewMatrix()), new Vector3f(origin), textLayer));
+            FormTranslucentQueue.add(new FormTranslucentQueue.RenderLayerCommand(layer, buffer, new Matrix4f(RenderSystem.getModelViewMatrix()), new Vector3f(origin)));
         }
 
         if (current)
