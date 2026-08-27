@@ -34,6 +34,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.Framebuffer;
 import net.minecraft.client.gl.WindowFramebuffer;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.util.Window;
@@ -76,9 +77,10 @@ public class BBSRendering
     private static int height;
 
     /* Orbit distance for the orthographic projection; negative = perspective.
-     * Re-armed every frame by the film editor's orbit camera (which is set up
-     * from Camera#update, between renderWorld's HEAD and its projection use),
-     * so it can never go stale when another controller takes over. */
+     * Cleared as the world render begins and re-armed by the film editor's
+     * orbit camera, which the same render sets up after that reset and before
+     * it builds its projection matrices, so the value can never go stale when
+     * another controller takes over. */
     private static float orthoDistance = -1F;
 
     private static boolean toggleFramebuffer;
@@ -670,6 +672,34 @@ public class BBSRendering
         }
 
         return IrisUtils.isShadowPass();
+    }
+
+    /**
+     * Hold the vertex layout Iris hands out steady while a render layer's buffer is uploaded
+     * outside of the immediate provider's own draw — the deferred translucent pass ends and
+     * uploads those buffers itself (see CustomVertexConsumerProvider#draw). Without it a form
+     * drawn where the level isn't rendering, like the form editor's viewport, gets its plain
+     * entity vertices read at Iris' extended stride and shreds into stretched triangles. Returns
+     * the previous state, to be handed back to {@link #endIrisBufferUpload(boolean)}.
+     */
+    public static boolean beginIrisBufferUpload(BufferBuilder builder)
+    {
+        if (!iris)
+        {
+            return false;
+        }
+
+        return IrisUtils.beginBufferUpload(builder);
+    }
+
+    public static void endIrisBufferUpload(boolean extended)
+    {
+        if (!iris)
+        {
+            return;
+        }
+
+        IrisUtils.endBufferUpload(extended);
     }
 
     /**

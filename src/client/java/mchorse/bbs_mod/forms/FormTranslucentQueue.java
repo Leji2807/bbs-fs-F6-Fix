@@ -2,6 +2,7 @@ package mchorse.bbs_mod.forms;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import mchorse.bbs_mod.BBSModClient;
+import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.client.BBSShaders;
 import mchorse.bbs_mod.cubic.render.vao.BOBJModelVAO;
@@ -31,8 +32,11 @@ import java.util.function.Supplier;
  * draws whose texture (or color) has semi-transparency run twice: an immediate opaque pass
  * (shader keeps only opaque texels, which write depth), and a command enqueued here. At the
  * end of the frame — after every form has drawn — {@link #flush()} replays the commands
- * sorted far-to-near with depth writes off, so translucent pixels blend over everything
- * without ever hiding it.</p>
+ * sorted far-to-near, so translucent pixels blend over everything without ever hiding it.
+ * It's the sort, not the depth mask, that keeps forms behind them visible: solid geometry
+ * keeps writing depth in the replay, so a model's own semi-transparent texels still occlude
+ * the ones behind them. Only flat forms (billboards, framebuffer screens, label parts) drop
+ * the depth write — they have no self-occlusion to preserve.</p>
  *
  * <p>Commands replay finished draw calls with matrices captured at enqueue time — they never
  * re-run animation, IK or physics.</p>
@@ -109,9 +113,9 @@ public class FormTranslucentQueue
      * Whether a draw splits into an immediate opaque pass (writes depth) + a deferred translucent
      * pass. Only when translucency is <em>intrinsic to the texture</em> and the colour is not
      * faded: the solid texels draw now and write depth, the see-through ones defer. A uniform
-     * colour fade (alpha &lt; 1) instead takes {@link #needsWholeDefer}, because splitting would
-     * push every texel of an otherwise-opaque model into the depth-less translucent pass — the
-     * model would stop writing depth entirely and lose its self-occlusion. False outside an active
+     * colour fade (alpha &lt; 1) instead takes {@link #needsWholeDefer}, because it drops every
+     * texel below the opaque threshold — the split's immediate pass would draw nothing at all,
+     * leaving a pointless empty draw call per group. False outside an active
      * queue scope (UI previews, first-person arm), during picking (the stencil needs every pixel),
      * and on shaders without the PassMode uniform (vanilla programs — the Iris path).
      */
@@ -167,7 +171,11 @@ public class FormTranslucentQueue
     {
         release();
 
-        active = true;
+        /* Switched off, the queue never opens a scope: isActive() stays false, so no draw splits or
+         * defers and add() falls through to drawing right away. That is the same single-pass path
+         * forms already take under a shaderpack — every pixel is drawn, just in entity order with
+         * depth writes, the way it was before this mechanism existed. */
+        active = BBSSettings.translucencyQueue.get();
     }
 
     /**
@@ -202,6 +210,15 @@ public class FormTranslucentQueue
             return;
         }
 
+        /* With Fabulous! graphics, vanilla's pre-translucent bookkeeping (clear() and
+         * copyDepthFrom() on its transparency framebuffers) leaves FBO 0 — the window itself —
+         * bound at our flush point, and the end-of-frame blit of the main framebuffer would
+         * overwrite everything drawn there. */
+        if (MinecraftClient.isFabulousGraphicsOrBetter())
+        {
+            MinecraftClient.getInstance().getFramebuffer().beginWrite(false);
+        }
+
         commands.sort((a, b) -> Float.compare(b.distanceSq, a.distanceSq));
 
         GameRenderer gameRenderer = MinecraftClient.getInstance().gameRenderer;
@@ -211,14 +228,14 @@ public class FormTranslucentQueue
 
         RenderSystem.enableDepthTest();
         RenderSystem.depthFunc(GL11.GL_LEQUAL);
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
 
         for (DrawCommand command : commands)
         {
-            /* Split-pass commands hold only semi-transparent texels and never write depth;
-             * whole-draw commands (the Iris path) carry the entire mesh, so they keep depth
-             * writes for correct self-occlusion — the sort already ordered them between models. */
+            resetBlend();
+
+            /* Solid geometry keeps depth writes for correct self-occlusion — the sort already
+             * ordered the commands between models. Flat single-quad forms don't write, so they
+             * can't occlude each other or anything drawn after this pass. */
             RenderSystem.depthMask(command.depthWrite);
 
             if (command.cull)
@@ -252,6 +269,19 @@ public class FormTranslucentQueue
         gameRenderer.getOverlayTexture().teardownOverlayColor();
     }
 
+    /**
+     * Blending is per-command state, not per-pass: a {@link RenderLayerCommand} ends with the
+     * layer's own endDrawing, and every vanilla translucent layer disables blending there. The
+     * command replayed next — a label's background quad right after its text, a billboard after
+     * a block — would then draw with GL_BLEND off and lose its alpha entirely. Each command
+     * (and each child inside a group) starts from the same known state instead.
+     */
+    private static void resetBlend()
+    {
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+    }
+
     /** Drop any leftover commands (e.g. a frame whose flush point never ran) and free their resources. */
     private static void release()
     {
@@ -272,6 +302,19 @@ public class FormTranslucentQueue
         sortOrigin = null;
     }
 
+    /**
+     * Camera-space normal of a quad built in a model matrix's z=0 plane: the cross product of
+     * the transformed basis vectors — exact under any affine transform (including non-uniform
+     * scale), unlike rotating (0,0,1). Unnormalized; the sort key math divides it out.
+     */
+    public static Vector3f quadPlaneNormal(Matrix4f modelView, Matrix4f modelMatrix)
+    {
+        Matrix4f full = new Matrix4f(modelView).mul(modelMatrix);
+
+        return new Vector3f(full.m00(), full.m01(), full.m02())
+            .cross(full.m10(), full.m11(), full.m12());
+    }
+
     public static abstract class DrawCommand
     {
         public final float distanceSq;
@@ -281,7 +324,36 @@ public class FormTranslucentQueue
         /** The origin must be camera-space (a captured model-view translation) — it's the sort key. */
         protected DrawCommand(Vector3f cameraSpaceOrigin, boolean cull, boolean depthWrite)
         {
-            this.distanceSq = cameraSpaceOrigin.lengthSquared();
+            this(cameraSpaceOrigin, null, cull, depthWrite);
+        }
+
+        /**
+         * A flat single-quad command sorts by the camera's distance to the quad's <em>plane</em>,
+         * not to its centre: a large backdrop's centre swings nearer or further than nearby forms
+         * as the camera orbits, flipping the paint order mid-flight, while the plane distance
+         * holds steady until the camera actually crosses the plane (and for two parallel quads
+         * it is the exact painter's order from any angle). Solid geometry passes a null normal
+         * and keeps sorting by its origin.
+         */
+        protected DrawCommand(Vector3f cameraSpaceOrigin, Vector3f cameraSpacePlaneNormal, boolean cull, boolean depthWrite)
+        {
+            float sortKey = cameraSpaceOrigin.lengthSquared();
+
+            if (cameraSpacePlaneNormal != null)
+            {
+                float normalLengthSq = cameraSpacePlaneNormal.lengthSquared();
+
+                /* Squared plane distance: (n·o)²/|n|². A degenerate normal (zero-scaled quad)
+                 * falls back to the origin distance. */
+                if (normalLengthSq > 1e-12F)
+                {
+                    float dot = cameraSpacePlaneNormal.dot(cameraSpaceOrigin);
+
+                    sortKey = dot * dot / normalLengthSq;
+                }
+            }
+
+            this.distanceSq = sortKey;
             this.cull = cull;
             this.depthWrite = depthWrite;
         }
@@ -293,9 +365,10 @@ public class FormTranslucentQueue
     }
 
     /**
-     * Replays a cubic model group's static VAO. The two-pass form draws the BBS model shader's
-     * translucent pass without depth writes; the whole-draw form (a uniform colour fade) replays
-     * the entire draw and keeps depth writes.
+     * Replays a cubic model group's static VAO — the two-pass form draws the BBS model shader's
+     * translucent pass, the whole-draw form (a uniform colour fade) the entire draw. Both keep
+     * depth writes: model geometry is solid, so its semi-transparent texels must occlude the
+     * ones behind them within the same model.
      */
     public static class ModelVAOCommand extends DrawCommand
     {
@@ -312,7 +385,7 @@ public class FormTranslucentQueue
         /** The two-pass translucent replay (BBS model shader). */
         public ModelVAOCommand(IModelVAO vao, Texture texture, Matrix4f modelView, Matrix3f normalMat, float r, float g, float b, float a, int light, int overlay, boolean cull)
         {
-            this(vao, BBSShaders::getModel, PASS_TRANSLUCENT, false, texture, modelView, normalMat, r, g, b, a, light, overlay, cull);
+            this(vao, BBSShaders::getModel, PASS_TRANSLUCENT, true, texture, modelView, normalMat, r, g, b, a, light, overlay, cull);
         }
 
         public ModelVAOCommand(IModelVAO vao, Supplier<ShaderProgram> shader, int passMode, boolean depthWrite, Texture texture, Matrix4f modelView, Matrix3f normalMat, float r, float g, float b, float a, int light, int overlay, boolean cull)
@@ -371,7 +444,7 @@ public class FormTranslucentQueue
         /** The two-pass translucent replay (BBS model shader). */
         public BOBJCommand(BOBJModelVAO vao, Matrix4f[] armatureSnapshot, int uploadCount, Texture texture, Matrix4f modelView, Matrix3f normalMat, float r, float g, float b, float a, int light, int overlay, boolean cull)
         {
-            this(vao, BBSShaders::getModel, PASS_TRANSLUCENT, false, armatureSnapshot, uploadCount, texture, modelView, normalMat, r, g, b, a, light, overlay, cull);
+            this(vao, BBSShaders::getModel, PASS_TRANSLUCENT, true, armatureSnapshot, uploadCount, texture, modelView, normalMat, r, g, b, a, light, overlay, cull);
         }
 
         public BOBJCommand(BOBJModelVAO vao, Supplier<ShaderProgram> shader, int passMode, boolean depthWrite, Matrix4f[] armatureSnapshot, int uploadCount, Texture texture, Matrix4f modelView, Matrix3f normalMat, float r, float g, float b, float a, int light, int overlay, boolean cull)
@@ -435,6 +508,8 @@ public class FormTranslucentQueue
         {
             for (DrawCommand child : this.children)
             {
+                resetBlend();
+
                 child.draw();
             }
         }
@@ -460,9 +535,14 @@ public class FormTranslucentQueue
         private final VertexBuffer buffer;
         private final Matrix4f modelView;
 
-        public RenderLayerCommand(net.minecraft.client.render.RenderLayer layer, VertexBuffer buffer, Matrix4f modelView, Vector3f cameraSpaceOrigin, boolean depthWrite)
+        public RenderLayerCommand(net.minecraft.client.render.RenderLayer layer, VertexBuffer buffer, Matrix4f modelView, Vector3f cameraSpaceOrigin)
         {
-            super(cameraSpaceOrigin, true, depthWrite);
+            /* Depth writes stay on, matching what these vanilla entity layers do when they draw
+             * themselves (ALL_MASK): a block or an item model is solid geometry — an item's
+             * extruded sprite is a stack of layers — so its faces must occlude each other, or
+             * the back ones pile over the front. Forms behind it stay visible through the
+             * far-to-near sort, not through a disabled depth mask. */
+            super(cameraSpaceOrigin, true, true);
 
             this.layer = layer;
             this.buffer = buffer;
@@ -506,15 +586,21 @@ public class FormTranslucentQueue
         private final Runnable preDraw;
         private final Runnable postDraw;
 
-        /** The split translucent replay: only the semi-transparent texels, no depth write. */
-        public VertexBufferCommand(VertexBuffer buffer, Supplier<ShaderProgram> shader, Texture texture, Matrix4f modelView, Matrix3f normalMat, Vector3f cameraSpaceOrigin, boolean cull, Runnable preDraw, Runnable postDraw)
+        /**
+         * The flat-form replay: a single quad (billboard, framebuffer screen, a label's parts)
+         * deferred without depth writes, so it never occludes what draws behind it. Solid
+         * geometry must not use this — see the explicit constructor below. The plane normal
+         * (see {@link #quadPlaneNormal}) switches the sort key to the quad-plane distance;
+         * null keeps the origin distance (a group's child, whose key is never consulted).
+         */
+        public VertexBufferCommand(VertexBuffer buffer, Supplier<ShaderProgram> shader, Texture texture, Matrix4f modelView, Matrix3f normalMat, Vector3f cameraSpaceOrigin, Vector3f cameraSpacePlaneNormal, boolean cull, Runnable preDraw, Runnable postDraw)
         {
-            this(buffer, shader, PASS_TRANSLUCENT, false, texture, modelView, normalMat, cameraSpaceOrigin, cull, preDraw, postDraw);
+            this(buffer, shader, PASS_TRANSLUCENT, false, texture, modelView, normalMat, cameraSpaceOrigin, cameraSpacePlaneNormal, cull, preDraw, postDraw);
         }
 
-        public VertexBufferCommand(VertexBuffer buffer, Supplier<ShaderProgram> shader, int passMode, boolean depthWrite, Texture texture, Matrix4f modelView, Matrix3f normalMat, Vector3f cameraSpaceOrigin, boolean cull, Runnable preDraw, Runnable postDraw)
+        public VertexBufferCommand(VertexBuffer buffer, Supplier<ShaderProgram> shader, int passMode, boolean depthWrite, Texture texture, Matrix4f modelView, Matrix3f normalMat, Vector3f cameraSpaceOrigin, Vector3f cameraSpacePlaneNormal, boolean cull, Runnable preDraw, Runnable postDraw)
         {
-            super(cameraSpaceOrigin, cull, depthWrite);
+            super(cameraSpaceOrigin, cameraSpacePlaneNormal, cull, depthWrite);
 
             this.buffer = buffer;
             this.shader = shader;

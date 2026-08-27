@@ -1,6 +1,7 @@
 package mchorse.bbs_mod.mixin;
 
 import mchorse.bbs_mod.BBSMod;
+import mchorse.bbs_mod.actions.ActionManager;
 import net.minecraft.block.BlockState;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
@@ -18,7 +19,17 @@ public class WorldMixin
     {
         if ((Object) this instanceof ServerWorld world)
         {
-            BBSMod.getActions().changedBlock(pos, world.getBlockState(pos), world.getBlockEntity(pos));
+            ActionManager actions = BBSMod.getActions();
+
+            /* Asked before the state and the block entity are looked up, not after: this runs on
+             * every block change on the server, and reading them is two chunk lookups that were
+             * being paid for even with nothing being filmed and the feature turned off. */
+            if (actions == null || !actions.isTracking())
+            {
+                return;
+            }
+
+            actions.changedBlock(pos, world.getBlockState(pos), world.getBlockEntity(pos));
         }
     }
 }

@@ -58,6 +58,8 @@ public abstract class ActionClip extends Clip
             return;
         }
 
+        this.applyRange(actor, player, film, replay, tick);
+
         int relaive = tick - this.tick.get();
         int frequency = this.frequency.get();
 
@@ -77,6 +79,16 @@ public abstract class ActionClip extends Clip
     public void applyAction(LivingEntity actor, SuperFakePlayer player, Film film, Replay replay, int tick)
     {}
 
+    /**
+     * Called for every tick the clip covers, where {@link #applyAction} happens
+     * once at its start (or on its frequency). Actions that occupy their whole
+     * range instead of happening at an instant - a chest held open - keep
+     * saying so here, so the state ends when the clip does however the film
+     * arrived at that tick.
+     */
+    public void applyRange(LivingEntity actor, SuperFakePlayer player, Film film, Replay replay, int tick)
+    {}
+
     protected void applyPositionRotation(SuperFakePlayer player, Replay replay, int tick)
     {
         ReplayKeyframes keyframes = replay.keyframes;
@@ -86,7 +98,7 @@ public abstract class ActionClip extends Clip
         player.setHeadYaw(keyframes.headYaw.interpolate(tick).floatValue());
         player.setBodyYaw(keyframes.bodyYaw.interpolate(tick).floatValue());
         player.setPitch(keyframes.pitch.interpolate(tick).floatValue());
-        player.setStackInHand(Hand.MAIN_HAND, keyframes.mainHand.interpolate(tick, ItemStack.EMPTY).copy());
+        player.setStackInHand(Hand.MAIN_HAND, keyframes.getMainHandStack(tick).copy());
         player.setStackInHand(Hand.OFF_HAND, keyframes.offHand.interpolate(tick, ItemStack.EMPTY).copy());
     }
 }
